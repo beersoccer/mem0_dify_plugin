@@ -21,6 +21,13 @@ ADD_ACCEPT_RESULT: dict[str, object] = {
     ]
 }
 
+# The maximum timeout (in seconds) for a single request, to avoid long waits or hanging connections.
+MAX_REQUEST_TIMEOUT: int = 120
+
+# Concurrency controls
+# Maximum concurrent add() operations per process to avoid exhausting DB/vector store pools
+MAX_CONCURRENT_MEM_ADDS: int = 5
+
 # Default top_k for search
 SEARCH_DEFAULT_TOP_K: int = 5
 

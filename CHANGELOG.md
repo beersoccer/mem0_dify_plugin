@@ -1,5 +1,38 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.0.7 (2025-11-08)
+
+### 🚀 Local-only, async client, graceful shutdown
+
+This release focuses on stability, local-only operation, and developer ergonomics.
+
+#### Highlights
+- Centralized constants in `utils/constants.py`:
+  - `MAX_CONCURRENT_MEM_ADDS` (default: 5)
+  - `SEARCH_DEFAULT_TOP_K` (default: 5)
+  - `MAX_REQUEST_TIMEOUT` (default: 120)
+  - Shared response shapes: `ADD_SKIP_RESULT`, `ADD_ACCEPT_RESULT`
+  - `CUSTOM_PROMPT` for memory distillation (optional)
+- Background event loop:
+  - Single process-wide loop created once and reused
+  - Tools dispatch async operations via `asyncio.run_coroutine_threadsafe(...)`
+- Graceful shutdown:
+  - `AsyncLocalClient.shutdown()` drains pending tasks briefly and stops the loop
+  - Registered via `atexit` and SIGTERM/SIGINT in `main.py`
+- Non-blocking add:
+  - `AddMem0Tool` enqueues add and returns immediately with `{"status": "queued", ...}`
+  - Skips empty/blank messages with `{"status": "skipped", "reason": "no messages", ...}`
+- Search improvements:
+  - Executes on the background loop
+  - Returns normalized JSON and a detailed text message for downstream nodes
+
+#### Removals/Cleanups
+- SaaS mode and API version parameters removed
+- Deprecated `run_async_task` and background task tracking removed
+- Input validation for empty messages centralized in tool layer
+
+---
+
 ## Version 0.0.3 (2025-10-05)
 
 ### 🎉 Major Update: Full Mem0 API v2 Support

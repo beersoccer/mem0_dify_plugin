@@ -6,11 +6,12 @@ import asyncio
 import json
 import threading
 from typing import Any
+import contextlib
 
 from mem0 import AsyncMemory, Memory
 
 from .config_builder import build_local_mem0_config
-from .constants import ADD_SKIP_RESULT, CUSTOM_PROMPT
+from .constants import ADD_SKIP_RESULT, CUSTOM_PROMPT, MAX_CONCURRENT_MEM_ADDS
 
 
 def _normalize_search_results(results: object) -> list[dict[str, Any]]:
@@ -168,10 +169,8 @@ class AsyncLocalClient:
         self.memory = None
         # Async lock to protect one-time asynchronous initialization.
         self._create_lock = asyncio.Lock()
-        # Maximum concurrent memory addition operations to avoid overloading the connection pool
-        self.MAX_CONCURRENT_MEM_ADDS = 5
-        # Semaphore to limit the concurrency of memory add operations
-        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_MEM_ADDS)
+        # Semaphore to limit the concurrency of memory operations
+        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_MEM_ADDS)
         # Toggle whether to use custom prompt
         self.use_custom_prompt = True
         self.custom_prompt = CUSTOM_PROMPT
@@ -233,6 +232,38 @@ class AsyncLocalClient:
                 msg = "Background event loop failed to start"
                 raise RuntimeError(msg)
             return loop
+
+    @classmethod
+    def shutdown(cls, timeout: float = 3.0) -> None:
+        """Best-effort graceful shutdown of the background event loop.
+
+        - Attempts to wait up to `timeout` seconds for pending tasks to finish.
+        - Stops the loop and joins the background thread (best-effort).
+        - Safe to call multiple times.
+        """
+        loop = cls._bg_loop
+        thread = cls._bg_thread
+        if loop is None:
+            return
+
+        async def _drain_tasks(t: float) -> None:
+            # Exclude the current task and wait for others (best-effort)
+            with contextlib.suppress(Exception):
+                pending = [tsk for tsk in asyncio.all_tasks() if tsk is not asyncio.current_task()]
+                if pending:
+                    await asyncio.wait(pending, timeout=t)
+
+        fut = asyncio.run_coroutine_threadsafe(_drain_tasks(timeout), loop)
+        with contextlib.suppress(Exception):
+            fut.result(timeout=timeout + 1.0)
+        with contextlib.suppress(Exception):
+            loop.call_soon_threadsafe(loop.stop)
+        if thread and thread.is_alive():
+            with contextlib.suppress(Exception):
+                thread.join(timeout=timeout)
+        # Clear references
+        cls._bg_loop = None
+        cls._bg_thread = None
 
     async def search(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         await self.create()

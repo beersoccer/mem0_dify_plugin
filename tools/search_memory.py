@@ -78,7 +78,7 @@ class SearchMem0Tool(Tool):
                         "score": r.get("score", 0.0),
                         "categories": r.get("categories", []),
                         "created_at": r.get("created_at", ""),
-                    }
+                    },
                 )
 
             yield self.create_json_message({

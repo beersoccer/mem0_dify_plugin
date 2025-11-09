@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.0.6
+# Mem0 Dify Plugin v0.0.7
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **8 tools** with a unified client for **Local** deployments. It supports Mem0 API v2 advanced filtering, metadata, and streamlined configuration for self-hosted setups.
+A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **Local-only** tools with a unified client for self-hosted setups.
 
 ![Dashboard](./_assets/dashboard.png)
 
@@ -14,7 +14,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ### Complete Memory Management (8 Tools)
 - ✅ **Add Memory** - Create memories with metadata and multi-entity support
-- ✅ **Search Memory** - Search with v2 advanced filters (AND/OR logic) and top_k limiting
+- ✅ **Search Memory** - Search with advanced filters (AND/OR logic) and top_k limiting
 - ✅ **Get All Memories** - List memories with pagination
 - ✅ **Get Memory** - Fetch specific memory details
 - ✅ **Update Memory** - Modify existing memories
@@ -25,12 +25,27 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 ### Advanced Capabilities
 - 🖥️ **Local Mode Only** - Run with Local Mem0 (JSON-based config)
 - 🧱 **Simplified Local Config** - 5 JSON blocks: LLM, Embedder, Vector DB, Graph DB (optional), Reranker (optional)
-- 🔌 **Mem0 API v2** - Advanced filters with AND/OR logic
 - 🎯 **Entity Scoping** - user_id (required for add), agent_id, run_id
 - 📊 **Metadata System** - Custom JSON metadata for rich context
-- 🔍 **Complex Filters** - AND/OR logic for precise queries
+- 🔍 **Filters** - JSON filters supported by Mem0 local mode
 - 🌍 **Internationalized** - 4 languages (en/zh/pt/ja)
-- ♻️ **Backwards-friendly** - Tools keep their YAML interfaces while routing via the unified client
+
+### What’s New (v0.0.7)
+- Centralized constants in `utils/constants.py`:
+  - `MAX_CONCURRENT_MEM_ADDS` (default: 5)
+  - `SEARCH_DEFAULT_TOP_K` (default: 5)
+  - `MAX_REQUEST_TIMEOUT` (default: 120)
+  - `ADD_SKIP_RESULT`, `ADD_ACCEPT_RESULT`, `CUSTOM_PROMPT`
+- Background event loop:
+  - A single process-wide loop is created once and reused
+  - Tools submit async coroutines via `asyncio.run_coroutine_threadsafe(...)`
+- Graceful shutdown:
+  - At exit and on SIGTERM/SIGINT, the plugin drains pending tasks briefly and stops the loop
+- Add memory is non-blocking by default:
+  - Tool enqueues the operation and returns `{"status": "queued", ...}` immediately
+  - Empty/blank messages are skipped with `{"status": "skipped", "reason": "no messages", ...}`
+- Search memory:
+  - Uses the background loop and returns normalized JSON + detailed text for downstream nodes
 
 ---
 
@@ -54,7 +69,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ### Method 2: Install from Package
 
-Download `mem0-0.0.4.difypkg` from [Releases](../../releases) and upload it manually in Dify.
+Download `mem0-0.0.7.difypkg` from [Releases](../../releases) and upload it manually in Dify.
 
 ---
 
@@ -80,9 +95,7 @@ Download `mem0-0.0.4.difypkg` from [Releases](../../releases) and upload it manu
 }
 ```
 
-### Advanced v2 Features
-
-#### Add Memory with Metadata
+### Add Memory with Metadata
 ```json
 {
   "user": "I prefer morning meetings",
@@ -93,11 +106,10 @@ Download `mem0-0.0.4.difypkg` from [Releases](../../releases) and upload it manu
 }
 ```
 
-#### Search with Advanced Filters
+### Search with Filters (local mode)
 ```json
 {
   "query": "user preferences",
-  "version": "v2",
   "filters": "{\"AND\": [{\"user_id\": \"alex\"}, {\"agent_id\": \"scheduler\"}]}"
 }
 ```
@@ -114,16 +126,16 @@ Download `mem0-0.0.4.difypkg` from [Releases](../../releases) and upload it manu
 
 ## 🛠️ Available Tools
 
-| Tool | Description | v2 Support |
-|------|-------------|-----------|
-| `add_mem0ai_memory` | Add new memories (user_id required) | ✅ |
-| `retrieve_mem0ai_memory` | Search with advanced filters and top_k | ✅ |
-| `get_all_mem0ai_memories` | List all memories | ✅ |
-| `get_mem0ai_memory` | Get specific memory | ✅ |
-| `update_mem0ai_memory` | Update memory content | ✅ |
-| `delete_mem0ai_memory` | Delete single memory | ✅ |
-| `delete_all_mem0ai_memories` | Batch delete memories | ✅ |
-| `get_mem0ai_memory_history` | View change history | ✅ |
+| Tool | Description |
+|------|-------------|
+| `add_memory` | Add new memories (user_id required) |
+| `search_memory` | Search with filters and top_k |
+| `get_all_memories` | List all memories |
+| `get_memory` | Get specific memory |
+| `update_memory` | Update memory content |
+| `delete_memory` | Delete single memory |
+| `delete_all_memories` | Batch delete memories |
+| `get_memory_history` | View change history |
 
 ---
 
@@ -164,9 +176,10 @@ add_memory("User likes Italian food", agent_id="food_agent")
 add_memory("User prefers Rome", agent_id="travel_agent")
 
 # Search across agents
-search("user preferences", 
-       version="v2",
-       filters='{"OR": [{"agent_id": "food_agent"}, {"agent_id": "travel_agent"}]}')
+search(
+    "user preferences",
+    filters='{"OR": [{"agent_id": "food_agent"}, {"agent_id": "travel_agent"}]}'
+)
 ```
 
 ---
@@ -239,6 +252,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.0.7 | 2025-11-08 | Local-only refactor, centralized constants, background event loop with graceful shutdown, non-blocking add (queued), search via background loop, normalized outputs |
 | v0.0.4 | 2025-10-29 | Dual-mode (SaaS/Local), unified client, simplified Local JSON config, search top_k, add requires user_id, HTTP→SDK refactor |
 | v0.0.3 | 2025-10-06 | Added 6 new tools, v2 API support, metadata, multi-entity |
 | v0.0.2 | 2025-02-24 | Basic add and retrieve functionality |

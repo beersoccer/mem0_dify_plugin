@@ -126,6 +126,17 @@ This plugin runs in Local mode only. Provider credentials are:
 
 Each JSON must be a map with shape: `{ "provider": <string>, "config": { ... } }`.
 
+### Runtime behavior (important)
+
+- Asynchronous execution:
+  - Tools submit async coroutines to a single process-wide background event loop.
+  - `add_memory` is non-blocking by default: it enqueues the operation and returns immediately with a queued status. Empty/blank messages are skipped.
+  - `search_memory` runs on the background loop and returns both normalized JSON and a detailed text block for downstream nodes.
+- Graceful shutdown:
+  - The plugin registers an exit hook and SIGTERM/SIGINT handlers to drain pending tasks briefly and stop the background loop.
+- Constants:
+  - Key defaults (e.g., `SEARCH_DEFAULT_TOP_K`, `MAX_CONCURRENT_MEM_ADDS`, `MAX_REQUEST_TIMEOUT`) are centralized in `utils/constants.py`.
+
 ## User Privacy Policy
 
 Please fill in the privacy policy of the plugin if you want to make it published on the Marketplace, refer to [PRIVACY.md](PRIVACY.md) for more details.

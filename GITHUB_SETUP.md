@@ -226,7 +226,7 @@ git init
 git add .
 
 # 4. 创建提交
-git commit -m "feat: Mem0 Dify Plugin v0.0.6
+git commit -m "feat: Mem0 Dify Plugin v0.0.7
 
 - 8 complete memory management tools
 - Full Mem0 API v2 support
