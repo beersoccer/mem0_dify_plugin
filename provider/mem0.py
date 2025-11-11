@@ -5,11 +5,13 @@ handles credential validation and provides an interface for Dify to interact
 with Mem0's memory capabilities in a self-hosted/local setup.
 """
 
+import asyncio
 from typing import Any
 
 from dify_plugin import ToolProvider
 from dify_plugin.errors.tool import ToolProviderCredentialValidationError
-from utils.mem0_client import LocalClient
+from utils.config_builder import is_async_mode
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 
 class Mem0Provider(ToolProvider):
@@ -21,8 +23,17 @@ class Mem0Provider(ToolProvider):
 
     def _validate_credentials(self, credentials: dict[str, Any]) -> None:
         try:
-            client = LocalClient(credentials)
-            # Local mode: sanity check by performing a no-op search
-            _ = client.search({"query": "test", "user_id": "validation_test"})
+            async_mode = is_async_mode(credentials)
+            if async_mode:
+                client = AsyncLocalClient(credentials)
+                loop = AsyncLocalClient.ensure_bg_loop()
+                # Perform a small no-op search to validate providers
+                _ = asyncio.run_coroutine_threadsafe(
+                    client.search({"query": "test", "user_id": "validation_test"}),
+                    loop,
+                ).result()
+            else:
+                client = LocalClient(credentials)
+                _ = client.search({"query": "test", "user_id": "validation_test"})
         except Exception as e:
             raise ToolProviderCredentialValidationError(str(e)) from e

@@ -1,10 +1,12 @@
 from collections.abc import Generator
+import asyncio
 from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from utils.mem0_client import LocalClient
+from utils.config_builder import is_async_mode
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 
 class GetAllMemoriesTool(Tool):
@@ -29,8 +31,14 @@ class GetAllMemoriesTool(Tool):
             return
 
         try:
-            client = LocalClient(self.runtime.credentials)
-            results = client.get_all(params)
+            async_mode = is_async_mode(self.runtime.credentials)
+            if async_mode:
+                client = AsyncLocalClient(self.runtime.credentials)
+                loop = AsyncLocalClient.ensure_bg_loop()
+                results = asyncio.run_coroutine_threadsafe(client.get_all(params), loop).result()
+            else:
+                client = LocalClient(self.runtime.credentials)
+                results = client.get_all(params)
 
             # JSON output
             memories = []

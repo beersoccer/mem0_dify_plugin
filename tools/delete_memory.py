@@ -1,17 +1,25 @@
 from collections.abc import Generator
+import asyncio
 from typing import Any
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from utils.mem0_client import LocalClient
+from utils.config_builder import is_async_mode
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 class DeleteMemoryTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
         memory_id = tool_parameters["memory_id"]
 
         try:
-            client = LocalClient(self.runtime.credentials)
-            _ = client.delete(memory_id)
+            async_mode = is_async_mode(self.runtime.credentials)
+            if async_mode:
+                client = AsyncLocalClient(self.runtime.credentials)
+                loop = AsyncLocalClient.ensure_bg_loop()
+                _ = asyncio.run_coroutine_threadsafe(client.delete(memory_id), loop).result()
+            else:
+                client = LocalClient(self.runtime.credentials)
+                _ = client.delete(memory_id)
 
             yield self.create_json_message({
                 "status": "success",

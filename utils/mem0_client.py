@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import threading
 from typing import Any
-import contextlib
 
 from mem0 import AsyncMemory, Memory
 

@@ -1,10 +1,12 @@
 from collections.abc import Generator
+import asyncio
 from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from utils.mem0_client import LocalClient
+from utils.config_builder import is_async_mode
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 class DeleteAllMemoriesTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
@@ -25,8 +27,14 @@ class DeleteAllMemoriesTool(Tool):
             return
 
         try:
-            client = LocalClient(self.runtime.credentials)
-            result = client.delete_all(params)
+            async_mode = is_async_mode(self.runtime.credentials)
+            if async_mode:
+                client = AsyncLocalClient(self.runtime.credentials)
+                loop = AsyncLocalClient.ensure_bg_loop()
+                result = asyncio.run_coroutine_threadsafe(client.delete_all(params), loop).result()
+            else:
+                client = LocalClient(self.runtime.credentials)
+                result = client.delete_all(params)
 
             yield self.create_json_message({
                 "status": "success",

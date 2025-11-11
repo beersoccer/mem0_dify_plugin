@@ -53,7 +53,7 @@ def _parse_json_block(raw: str | dict[str, Any] | None, field_name: str) -> dict
                     msg = f"{field_name} must be a JSON object"
                     raise ConfigError(msg)
                 data = candidate
-            except Exception as e:  # noqa: BLE001 - surface parse errors
+            except Exception as e:
                 msg = f"{field_name} is not valid JSON: {e}"
                 raise ConfigError(msg) from e
     if not isinstance(data, dict):
@@ -142,3 +142,21 @@ def build_local_mem0_config(credentials: dict[str, Any]) -> dict[str, Any]:
         config["graph_store"] = graph_store
 
     return config
+
+
+def is_async_mode(credentials: dict[str, Any]) -> bool:
+    """Read async_mode from credentials and coerce to boolean.
+
+    Defaults to True (异步模式). Accepts common truthy/falsey string values.
+    """
+    value = credentials.get("async_mode")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "1", "yes", "y", "on"}:
+            return True
+        if text in {"false", "0", "no", "n", "off"}:
+            return False
+    # Default: async enabled
+    return True

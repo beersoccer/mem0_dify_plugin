@@ -1,4 +1,4 @@
-mem0ai
+mem0-polardb
 openai
 azure-identity
 langchain-neo4j

@@ -1,4 +1,4 @@
-version: 0.0.7
+version: 0.0.8
 type: plugin
 author: beersoccer
 name: mem0
@@ -7,9 +7,9 @@ label:
   ja_JP: mem0
   zh_Hans: mem0
 description:
-  en_US: Dify plugin for mem0 with full API v2 support
-  ja_JP: mem0のDify プラグイン（完全なAPI v2サポート付き）
-  zh_Hans: mem0 的 Dify 插件（支持完整的 API v2 功能）
+  en_US: Local-only mem0 plugin. async_mode enabled by default; Add is non-blocking in async mode; Search always waits; in sync mode all operations block.
+  ja_JP: ローカル専用の mem0 プラグイン。async_mode は既定で有効。非同期時は Add 非ブロッキング、Search は常に待機。同期時はすべての操作が完了までブロック。
+  zh_Hans: 仅本地模式的 mem0 插件。async_mode 默认开启；异步模式下 Add 非阻塞入队，Search 始终等待；同步模式下所有操作阻塞直至完成。
 icon: mem0.png
 resource:
   memory: 667746000

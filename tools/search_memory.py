@@ -7,8 +7,9 @@ from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
+from utils.config_builder import is_async_mode
 from utils.constants import SEARCH_DEFAULT_TOP_K
-from utils.mem0_client import AsyncLocalClient
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 
 class SearchMem0Tool(Tool):
@@ -61,10 +62,15 @@ class SearchMem0Tool(Tool):
                 payload["limit"] = top_k
 
         try:
-            client = AsyncLocalClient(self.runtime.credentials)
-            # Submit to background loop and wait on future to avoid nested event loop issues
-            loop = AsyncLocalClient.ensure_bg_loop()
-            results = asyncio.run_coroutine_threadsafe(client.search(payload), loop).result()
+            async_mode = is_async_mode(self.runtime.credentials)
+            if async_mode:
+                client = AsyncLocalClient(self.runtime.credentials)
+                # Submit to background loop and wait on future to avoid nested event loop issues
+                loop = AsyncLocalClient.ensure_bg_loop()
+                results = asyncio.run_coroutine_threadsafe(client.search(payload), loop).result()
+            else:
+                client = LocalClient(self.runtime.credentials)
+                results = client.search(payload)
 
             # JSON output
             norm_results = []

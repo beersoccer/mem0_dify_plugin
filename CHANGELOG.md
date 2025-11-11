@@ -1,5 +1,12 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.0.8 (2025-11-11)
+
+- Add async_mode provider credential (default true) with clear runtime behavior
+- Tools route to LocalClient/AsyncLocalClient based on async_mode for all operations
+- Provider validation aligns with async_mode
+- Docs updated (README/INSTALL/GUIDE/manifest) to reflect async vs sync behavior
+
 ## Version 0.0.7 (2025-11-08)
 
 ### 🚀 Local-only, async client, graceful shutdown

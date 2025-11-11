@@ -6,8 +6,9 @@ from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
+from utils.config_builder import is_async_mode
 from utils.constants import ADD_ACCEPT_RESULT, ADD_SKIP_RESULT
-from utils.mem0_client import AsyncLocalClient
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 
 class AddMem0Tool(Tool):
@@ -68,18 +69,28 @@ class AddMem0Tool(Tool):
                 yield self.create_text_message("Skipped memory addition for empty messages.")
                 return
 
-            client = AsyncLocalClient(self.runtime.credentials)
-            # Submit add to background event loop without awaiting (non-blocking)
-            loop = AsyncLocalClient.ensure_bg_loop()
-            asyncio.run_coroutine_threadsafe(client.add(payload), loop)
+            async_mode = is_async_mode(self.runtime.credentials)
+            if async_mode:
+                client = AsyncLocalClient(self.runtime.credentials)
+                # Submit add to background event loop without awaiting (non-blocking)
+                loop = AsyncLocalClient.ensure_bg_loop()
+                asyncio.run_coroutine_threadsafe(client.add(payload), loop)
 
-            yield self.create_json_message({
-                "status": "queued",
-                "messages": messages,
-                **ADD_ACCEPT_RESULT,
-            })
-
-            yield self.create_text_message("Asynchronous memory addition has been queued.")
+                yield self.create_json_message({
+                    "status": "queued",
+                    "messages": messages,
+                    **ADD_ACCEPT_RESULT,
+                })
+                yield self.create_text_message("Asynchronous memory addition has been queued.")
+            else:
+                client = LocalClient(self.runtime.credentials)
+                result = client.add(payload)
+                yield self.create_json_message({
+                    "status": "ok",
+                    "messages": messages,
+                    "results": result,
+                })
+                yield self.create_text_message("Memory added synchronously.")
 
         except (ValueError, RuntimeError, TypeError) as e:
             error_message = f"Error: {e!s}"

@@ -11,7 +11,16 @@ identity:
   tags:
     - utilities
 credentials_for_provider:
-  # Local mode: simplified JSON blocks
+  async_mode:
+    type: boolean
+    required: false
+    default: true
+    label:
+      en_US: Async Mode
+      zh_Hans: 异步模式
+    help:
+      en_US: "When async mode is enabled, all Mem0 operations run asynchronously and concurrently. Search waits for results; Add does not."
+      zh_Hans: "开启异步模式后，所有Mem0的操作都异步并发执行，Search操作会等待返回结果而Add操作不会。"
   local_llm_json:
     type: text-input
     required: true

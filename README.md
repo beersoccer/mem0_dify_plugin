@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin v0.0.7
+# Mem0 Dify Plugin v0.0.8
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
@@ -29,8 +29,9 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 📊 **Metadata System** - Custom JSON metadata for rich context
 - 🔍 **Filters** - JSON filters supported by Mem0 local mode
 - 🌍 **Internationalized** - 4 languages (en/zh/pt/ja)
+ - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Add is non-blocking in async mode, Search always waits; in sync mode all operations block until completion.
 
-### What’s New (v0.0.7)
+### What’s New (v0.0.8)
 - Centralized constants in `utils/constants.py`:
   - `MAX_CONCURRENT_MEM_ADDS` (default: 5)
   - `SEARCH_DEFAULT_TOP_K` (default: 5)
@@ -69,7 +70,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ### Method 2: Install from Package
 
-Download `mem0-0.0.7.difypkg` from [Releases](../../releases) and upload it manually in Dify.
+Download `mem0-0.0.8.difypkg` from [Releases](../../releases) and upload it manually in Dify.
 
 ---
 
@@ -200,6 +201,14 @@ search(
   - `local_graph_db_json` (Neo4j)
   - `local_reranker_json`
 
+### Async Mode
+- `async_mode` (boolean, default: true)
+  - When true (default):
+    - Add: non-blocking queued submission, returns immediately
+    - Search: always waits for results (synchronous return)
+  - When false:
+    - All operations block until completion (Add/Search/Get/Update/Delete/History)
+
 Example Vector DB JSON (pgvector):
 ```json
 {
@@ -252,6 +261,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.0.8 | 2025-11-11 | async_mode credential (default true), sync/async tool routing, provider validation aligned, docs updated |
 | v0.0.7 | 2025-11-08 | Local-only refactor, centralized constants, background event loop with graceful shutdown, non-blocking add (queued), search via background loop, normalized outputs |
 | v0.0.4 | 2025-10-29 | Dual-mode (SaaS/Local), unified client, simplified Local JSON config, search top_k, add requires user_id, HTTP→SDK refactor |
 | v0.0.3 | 2025-10-06 | Added 6 new tools, v2 API support, metadata, multi-entity |

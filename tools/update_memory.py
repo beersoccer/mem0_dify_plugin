@@ -1,9 +1,11 @@
 from collections.abc import Generator
+import asyncio
 from typing import Any
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from utils.mem0_client import LocalClient
+from utils.config_builder import is_async_mode
+from utils.mem0_client import AsyncLocalClient, LocalClient
 
 class UpdateMemoryTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
@@ -11,8 +13,17 @@ class UpdateMemoryTool(Tool):
         text = tool_parameters["text"]
 
         try:
-            client = LocalClient(self.runtime.credentials)
-            result = client.update(memory_id, {"text": text})
+            async_mode = is_async_mode(self.runtime.credentials)
+            if async_mode:
+                client = AsyncLocalClient(self.runtime.credentials)
+                loop = AsyncLocalClient.ensure_bg_loop()
+                result = asyncio.run_coroutine_threadsafe(
+                    client.update(memory_id, {"text": text}),
+                    loop,
+                ).result()
+            else:
+                client = LocalClient(self.runtime.credentials)
+                result = client.update(memory_id, {"text": text})
 
             yield self.create_json_message({
                 "status": "success",

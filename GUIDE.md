@@ -137,6 +137,13 @@ Each JSON must be a map with shape: `{ "provider": <string>, "config": { ... } }
 - Constants:
   - Key defaults (e.g., `SEARCH_DEFAULT_TOP_K`, `MAX_CONCURRENT_MEM_ADDS`, `MAX_REQUEST_TIMEOUT`) are centralized in `utils/constants.py`.
 
+### Async mode switch
+- `async_mode` is a provider credential (boolean) and defaults to true.
+- When `async_mode=true`:
+  - Add is non-blocking (queued); Search waits for results.
+- When `async_mode=false`:
+  - All operations (Add/Search/Get/Update/Delete/History) block until completion.
+
 ## User Privacy Policy
 
 Please fill in the privacy policy of the plugin if you want to make it published on the Marketplace, refer to [PRIVACY.md](PRIVACY.md) for more details.
