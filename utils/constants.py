@@ -1,5 +1,15 @@
 """Project-wide constants for mem0 Dify plugin."""
 
+# Optional custom prompt for Mem0's procedural memory path.
+# Notes:
+# - `prompt` passed to `Memory.add(..., prompt=...)` is only used by Mem0's
+#   procedural memory path. For infer-based fact extraction, Mem0 uses
+#   config-level prompts instead.
+# - This constant exists for backward compatibility (CHANGELOG v0.0.7) and to
+#   avoid import errors in:
+#   - `utils/mem0_client.py`
+CUSTOM_PROMPT: str = ""
+
 # Standardized add-operation return shapes
 ADD_SKIP_RESULT: dict[str, object] = {
     "results": [
@@ -50,12 +60,13 @@ READ_OPERATION_TIMEOUT: int = 15
 WRITE_OPERATION_TIMEOUT: int = 30
 
 # Concurrency controls
-# Maximum concurrent async memory operations per process to avoid exhausting DB/vector store pools
-# Applies to all async operations: search, add, get, get_all, update, delete, delete_all, history
+# Maximum concurrent memory operations.
+# Applies to all operations including search/add/get/get_all/update/delete/delete_all/history.
 MAX_CONCURRENT_MEMORY_OPERATIONS: int = 40
 
 # Database connection pool settings for pgvector
-# These values should align with MAX_CONCURRENT_MEMORY_OPERATIONS to ensure sufficient connections
+# These values should align with MAX_CONCURRENT_MEMORY_OPERATIONS to ensure
+# sufficient connections.
 PGVECTOR_MIN_CONNECTIONS: int = 10  # Minimum number of connections in the pool
 # Maximum number of connections in the pool (should match MAX_CONCURRENT_MEMORY_OPERATIONS)
 PGVECTOR_MAX_CONNECTIONS: int = 40
@@ -68,16 +79,7 @@ SEARCH_DEFAULT_TOP_K: int = 5
 # This prevents task queue from growing indefinitely when operations are slower than request rate
 MAX_PENDING_TASKS_MULTIPLIER: int = 5
 
-# Unified custom prompt used by both LocalClient and AsyncLocalClient
-CUSTOM_PROMPT: str = """
-**[核心约束]**
-语言保持 (Language Preservation):
-  - 提取出的记忆内容必须使用用户在原始输入中使用的语言.
-  - 如果输入是中文, 记忆就是中文; 如果输入是英文, 记忆就是英文.
-
-**[输出样例]**
-* 输入: My order #12345 hasn't arrived yet.
-  输出: {"facts": ["Order #12345 not received"]}
-* 输入: 我喜欢踢足球和滑雪.
-  输出: {"facts": ["喜欢踢足球", "喜欢滑雪"]}
-"""
+# Heartbeat interval (in seconds)
+# Used to prevent TCP connection silent timeout for LLM, embedding, and vector store services
+# Default: 120 seconds (2 minutes)
+HEARTBEAT_INTERVAL: int = 120

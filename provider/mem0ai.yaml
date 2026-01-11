@@ -81,6 +81,16 @@ credentials_for_provider:
     help:
       en_US: "Optional reranker configuration for search result optimization. Use this field for new installations."
       zh_Hans: "可选的重排序模型配置用于优化搜索结果。新安装请使用此字段。"
+  heartbeat_interval:
+    type: text-input
+    required: false
+    default: "120"
+    label:
+      en_US: Heartbeat Interval
+      zh_Hans: 心跳间隔
+    help:
+      en_US: "Heartbeat interval in seconds to prevent TCP connection silent timeout for LLM, embedding, and vector store services (default: 120). Must be a positive integer >= 30. If invalid, default value will be used."
+      zh_Hans: "心跳间隔（秒），用于防止 LLM、向量模型和向量数据库的 TCP 连接静默超时（默认值：120）。必须为正整数且 >= 30。如果无效，将使用默认值。"
   max_concurrent_memory_operations:
     type: text-input
     required: false
@@ -89,28 +99,8 @@ credentials_for_provider:
       en_US: Max Concurrent Memory Operations
       zh_Hans: 最大并发记忆操作数
     help:
-      en_US: "Maximum number of concurrent async Mem0 operations per process (search/add/get/get_all/update/delete/delete_all/history). For production environments, it is recommended to set this value greater than 20. If not configured, the default value 40 is used."
-      zh_Hans: "每个进程允许的 Mem0 异步记忆操作最大并发数（包含 search/add/get/get_all/update/delete/delete_all/history 等所有操作）。生产环境建议大于 20；如果未配置，则使用默认值 40。"
-  pgvector_min_connections:
-    type: text-input
-    required: false
-    default: "10"
-    label:
-      en_US: PGVector Min Connections
-      zh_Hans: PGVector 最小连接数
-    help:
-      en_US: "Minimum number of connections in the PGVector connection pool. If not configured, the default value 10 is used."
-      zh_Hans: "PGVector 连接池中的最小连接数。如果未配置，则使用默认值 10。"
-  pgvector_max_connections:
-    type: text-input
-    required: false
-    default: "40"
-    label:
-      en_US: PGVector Max Connections
-      zh_Hans: PGVector 最大连接数
-    help:
-      en_US: "Maximum number of connections in the PGVector connection pool. It is recommended to keep this value consistent with max_concurrent_memory_operations in production environments. If not configured, the default value 40 is used."
-      zh_Hans: "PGVector 连接池中的最大连接数。生产环境中建议与 max_concurrent_memory_operations 保持一致。如果未配置，则使用默认值 40。"
+      en_US: "Maximum concurrent memory operations (default: 40). Must be a positive integer (>= 1). Applies to all operations including search/add/get/get_all/update/delete/delete_all/history."
+      zh_Hans: "记忆操作的最大并发数（默认值：40）。必须为正整数（>= 1），涵盖所有操作包括 search/add/get/get_all/update/delete/delete_all/history。"
   log_level:
     type: select
     required: false
@@ -148,6 +138,7 @@ tools:
   - tools/delete_memory.yaml
   - tools/delete_all_memories.yaml
   - tools/get_memory_history.yaml
+  # - tools/consolidate_long_term_memory.yaml  # Hidden: tool not yet complete
 extra:
   python:
     source: provider/mem0ai.py

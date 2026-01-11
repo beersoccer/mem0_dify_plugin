@@ -124,7 +124,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+.env*
 .venv
 env/
 venv/
@@ -176,3 +176,14 @@ Thumbs.db
 # Log files
 logs/
 *.log
+
+# Cursor IDE
+.cursorignore
+.cursor/
+.cursorrules
+
+# Development files (not needed in plugin package)
+requirements-dev.txt
+tests/
+.github/workflows/
+.ruff_cache/

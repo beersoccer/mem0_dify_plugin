@@ -1,7 +1,7 @@
-mem0ai
+mem0ai>1.0.0
 openai
 azure-identity
 langchain-neo4j
 rank-bm25
-psycopg2-binary
+psycopg[binary,pool]  # psycopg3 with connection pool support
 dify_plugin

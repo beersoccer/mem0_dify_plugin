@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -32,20 +34,19 @@ def parse_timeout(
 
     try:
         # Convert to float first to support decimal input, then round to int
-        float_value = float(value)
-        # Round to nearest integer
-        int_value = round(float_value)
-        # Ensure non-negative
-        if int_value < 0:
+        int_value = round(float(value))
+        # Ensure positive integer (> 0)
+        if int_value <= 0:
             if logger:
                 logger.warning(
-                    "Invalid timeout value for %s: %s (negative), using default: %s",
+                    "Invalid timeout value for %s: %s (must be > 0), using default: %s",
                     context,
                     value,
                     default,
                 )
             return default
-        return int_value
+        # Return valid positive integer
+        return max(1, int_value)
     except (TypeError, ValueError):
         if logger:
             logger.warning(
@@ -120,3 +121,125 @@ def format_recent_timestamp(created_at: object, updated_at: object) -> str:
     latest = max(candidates, key=lambda dt: dt.timestamp())
     return latest.astimezone().strftime("%Y-%m-%dT%H:%M:%S")
 
+
+def parse_positive_int(
+    value: object,
+    default: int,
+    min_value: int = 1,
+    logger: Logger | None = None,
+    config_name: str = "config",
+) -> int:
+    """Parse a positive integer config value with validation and warning logging.
+
+    Args:
+        value: Raw config value (may be None, empty string, or any type).
+        default: Default value to use if value is invalid.
+        min_value: Minimum allowed value (inclusive). Defaults to 1.
+        logger: Optional logger for warning messages.
+        config_name: Name of the config for logging purposes.
+
+    Returns:
+        int: Valid integer value >= min_value.
+
+    """
+    if value in (None, ""):
+        if logger:
+            logger.warning(
+                "%s not set or empty, using default value: %d",
+                config_name,
+                default,
+            )
+        return max(min_value, default)
+
+    try:
+        int_value = int(value)
+    except (TypeError, ValueError):
+        if logger:
+            logger.warning(
+                "%s=%s cannot be converted to an integer, using default value: %d",
+                config_name,
+                value,
+                default,
+            )
+        return max(min_value, default)
+    else:
+        if int_value < min_value:
+            if logger:
+                logger.warning(
+                    "%s=%s is less than minimum value %d, using default value: %d",
+                    config_name,
+                    value,
+                    min_value,
+                    default,
+                )
+            return max(min_value, default)
+        return int_value
+
+
+def strip_code_fences(text: str) -> str:
+    """Strip markdown code fences (```json ... ```) from text.
+
+    This is useful for parsing JSON or code blocks that users may paste
+    with markdown formatting.
+
+    Args:
+        text: Text that may contain code fences.
+
+    Returns:
+        Text with code fences removed.
+
+    """
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()
+    # Drop first fence line and possible trailing fence
+    if lines:
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def log_thread_info(
+    logger: Logger,
+    request_id: str,
+    action: str,
+    start_time: float | None = None,
+) -> None:
+    """Log thread information for debugging concurrent calls.
+
+    This function is used to verify whether Dify Plugin SDK supports multi-threaded
+    concurrent tool invocations. By recording thread ID and thread name, we can
+    determine whether multiple concurrent requests are executed simultaneously using
+    different threads, or sequentially using the same thread.
+
+    Args:
+        logger: Logger instance for outputting logs.
+        request_id: Request ID for tracking.
+        action: Action description, such as "STARTED" or "COMPLETED".
+        start_time: Optional start timestamp. If provided, calculates and logs duration.
+
+    """
+    thread_id = threading.current_thread().ident
+    thread_name = threading.current_thread().name
+    timestamp = time.time()
+
+    if start_time is not None:
+        duration = timestamp - start_time
+        logger.debug(
+            "[req:%s] [THREAD] %s - thread_id=%s, thread_name=%s, duration=%.6f",
+            request_id,
+            action,
+            thread_id,
+            thread_name,
+            duration,
+        )
+    else:
+        logger.debug(
+            "[req:%s] [THREAD] %s - thread_id=%s, thread_name=%s, timestamp=%.6f",
+            request_id,
+            action,
+            thread_id,
+            thread_name,
+            timestamp,
+        )

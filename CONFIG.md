@@ -45,6 +45,9 @@ After installation, you should see the `mem0ai` plugin in your plugins list. The
 - `add_memory`, `search_memory`, `get_all_memories`, `get_memory`
 - `update_memory`, `delete_memory`, `delete_all_memories`, `get_memory_history`
 
+This plugin also provides a long-term memory consolidation tool:
+- `consolidate_long_term_memory`
+
 ## Configuration Steps
 
 ### Step 1: Choose Operation Mode
@@ -107,18 +110,20 @@ You can configure the following performance parameters in plugin settings to opt
 
 **Performance Parameters:**
 - `max_concurrent_memory_operations` - Maximum concurrent memory operations (default: 40)
-  - Controls the maximum number of concurrent async Mem0 operations per process
-  - Applies to all operations: search/add/get/get_all/update/delete/delete_all/history
-  - **Production recommendation**: Set to a value greater than 20
-- `pgvector_min_connections` - PGVector minimum connections (default: 10)
-  - Sets the minimum number of connections in the PGVector connection pool
-- `pgvector_max_connections` - PGVector maximum connections (default: 40)
-  - Sets the maximum number of connections in the PGVector connection pool
-  - **Production recommendation**: Keep this value consistent with `max_concurrent_memory_operations`
+  - Applies to all operations including search/add/get/get_all/update/delete/delete_all/history
+  - Must be a positive integer (>= 1)
+  - Invalid values (<= 0 or cannot be converted to integer) will use default value 40 with warning logs
+
+**Concurrency Configuration Logic:**
+- **`max_concurrent_memory_operations` configured**: Uses the configured value directly
+- **Not configured**: Uses default value (40)
+- **Invalid values** (cannot be converted to positive integers): Uses default values and logs a warning
+- **Unset or empty values**: Uses default values and logs a warning
 
 **Notes:**
 - If performance parameters are not configured, default values will be used
-- Performance parameters only apply when using PGVector as the vector database
+- PGVector connection pool settings (`min_connections`, `max_connections`) should be configured in the vector store JSON config (see Vector Store Configuration section below)
+- Invalid or unset values trigger warning logs for better observability
 
 ## Configuration Examples
 
@@ -225,7 +230,11 @@ You can configure the following performance parameters in plugin settings to opt
 
 ### Vector Store Configuration (`local_vector_db_json_secret`)
 
-**Option 1: Using Individual Parameters (Recommended for beginners)**
+> **📚 Important**: For production environments, we strongly recommend using one of the two recommended configuration methods below to prevent TCP connection silent timeouts and connection pool memory leaks. See [Connection Stability & Resource Management](#connection-stability--resource-management) section for details.
+
+**Recommended Configuration Method 1: Using Individual Parameters with TCP Keepalive (Recommended for beginners)**
+
+The plugin automatically adds TCP keepalive parameters to prevent connection silent timeouts:
 
 ```json
 {
@@ -236,47 +245,96 @@ You can configure the following performance parameters in plugin settings to opt
     "password": "your-password",
     "host": "localhost",
     "port": "5432",
-    "sslmode": "disable"
+    "sslmode": "disable",
+    "minconn": 10,
+    "maxconn": 40
   }
 }
 ```
 
-**Note**: The plugin will automatically build a `connection_string` from these parameters. Connection pool settings (`minconn`/`maxconn`) will be automatically set based on your performance parameters or defaults.
+**Note**: 
+- Replace `mem0_vectors`, `postgres`, `your-password`, `localhost`, `5432` with your actual database credentials
+- The plugin will automatically build a `connection_string` from these parameters
+- TCP keepalive parameters (`keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5`) are automatically added to the connection string
+- Connection pool settings (`minconn`, `maxconn`) can be specified in the config
+- If not specified, defaults to 10 (min) and 40 (max)
 
-**Option 2: Using Connection String (Advanced)**
+**Recommended Configuration Method 2: Using Connection String with TCP Keepalive (Recommended for production)**
 
-If you already have a PostgreSQL connection string, you can use it directly:
+If you already have a PostgreSQL connection string, you can use it directly with TCP keepalive parameters:
 
 ```json
 {
   "provider": "pgvector",
   "config": {
-    "connection_string": "postgresql://postgres:your-password@localhost:5432/mem0_vectors?sslmode=disable",
-    "collection_name": "mem0"
+    "connection_string": "postgresql://postgres:your-password@localhost:5432/mem0_vectors?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
+    "minconn": 10,
+    "maxconn": 40
   }
 }
 ```
 
-**Example format:**
+**Note**: 
+- Replace `postgres`, `your-password`, `localhost`, `5432`, `mem0_vectors` with your actual database credentials
+- TCP keepalive parameters are included in the connection string to prevent silent timeouts
+- If TCP keepalive parameters are not present in the connection string, the plugin will automatically add them
+- The plugin automatically creates a psycopg3 ConnectionPool with best practice defaults
+- Individual parameters (user, password, host, etc.) are ignored when `connection_string` is provided
+
+**Option 3: Using Connection String with psycopg3 Connection Pool (Recommended for Production)**
+
+The plugin automatically creates a psycopg3 ConnectionPool when `connection_string` is provided. You can configure pool parameters to optimize connection management and prevent connection pool exhaustion:
+
 ```json
 {
   "provider": "pgvector",
   "config": {
-    "connection_string": "postgresql://your-user:your-password@your-host:5432/your-dbname?sslmode=require",
-    "collection_name": "mem0"
+    "connection_string": "postgresql://postgres:your-password@localhost:5432/mem0_vectors?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
+    "collection_name": "mem0",
+    "embedding_model_dims": 1536,
+    "min_connections": 10,
+    "max_connections": 40,
+    "pool_min_size": 10,
+    "pool_max_size": 40,
+    "pool_max_lifetime": 3600,
+    "pool_max_idle": 600,
+    "pool_timeout": 30,
+    "pool_reconnect_timeout": 300,
+    "pool_max_waiting": 0,
+    "pool_open": true
   }
 }
 ```
 
-**Note**: When using `connection_string`, individual parameters (user, password, host, etc.) are ignored. Connection pool settings are still automatically applied.
+**Connection Pool Parameters (Optional, with best practice defaults):**
+- `min_connections` (int, default: 10): Default minimum connections (used when `pool_min_size` not provided)
+- `max_connections` (int, default: 40): Default maximum connections (used when `pool_max_size` not provided)
+- `pool_min_size` (int, default: uses `min_connections` or 10): Minimum number of connections in the pool
+- `pool_max_size` (int, default: uses `max_connections` or 40): Maximum number of connections in the pool
+- `pool_max_lifetime` (float, default: 3600.0): Connection maximum lifetime in seconds (1 hour)
+- `pool_max_idle` (float, default: 600.0): Connection maximum idle time in seconds (10 minutes)
+- `pool_timeout` (float, default: 30.0): Timeout in seconds to get a connection from the pool
+- `pool_reconnect_timeout` (float, default: 300.0): Reconnection timeout in seconds (5 minutes)
+- `pool_max_waiting` (int, default: 0): Maximum number of requests waiting for a connection (0 = unlimited)
+- `pool_open` (bool, default: true): Whether to open the pool immediately
+- `pool_check` (callable/None, default: ConnectionPool.check_connection): Connection health check callback
 
-**Option 3: Using Connection Pool (Most Advanced)**
+**Note**: 
+- The plugin automatically creates a psycopg3 ConnectionPool when `connection_string` is provided
+- TCP keepalive parameters are automatically added to connection strings if not present (when using individual parameters)
+- If `psycopg[pool]` is not installed, the plugin falls back to using `connection_string` only
+- Connection pool parameters are only used when creating a psycopg3 ConnectionPool
+- Parameter priority: `connection_pool` > `connection_string` > individual parameters
 
-If you have a pre-configured psycopg2 connection pool, you can pass it directly. This requires custom Python code and is not recommended for Dify plugin usage.
+**Option 4: Using Pre-configured Connection Pool (Most Advanced)**
+
+If you have a pre-configured psycopg3 ConnectionPool object, you can pass it directly. This requires custom Python code and is not recommended for Dify plugin usage.
 
 **Important Notes:**
 - If using individual parameters, `user` is required
-- The plugin automatically sets `minconn` and `maxconn` based on your `pgvector_min_connections` and `pgvector_max_connections` settings (or defaults: 10 and 40)
+- Connection pool defaults (`min_connections`, `max_connections`) should be specified in the vector store config JSON
+- The plugin automatically sets `minconn` and `maxconn` based on `min_connections`/`max_connections` in config (or defaults: 10 and 40)
+- **Production recommendation**: Set `max_connections` to match `max_concurrent_memory_operations` for optimal performance
 - Parameter priority: `connection_pool` > `connection_string` > individual parameters
 - If you provide both `connection_string` and individual parameters, `connection_string` takes precedence
 
@@ -446,6 +504,67 @@ All read operations (Search/Get/Get_All/History) support user-configurable timeo
 
 **Note**: Sync mode has no timeout protection (blocking calls). If timeout protection is needed, use `async_mode=true`
 
+## Connection Stability & Resource Management
+
+### TCP Connection Silent Timeout Prevention
+
+**Problem**: In long-running processes, TCP connections to LLM services, embedding services, and vector databases (especially pgvector) can be silently closed by network infrastructure (firewalls, load balancers, NAT devices) due to inactivity. This causes connection failures and service interruptions.
+
+**Solution**: The plugin implements a comprehensive connection keep-alive mechanism:
+
+1. **Automatic Connection Keep-Alive**:
+   - `ConnectionKeepAlive` class periodically sends lightweight heartbeat requests to all underlying services (LLM, embedding, vector store)
+   - Default heartbeat interval: 120 seconds (configurable via `heartbeat_interval` credential, minimum: 30 seconds)
+   - Heartbeat requests are non-blocking and run in a separate daemon thread
+   - Heartbeat failures are logged but do not interrupt service (non-critical)
+
+2. **PGVector TCP Keepalive Parameters**:
+   - The plugin automatically adds TCP keepalive parameters to PostgreSQL connection strings if not present:
+     - `keepalives=1`: Enable TCP keepalive
+     - `keepalives_idle=30`: Start keepalive after 30 seconds of inactivity
+     - `keepalives_interval=10`: Send keepalive probes every 10 seconds
+     - `keepalives_count=3`: Maximum number of keepalive probes before considering connection dead
+     - `connect_timeout=5`: Connection timeout in seconds
+   - These parameters prevent TCP connections from being silently closed by network infrastructure
+   - Applied to both `connection_string` and individual parameter configurations
+
+**Configuration**: 
+- Connection keep-alive is automatically enabled (no configuration required)
+- To adjust heartbeat interval, set `heartbeat_interval` in plugin credentials (default: 120 seconds, minimum: 30 seconds)
+
+### Connection Pool Memory Leak Prevention
+
+**Problem**: In long-running processes, connection pools (especially pgvector ConnectionPool) can accumulate connections that are never properly closed, leading to memory leaks and connection pool exhaustion.
+
+**Solution**: The plugin implements explicit resource cleanup:
+
+1. **Automatic Resource Cleanup**:
+   - `AsyncMem0Client.aclose()` method explicitly closes all critical resources (connection pools, database connections, graph store connections)
+   - Automatic cleanup of old client instances when configuration changes
+   - Resource cleanup runs asynchronously to avoid blocking operations
+
+2. **Connection Pool Lifecycle Management**:
+   - Connection pools are properly closed when client instances are replaced
+   - Old connection pools are explicitly closed before creating new ones
+   - Prevents connection pool exhaustion in high-concurrency scenarios
+
+**Configuration**: 
+- Resource cleanup is automatically handled (no manual intervention required)
+- Connection pools are automatically managed throughout the plugin lifecycle
+
+### Recommended PGVector Configuration
+
+For production environments, we strongly recommend using one of the two configuration methods described in the [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret) section:
+
+1. **Method 1 (Individual Parameters)**: Automatically adds TCP keepalive parameters
+2. **Method 2 (Connection String)**: Includes TCP keepalive parameters in connection string
+
+Both methods ensure:
+- TCP connections remain alive during idle periods
+- Connection pools are properly managed
+- Memory leaks are prevented
+- System stability in long-running processes
+
 ## Important Operational Notes
 
 ### Delete All Memories Operation
@@ -457,17 +576,32 @@ All read operations (Search/Get/Get_All/History) support user-configurable timeo
 See the [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret) section above for detailed configuration options. Key points:
 
 - **Connection Pool**: Automatically configured with min=10, max=40 connections (configurable via performance parameters)
+- **TCP Keepalive**: Automatically added to prevent connection silent timeouts
 - **Parameter Priority**: `connection_pool` > `connection_string` > individual parameters
 - **Automatic Processing**: The plugin automatically builds `connection_string` from individual parameters and sets connection pool settings
 
 ## Upgrade Guide
 
-> 📖 **For complete upgrade instructions, including upgrading from v0.1.3 and installation time optimization details, see [README.md - Upgrade Guide](README.md#-upgrade-guide)**
+> 📖 **For complete upgrade instructions, see [README.md - Upgrade Guide](README.md#-upgrade-guide)**
 
-**Quick Summary:**
-- **Upgrading to v0.1.8**: Deprecated `*_json` configuration fields are removed from UI. If you encounter configuration issues, delete old credentials and reconfigure using `*_secret` fields. New features include dynamic log level configuration and request tracing with `run_id`.
-- **Upgrading from v0.1.3**: Always upgrade to v0.1.7+ for seamless compatibility (no action required). Avoid upgrading directly to v0.1.6 from v0.1.3.
-- **Installation Time**: v0.1.7+ restores fast installation (~22 seconds) by removing `transformers` and `torch` dependencies. Local reranker users must manually install these dependencies.
+### ⚠️ CRITICAL: Configuration Incompatibility
+
+**🔴 IMPORTANT**: The plugin has undergone **breaking changes** in credentials configuration. You **MUST** delete old credentials before upgrading.
+
+**Key Changes:**
+- **Field Type & Names**: Changed from `*_json` (text-input) to `*_secret` (secret-input) fields
+- **Removed Fields**: `pgvector_min_connections` and `pgvector_max_connections` credential fields removed (v0.1.9+)
+  - **Migration**: Configure connection pool size in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret))
+
+**Required Steps:**
+1. **Backup** your configuration values
+2. **Delete** old credentials in Dify UI (`Settings` → `Plugins` → `mem0ai` → `Delete Credentials`)
+3. **Upgrade** the plugin
+4. **Reconfigure** using new `*_secret` fields and migrate pgvector connection pool settings to JSON config
+
+**⚠️ If you skip deleting credentials**: Plugin will fail to start or show "Internal Server Error".
+
+For detailed upgrade instructions and field mapping, see [README.md - Upgrade Guide](README.md#-upgrade-guide).
 
 ## Troubleshooting
 
@@ -530,9 +664,10 @@ See the [Vector Store Configuration](#vector-store-configuration-local_vector_db
 
 **Problem**: Slow operations
 - **Solution**:
-  - Increase `max_concurrent_memory_operations` for higher concurrency
-  - Adjust `pgvector_max_connections` to match concurrent operations
+  - Increase `max_concurrent_memory_operations` as needed
+  - For pgvector: Set `max_connections` in vector store config JSON to match `max_concurrent_memory_operations`
   - Check database performance and connection pool settings
+  - See [Performance Parameters](#step-3-configure-performance-parameters-optional-recommended-for-production) and [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret) for configuration details
 
 **Problem**: CPU usage at 99% or "Background task queue overloaded" warnings
 - **Cause**: Write operations (add/update/delete) are accumulating faster than they can complete
@@ -541,6 +676,14 @@ See the [Vector Store Configuration](#vector-store-configuration-local_vector_db
   - Reduce request frequency or increase `max_concurrent_memory_operations`
   - Consider using faster models (cloud APIs instead of self-hosted models)
   - Monitor for "rejecting new memory operation" messages indicating system overload
+
+**Problem**: Warning logs about invalid concurrency configuration values
+- **Cause**: Invalid or unset concurrency parameter values (cannot be converted to positive integers)
+- **Solution**:
+  - Check logs for specific warning messages indicating which parameter has an invalid value
+  - Ensure concurrency parameters are positive integers (minimum: 1, default: 40)
+  - Configure `max_concurrent_memory_operations` to control concurrency for all operations
+  - See [Performance Parameters](#step-3-configure-performance-parameters-optional-recommended-for-production) for detailed configuration logic
 
 **Problem**: Upgrade from v0.1.3 causes Internal Server Error
 - **Solution**: See [Upgrade Guide](#upgrade-guide) for detailed instructions. In summary: Always upgrade to v0.1.7+ for seamless compatibility (no action required).
@@ -581,6 +724,43 @@ This section provides complete usage examples for all 8 tools. For a quick overv
   "query": "user preferences",
   "user_id": "alex",
   "filters": "{\"AND\": [{\"user_id\": \"alex\"}, {\"agent_id\": \"scheduler\"}]}",
+  "top_k": 5
+}
+```
+
+### Consolidate Long Term Memory (Dify History → Mem0)
+
+This tool scans Dify conversation history for specified users up to `run_at`, extracts three subtypes
+of long-term memories, and writes them to Mem0:
+- `semantic`: stable preferences / enduring facts / long-term goals
+- `episodic`: notable events/outcomes that may be referenced later
+- `procedural`: reusable workflows/steps/rules
+
+Example payload:
+
+```json
+{
+  "run_at": "2025-12-23T00:00:00Z",
+  "user_ids": "[\"alex\",\"bob\"]",
+  "app_id": "your_dify_app_id",
+  "max_users_per_run": 100,
+  "budget_tokens": 200000,
+  "dify_base_url": "http://localhost:5001",
+  "dify_api_key": "your-dify-api-key"
+}
+```
+
+Important notes:
+- The tool uses Mem0 **checkpoint** memories stored in Mem0 itself for idempotency and resume.
+  These checkpoint items are marked as internal via `metadata.__internal=true` and are not intended
+  for user-facing retrieval.
+- If you use `search_memory` and want to exclude internal checkpoint items, add a NOT filter:
+
+```json
+{
+  "query": "alex preferences",
+  "user_id": "alex",
+  "filters": "{\"NOT\":[{\"__internal\":{\"eq\":true}}]}",
   "top_k": 5
 }
 ```

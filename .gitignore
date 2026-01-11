@@ -24,7 +24,7 @@ MANIFEST
 *.difypkg
 
 # Environments
-.env
+.env*
 .venv
 env/
 venv/
@@ -38,6 +38,11 @@ venv.bak/
 *.swp
 *.swo
 *~
+
+# Cursor IDE
+.cursorignore
+.cursor/
+.cursorrules
 
 # macOS
 .DS_Store
@@ -56,12 +61,9 @@ temp_package/
 mem0-api-docs/
 *.pyc
 
-# Scripts and utilities (optional - uncomment if you don't want to include)
-# download_*.py
-# fetch_*.py
-# clean_*.py
-# process_*.py
-# build_package.sh
+# Testing and linting cache
+.pytest_cache/
+.ruff_cache/
 
 # Local development files
 .verification.dify.json

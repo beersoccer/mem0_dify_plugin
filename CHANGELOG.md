@@ -1,5 +1,84 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.1.9 (2025-12-26)
+
+### 🔧 Connection Stability & Resource Management Optimization
+
+This release focuses on resolving critical production issues related to TCP connection silent timeouts and connection pool memory leaks, significantly improving system stability and resource management in long-running processes.
+
+#### Highlights
+- **TCP Connection Silent Timeout Resolution**: Implemented comprehensive connection keep-alive mechanism
+  - Added `ConnectionKeepAlive` class to periodically send heartbeat requests to LLM, embedding, and vector store services
+  - Prevents TCP connections from being silently closed by network infrastructure (firewalls, load balancers, etc.)
+  - Configurable heartbeat interval (default: 120 seconds, minimum: 30 seconds)
+  - Automatic keep-alive for all underlying services (LLM, embedding, vector store)
+- **Connection Pool Memory Leak Prevention**: Implemented explicit resource cleanup for async clients
+  - Added `resource_cleanup.py` module with dedicated cleanup functions for vector store, graph store, and database connections
+  - `AsyncMem0Client` now includes `aclose()` method for explicit resource cleanup
+  - Automatic cleanup of old client instances when configuration changes
+  - Prevents connection pool exhaustion and memory leaks in long-running processes
+- **PGVector Connection Pool Configuration Enhancement**: Improved connection pool management with TCP keepalive support
+  - Automatic addition of TCP keepalive parameters to connection strings if not present
+  - Support for two recommended configuration methods (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for details)
+  - Automatic creation of psycopg3 ConnectionPool with best practice defaults
+  - Connection pool parameters properly configured to prevent connection exhaustion
+
+#### 🔧 Technical Details
+- **Connection Keep-Alive Implementation**:
+  - `ConnectionKeepAlive` class in `utils/connection_keepalive.py`
+  - Runs in a separate daemon thread to avoid blocking main operations
+  - Sends lightweight heartbeat requests to LLM (`generate_response()`), embedding (`embed()`), and vector store (`list_cols()`)
+  - Heartbeat failures are logged but do not interrupt service (non-critical)
+  - Automatically started when `SyncMem0Client` or `AsyncMem0Client` is initialized
+  - Configurable via `heartbeat_interval` credential (default: 120 seconds)
+- **Resource Cleanup Implementation**:
+  - `close_memory_resources()` function in `utils/resource_cleanup.py`
+  - Explicitly closes vector store connection pools (`pool.close()` or `pool.closeall()`)
+  - Closes graph store connections (Neo4j driver, etc.)
+  - Closes database connections (SQLite, etc.)
+  - Called automatically when `AsyncMem0Client.aclose()` is invoked
+  - Called automatically when client configuration changes (old instance cleanup)
+- **PGVector TCP Keepalive Parameters**:
+  - Automatically added to connection strings: `keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5`
+  - Applied to both `connection_string` and individual parameter configurations
+  - Prevents TCP connections from being silently closed by network infrastructure
+  - Parameters are only added if not already present in connection string
+- **Connection Pool Management**:
+  - Automatic creation of psycopg3 ConnectionPool when `connection_string` is provided
+  - Falls back to psycopg2 ThreadedConnectionPool if psycopg3 is unavailable
+  - Connection pool parameters properly extracted and configured
+  - Pool lifecycle managed to prevent resource leaks
+
+#### 📝 Files Changed
+- **New Files**:
+  - `utils/connection_keepalive.py` - Connection keep-alive manager for preventing TCP silent timeouts
+  - `utils/resource_cleanup.py` - Resource cleanup utilities for preventing memory leaks
+- **Modified Files**:
+  - `utils/mem0_client.py` - Added ConnectionKeepAlive initialization, added `aclose()` method, added cleanup on config change
+  - `utils/pgvector_config.py` - Enhanced to automatically add TCP keepalive parameters, improved connection pool creation
+  - `utils/config_builder.py` - Updated to support heartbeat_interval configuration
+
+#### ⚠️ Migration Notes
+- **No Breaking Changes**: All changes are backward compatible
+- **Removed Configuration Fields**: `pgvector_min_connections` and `pgvector_max_connections` credential fields removed
+  - **Migration**: Configure connection pool size in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
+  - If you have these fields in old credentials, delete credentials and reconfigure
+- **Automatic Features**: Connection keep-alive and TCP keepalive parameters are automatically enabled
+- **Configuration Optional**: `heartbeat_interval` can be configured in credentials (default: 120 seconds)
+- **Resource Cleanup**: Explicit cleanup is handled automatically; no manual intervention required
+
+#### 🐛 Bug Fixes
+- Fixed TCP connection silent timeout issues causing connection failures in long-running processes
+- Fixed connection pool memory leaks when client configuration changes
+- Fixed connection pool exhaustion in high-concurrency scenarios
+
+#### 🎯 Performance Recommendations
+1. **Connection Keep-Alive**: Default heartbeat interval (120 seconds) is suitable for most environments. Adjust if needed based on network infrastructure timeout settings.
+2. **PGVector Configuration**: Use recommended configuration methods (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret)) with TCP keepalive parameters for optimal connection stability.
+3. **Resource Management**: Connection pools are automatically managed; no manual cleanup required. System will automatically clean up resources when configuration changes.
+
+---
+
 ## Version 0.1.8 (2025-12-25)
 
 ### 🎯 Dynamic Logging & Performance Optimization
@@ -71,16 +150,34 @@ This release introduces dynamic log level configuration, optimizes operation tim
   - All tool YAML files - Added `run_id` parameter documentation
 
 #### ⚠️ Migration Notes
-- **Configuration Changes**: 
-  - Legacy `*_json` fields are no longer shown in UI
-  - If you encounter configuration issues, delete old credentials and reconfigure using `*_secret` fields
-  - No breaking changes for existing configurations (backward compatibility maintained in code)
-- **Timeout Changes**: 
-  - Read operation timeout reduced from 30s to 15s (may cause timeouts in slow environments)
-  - If you experience timeout issues, consider using sync mode or increasing timeout values
-- **New Features**: 
-  - `log_level` can be changed online without redeployment
-  - `run_id` parameter is optional but recommended for better traceability
+
+**🔴 CRITICAL: Credentials Configuration Incompatibility**
+
+**⚠️ BREAKING CHANGE**: This version introduces **incompatible changes** to credentials configuration. You **MUST** delete old credentials before upgrading.
+
+**Configuration Field Changes:**
+- **Removed**: Legacy `*_json` fields (e.g., `local_llm_json`, `local_embedder_json`) are **completely removed** from the configuration UI
+- **Removed**: `pgvector_min_connections` and `pgvector_max_connections` credential fields (v0.1.9+)
+- **Required**: Only `*_secret` fields (e.g., `local_llm_json_secret`, `local_embedder_json_secret`) are available
+- **Migration**: PGVector connection pool settings must now be configured in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
+
+**Required Upgrade Steps:**
+1. **Backup your configuration** (copy all credential values)
+2. **Delete old credentials** in Dify UI: `Settings` → `Plugins` → `mem0ai` → `Delete Credentials`
+3. **Upgrade the plugin** to v0.1.8+
+4. **Reconfigure** using the new `*_secret` fields
+5. **Migrate PGVector settings**: If you used `pgvector_min_connections`/`pgvector_max_connections`, add `minconn` and `maxconn` to your pgvector JSON config
+
+**⚠️ If you skip deleting old credentials:**
+- Plugin may fail to start
+- "Internal Server Error" when accessing plugin settings
+- Tools may not work correctly
+
+For detailed upgrade instructions, see [README.md - Upgrade Guide](README.md#-upgrade-guide).
+
+**Other Changes:**
+- **Timeout Changes**: Read operation timeout reduced from 30s to 15s
+- **New Features**: `log_level` can be changed online; `run_id` parameter for request tracing
 
 #### 🐛 Bug Fixes
 - Fixed inconsistent timeout handling across different read operations
@@ -119,6 +216,12 @@ This release focuses on resolving CPU overload issues, implementing backward-com
   - Detects when LLM providers are mistakenly used in vector database configuration
   - Provides clear error messages before Mem0 validation fails
   - Improved help text in `mem0ai.yaml` with provider examples
+- **Concurrency Configuration Optimization**: Improved concurrent operations configuration handling
+  - Unified parsing logic with `_parse_concurrent_ops()` function for better code maintainability
+  - Added warning logs when invalid or unset values are detected (cannot be converted to positive integers)
+  - Unified concurrency control: `max_concurrent_memory_operations` applies to all operations including search
+  - Validates all input values and uses default value (40) when invalid or unset
+  - Enhanced observability with detailed warning messages for configuration issues
 - **Code Quality Improvements**:
   - Fixed recurring indentation errors in multiple tool files
   - Optimized code formatting (removed line length violations)
@@ -146,12 +249,17 @@ This release focuses on resolving CPU overload issues, implementing backward-com
   - Fixed credential default values: changed numeric defaults to string format ("40", "10")
   - Added comprehensive help text for all credential fields
   - Added validation for vector store provider type
+- **Concurrency Configuration Logic**:
+  - `max_concurrent_memory_operations` configured: Uses configured value directly
+  - Not configured: Uses default value (40)
+  - Invalid/unset values: Uses defaults with warning logs
+  - See [CONFIG.md](CONFIG.md#step-3-configure-performance-parameters-optional-recommended-for-production) for detailed documentation
 
 #### 📝 Files Changed
 - **Modified Files**:
   - `provider/mem0ai.yaml` - Reorganized credential fields, added backward-compatible schema, improved help text
   - `utils/config_builder.py` - Added `_get_credential_value()` for credential fallback logic, added vector store provider validation
-  - `utils/mem0_client.py` - Added task tracking system, changed `_max_ops` to `max_ops`, removed redundant cleanup logic
+  - `utils/mem0_client.py` - Added task tracking system, changed `_max_ops` to `max_ops`, removed redundant cleanup logic, optimized concurrency configuration parsing with unified validation and warning logs
   - `utils/constants.py` - Added `MAX_PENDING_TASKS_MULTIPLIER` constant
   - `tools/add_memory.py` - Added overload protection, task tracking, fixed indentation errors
   - `tools/update_memory.py` - Added overload protection, task tracking, fixed indentation errors
@@ -164,14 +272,18 @@ This release focuses on resolving CPU overload issues, implementing backward-com
 
 #### ⚠️ Migration Notes
 - **Upgrading from v0.1.3**: See [README.md - Upgrade Guide](README.md#-upgrade-guide) for detailed upgrade instructions and installation time optimization details.
-- **Credential Migration**: New installations should use the `[REQUIRED]` marked secret fields; legacy fields are maintained for compatibility only
+- **Credential Migration**: 
+  - **Code-level backward compatibility**: Code can read both old `*_json` and new `*_secret` fields
+  - **UI-level change**: New `*_secret` fields are shown in UI, old `*_json` fields are hidden
+  - **Recommended**: For cleanest upgrade, delete old credentials and reconfigure using `*_secret` fields
+  - **Note**: v0.1.8+ removes old fields completely, so you must delete and reconfigure before upgrading to v0.1.8+
 - **Performance Impact**: Write operations may be rejected when system is overloaded (queue > 5x concurrency limit)
 - **Monitoring**: Watch for "Background task queue overloaded" warnings in logs
 
 #### 🐛 Bug Fixes
 - Fixed credential default value type errors: numeric defaults changed to strings to comply with Dify's `text-input` type requirements
 - Fixed recurring indentation errors in tool files that caused `IndentationError` during plugin installation
-- Fixed credential upgrade issue: users no longer need to delete old credentials when upgrading from text-input to secret-input fields
+- Improved credential upgrade compatibility: Code can read both old and new field names, but UI only shows new fields
 
 #### 🎯 Performance Recommendations
 1. **Monitor Queue Length**: Check logs for pending task counts
@@ -229,7 +341,30 @@ This release focuses on security improvements for sensitive configuration data a
   - `utils/mem0_client.py` - Modified `AsyncLocalClient.__init__()` to use user-configured concurrency limit
 
 #### ⚠️ Migration Notes
-- **No Breaking Changes**: All changes are backward compatible
+
+**🔴 CRITICAL: Credentials Configuration Incompatibility**
+
+**⚠️ BREAKING CHANGE**: This version introduces **incompatible changes** to credentials configuration. You **MUST** delete old credentials before upgrading.
+
+**Configuration Field Changes:**
+- **Field Type Changed**: Changed from `text-input` to `secret-input` type
+- **Field Names Changed**: Changed from `*_json` to `*_secret` (e.g., `local_llm_json` → `local_llm_json_secret`)
+- **Incompatible**: Dify framework **cannot automatically migrate** between different field types
+- **Result**: Old credentials will cause **Internal Server Error** after upgrade
+
+**Required Upgrade Steps:**
+1. **Backup your configuration** (copy all credential values)
+2. **Delete old credentials** in Dify UI: `Settings` → `Plugins` → `mem0ai` → `Delete Credentials`
+3. **Upgrade the plugin** to v0.1.6+
+4. **Reconfigure** using the new `*_secret` fields with the same values you backed up
+
+**⚠️ If you skip deleting old credentials:**
+- Plugin will fail to start
+- "Internal Server Error" when accessing plugin settings
+- Tools will not work
+- You must delete and reconfigure anyway
+
+**Other Changes:**
 - **UI Changes**: Sensitive configuration fields will now appear as password fields (hidden input) in Dify UI
 - **New Optional Parameters**: The three new performance parameters are optional and use sensible defaults if not configured
 - **Production Recommendations**: Users are encouraged to configure these parameters based on their workload and infrastructure

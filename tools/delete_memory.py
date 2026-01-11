@@ -1,20 +1,29 @@
 """Dify tool for deleting a memory from Mem0 by ID."""
 
+from __future__ import annotations
+
 import asyncio
 import time
-from collections.abc import Generator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
-from dify_plugin.entities.tool import ToolInvokeMessage
 from utils.config_builder import is_async_mode
 from utils.constants import DELETE_ACCEPT_RESULT, WRITE_OPERATION_TIMEOUT
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import (
-    get_async_local_client,
-    get_local_client,
+    get_async_client,
+    get_sync_client,
 )
+from utils.memory_tool_helpers import (
+    init_request_context,
+    yield_error,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from dify_plugin.entities.tool import ToolInvokeMessage
 
 logger = get_logger(__name__)
 
@@ -23,12 +32,13 @@ class DeleteMemoryTool(Tool):
     """Tool that deletes a specific memory by its ID."""
 
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
-        # Get request ID for tracing (not used for memory filtering)
-        # Only use run_id if explicitly provided; no auto-generation to avoid fragmented call chains
-        request_id = tool_parameters.get("run_id") or "no-run-id"
-        start_time = time.time()
+        # Initialize request context
+        request_id, start_time = init_request_context(tool_parameters)
 
-        memory_id = tool_parameters["memory_id"]
+        memory_id = tool_parameters.get("memory_id")
+        if not memory_id:
+            yield from yield_error(self, request_id, "memory_id is required", "delete memory", {})
+            return
 
         try:
             async_mode = is_async_mode(self.runtime.credentials)
@@ -51,7 +61,7 @@ class DeleteMemoryTool(Tool):
 
             if not async_mode:
                 # Sync mode: directly call delete and catch exceptions
-                client = get_local_client(self.runtime.credentials)
+                client = get_sync_client(self.runtime.credentials)
                 try:
                     result = client.delete(memory_id)
                     elapsed = time.time() - start_time
@@ -84,7 +94,7 @@ class DeleteMemoryTool(Tool):
                     )
                     yield self.create_text_message(f"Error: {error_message}")
             else:
-                client = get_async_local_client(self.runtime.credentials)
+                client = get_async_client(self.runtime.credentials)
                 # Submit delete to background event loop without awaiting (non-blocking)
                 # Fire-and-forget: exceptions in background execution won't be caught here
                 loop = client.ensure_bg_loop()
@@ -116,7 +126,4 @@ class DeleteMemoryTool(Tool):
                 elapsed,
             )
             error_message = f"Error: {e!s}"
-            yield self.create_json_message(
-                {"status": "ERROR", "messages": error_message, "results": {}},
-            )
-            yield self.create_text_message(f"Failed to delete memory: {error_message}")
+            yield from yield_error(self, request_id, error_message, "delete memory", {})

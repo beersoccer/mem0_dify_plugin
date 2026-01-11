@@ -3,84 +3,53 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import contextlib
 import hashlib
 import json
 import threading
 import time
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from mem0 import AsyncMemory, Memory
 
-from .config_builder import build_local_mem0_config, get_int_credential
+from .background_loop import BackgroundEventLoop
+from .config_builder import build_local_mem0_config
+from .connection_keepalive import ConnectionKeepAlive
 from .constants import (
     ADD_SKIP_RESULT,
     CUSTOM_PROMPT,
+    HEARTBEAT_INTERVAL,
     MAX_CONCURRENT_MEMORY_OPERATIONS,
     MAX_PENDING_TASKS_MULTIPLIER,
     READ_OPERATION_TIMEOUT,
     WRITE_OPERATION_TIMEOUT,
 )
+from .helpers import parse_positive_int
 from .logger import get_logger
+from .resource_cleanup import close_memory_resources
+from .task_tracker import TaskTracker
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable
 
 T = TypeVar("T")
 
 
-class QueueOverloadError(Exception):
-    """Raised when the background task queue is overloaded."""
-
-
-def _get_config_hash(credentials: dict[str, Any]) -> str:
-    """Generate a hash from credentials for cache key.
-
-    This function creates a hash of the credentials to detect configuration changes.
-    The hash is used only for in-memory comparison and is never logged or included
-    in exception messages to avoid exposing sensitive information.
-
-    Security notes:
-    - Uses SHA256 (one-way hash) - credentials cannot be recovered from the hash
-    - Hash value is only stored in memory, never logged or printed
-    - Hash includes all credential fields (including sensitive ones like api_key,
-      password, token) but the hash itself is safe to use for comparison
+def normalize_search_results(results: object) -> list[dict[str, Any]]:
+    """Normalize Mem0 search results into a list of dicts.
 
     Args:
-        credentials: Configuration dictionary (may contain sensitive fields like
-            api_key, password, token, etc.).
+        results: Raw search results from Mem0, which can be:
+            - A list of dicts
+            - A dict with "results" key containing a list
+            - None or empty
 
     Returns:
-        str: SHA256 hash of the serialized credentials (hex digest).
+        list[dict]: Normalized list of memory search results with consistent structure.
 
     """
-    try:
-        cred_str = json.dumps(credentials, sort_keys=True)
-        return hashlib.sha256(cred_str.encode()).hexdigest()
-    except Exception as e:
-        # If serialization fails, log the error and return empty string to disable caching
-        logger.exception(
-            "Failed to generate config hash from credentials: %s",
-            type(e).__name__,
-        )
-        return ""
-
-
-# Module-level client instances and locks
-_local_client: LocalClient | None = None
-_local_client_config_hash: str | None = None
-_local_client_lock = threading.Lock()
-
-_async_client: AsyncLocalClient | None = None
-_async_client_config_hash: str | None = None
-_async_client_lock = threading.Lock()
-
-
-def _normalize_search_results(results: object) -> list[dict[str, Any]]:
-    """Normalize Mem0 search results into a list of dicts."""
     normalized: list[dict[str, Any]] = []
     if not results:
         return normalized
@@ -104,21 +73,47 @@ def _normalize_search_results(results: object) -> list[dict[str, Any]]:
     return normalized
 
 
-class LocalClient:
-    """Local Mem0 client using configured providers."""
+class QueueOverloadError(Exception):
+    """Raised when the background task queue is overloaded."""
+
+
+class SyncMem0Client:
+    """Synchronous Mem0 client using configured providers."""
 
     def __init__(self, credentials: dict[str, Any]) -> None:
-        """Initialize the LocalClient.
+        """Initialize the SyncMem0Client.
 
         Args:
-            credentials (dict): Configuration for the LocalClient.
+            credentials (dict): Configuration for the SyncMem0Client.
 
         """
         config = build_local_mem0_config(credentials)
         self.memory = Memory.from_config(config)
         self.use_custom_prompt = True
         self.custom_prompt = CUSTOM_PROMPT
-        logger.debug("LocalClient initialized")
+
+        # Initialize connection keep-alive
+        # Minimum interval is 30 seconds to ensure reasonable heartbeat frequency
+        heartbeat_interval = parse_positive_int(
+            credentials.get("heartbeat_interval"),
+            HEARTBEAT_INTERVAL,
+            min_value=30,
+            logger=logger,
+            config_name="heartbeat_interval",
+        )
+        self._keepalive = ConnectionKeepAlive(
+            memory=self.memory,
+            interval=heartbeat_interval,
+        )
+        self._keepalive.start()
+
+        logger.debug("SyncMem0Client initialized")
+
+    def __del__(self) -> None:
+        """Cleanup resources when SyncMem0Client is destroyed."""
+        if hasattr(self, "_keepalive"):
+            with contextlib.suppress(Exception):
+                self._keepalive.stop()
 
     def search(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         """Search for memories based on a query.
@@ -167,7 +162,7 @@ class LocalClient:
 
         try:
             results = self.memory.search(query, **kwargs)
-            normalized = _normalize_search_results(results)
+            normalized = normalize_search_results(results)
         except Exception:
             logger.exception("Error during memory search")
             raise
@@ -375,45 +370,61 @@ class LocalClient:
             return result
 
 
-class AsyncLocalClient:
-    """Async local Mem0 client using configured providers."""
-
-    # Class-level tracking of all background tasks submitted to the event loop
-    # (includes both read operations that wait for results and write operations
-    # that are fire-and-forget). Used for global flow control and monitoring.
-    _bg_tasks: ClassVar[set[asyncio.Future]] = set()
-    _bg_tasks_lock: ClassVar[threading.Lock] = threading.Lock()
-
-    # Statistics tracking for queue monitoring
-    _completed_tasks: ClassVar[int] = 0
-    _total_task_duration: ClassVar[float] = 0.0
-    _stats_lock: ClassVar[threading.Lock] = threading.Lock()
+class AsyncMem0Client:
+    """Asynchronous Mem0 client using configured providers."""
 
     def __init__(self, credentials: dict[str, Any]) -> None:
-        """Initialize the AsyncLocalClient.
+        """Initialize the AsyncMem0Client.
 
         Args:
-            credentials (dict): Configuration for the AsyncLocalClient.
+            credentials (dict): Configuration for the AsyncMem0Client.
 
         """
         self.config = build_local_mem0_config(credentials)
         self.memory = None
         # Async lock to protect one-time asynchronous initialization.
         self._create_lock = asyncio.Lock()
-        # Semaphore to limit the concurrency of memory operations. Users can
-        # optionally override the default via provider credentials;
-        # if not set or invalid, MAX_CONCURRENT_MEMORY_OPERATIONS from
-        # utils/constants.py is used.
-        self.max_ops = get_int_credential(
-            credentials,
-            "max_concurrent_memory_operations",
+
+        # Parse config value
+        self.max_ops = parse_positive_int(
+            credentials.get("max_concurrent_memory_operations"),
             MAX_CONCURRENT_MEMORY_OPERATIONS,
+            logger=logger,
+            config_name="max_concurrent_memory_operations",
         )
+
         self._semaphore = asyncio.Semaphore(self.max_ops)
         # Toggle whether to use custom prompt
         self.use_custom_prompt = True
         self.custom_prompt = CUSTOM_PROMPT
-        logger.debug("AsyncLocalClient initialized")
+
+        # Initialize connection keep-alive
+        # Minimum interval is 30 seconds to ensure reasonable heartbeat frequency
+        heartbeat_interval = parse_positive_int(
+            credentials.get("heartbeat_interval"),
+            HEARTBEAT_INTERVAL,
+            min_value=30,
+            logger=logger,
+            config_name="heartbeat_interval",
+        )
+        self._keepalive: ConnectionKeepAlive | None = None
+        self._keepalive_interval = heartbeat_interval
+
+        logger.debug("AsyncMem0Client initialized")
+
+    def __del__(self) -> None:
+        """Cleanup resources when AsyncMem0Client is destroyed.
+
+        Note: This provides a safety net for cleanup. The preferred way to cleanup
+        is via aclose(), which properly handles async resources. However, this method
+        ensures that the heartbeat thread is stopped even if aclose() is not called.
+
+        The heartbeat thread is daemon=True, so it will terminate when the process
+        exits. This method provides explicit cleanup for better resource management.
+        """
+        if hasattr(self, "_keepalive") and self._keepalive is not None:
+            with contextlib.suppress(Exception):
+                self._keepalive.stop()
 
     @classmethod
     def get_pending_tasks_count(cls) -> int:
@@ -432,8 +443,7 @@ class AsyncLocalClient:
             returns the current count without additional cleanup.
 
         """
-        with cls._bg_tasks_lock:
-            return len(cls._bg_tasks)
+        return TaskTracker.get_pending_tasks_count()
 
     @classmethod
     def get_completed_stats(cls) -> tuple[int, float]:
@@ -449,13 +459,7 @@ class AsyncLocalClient:
             monitoring).
 
         """
-        with cls._stats_lock:
-            completed = cls._completed_tasks
-            avg_duration = cls._total_task_duration / completed if completed > 0 else 0.0
-            # Reset counters for next monitoring period
-            cls._completed_tasks = 0
-            cls._total_task_duration = 0.0
-        return completed, avg_duration
+        return TaskTracker.get_completed_stats()
 
     @classmethod
     def track_bg_task(cls, future: asyncio.Future, task_name: str = "unknown") -> None:
@@ -469,61 +473,7 @@ class AsyncLocalClient:
             task_name: Name of the task for logging (format: "operation(params, req_id=xxx)").
 
         """
-        start_time = time.time()
-
-        with cls._bg_tasks_lock:
-            cls._bg_tasks.add(future)
-
-        def _done_callback(f: asyncio.Future) -> None:
-            """Task completion callback for background operations.
-
-            This callback's sole purpose is lifecycle management:
-            1. Remove task from tracking set
-            2. Update statistics for queue monitoring
-
-            Logging strategy:
-            - SUCCESS: No logging (already logged by _run_with_semaphore)
-            - TIMEOUT: No logging (already logged by _run_with_semaphore)
-            - QUEUE_OVERLOAD: No logging (already logged by _run_with_semaphore)
-            - OTHER EXCEPTIONS: No logging here; tool layer logs with business context
-
-            The pass statements are INTENTIONAL to avoid duplicate logging.
-            """
-            duration = time.time() - start_time
-
-            # Remove from tracking set
-            with cls._bg_tasks_lock:
-                cls._bg_tasks.discard(f)
-
-            # Update statistics for queue monitoring (regardless of success/failure)
-            with cls._stats_lock:
-                cls._completed_tasks += 1
-                cls._total_task_duration += duration
-
-            # Check task result but avoid duplicate logging
-            try:
-                f.result()  # This will raise if the coroutine raised
-            except (asyncio.CancelledError, concurrent.futures.CancelledError) as e:
-                # Cancellation is expected in some flows (e.g. failsafe timeouts)
-                # Log at warning level to track task cancellations
-                logger.warning(
-                    "Background task '%s' was cancelled (duration: %.2fs): %s",
-                    task_name,
-                    duration,
-                    type(e).__name__,
-                )
-            except Exception as e:
-                # All other exceptions (TimeoutError, QueueOverloadError, etc.)
-                # are already logged by _run_with_semaphore or tool layer.
-                # Log here for completeness and to track duration.
-                logger.exception(
-                    "Background task '%s' completed with exception (duration: %.2fs): %s",
-                    task_name,
-                    duration,
-                    type(e).__name__,
-                )
-
-        future.add_done_callback(_done_callback)
+        TaskTracker.track_bg_task(future, task_name)
 
     async def create(self) -> AsyncMemory:
         """Lazily create AsyncMemory once."""
@@ -533,6 +483,16 @@ class AsyncLocalClient:
             if self.memory is None:
                 self.memory = await AsyncMemory.from_config(self.config)
                 logger.debug("AsyncMemory instance created")
+
+                # Start connection keep-alive after memory is created
+                if self._keepalive is None:
+                    # Note: ConnectionKeepAlive works with both Memory and AsyncMemory
+                    # as it accesses the underlying clients directly
+                    self._keepalive = ConnectionKeepAlive(
+                        memory=self.memory,
+                        interval=self._keepalive_interval,
+                    )
+                    self._keepalive.start()
         return self.memory
 
     async def aclose(self) -> None:
@@ -554,58 +514,20 @@ class AsyncLocalClient:
 
         logger.debug("Closing AsyncMemory resources")
         try:
-            loop = asyncio.get_running_loop()
-
-            # Explicitly close critical resources (connection pools, DB connections)
-            # Other resources will be cleaned up by __del__ methods during GC
-
-            # PGVector connection pool
-            vs = getattr(self.memory, "vector_store", None)
-            if vs and hasattr(vs, "connection_pool") and vs.connection_pool:
-                try:
-                    pool = vs.connection_pool
-                    if hasattr(pool, "close"):
-                        await loop.run_in_executor(None, pool.close)
-                    elif hasattr(pool, "closeall"):
-                        await loop.run_in_executor(None, pool.closeall)
-                except Exception:
-                    logger.exception("Error closing vector store connection pool")
-
-            # Graph store (Neo4jGraph)
-            graph = getattr(self.memory, "graph", None)
-            if graph:
-                try:
-                    if hasattr(graph, "close") and not asyncio.iscoroutinefunction(
-                        graph.close,
-                    ):
-                        await loop.run_in_executor(None, graph.close)
-                    elif hasattr(graph, "aclose"):
-                        await graph.aclose()
-                    elif hasattr(graph, "driver") and hasattr(graph.driver, "close"):
-                        await loop.run_in_executor(None, graph.driver.close)
-                except Exception:
-                    logger.exception("Error closing graph store")
-
-            # SQLite connection
-            db = getattr(self.memory, "db", None)
-            if db and hasattr(db, "close"):
-                try:
-                    await loop.run_in_executor(None, db.close)
-                except Exception:
-                    logger.exception("Error closing database connection")
-
+            await close_memory_resources(self.memory)
         except Exception:
             logger.exception("Error during AsyncMemory resource cleanup")
         finally:
+            # Stop connection keep-alive
+            if hasattr(self, "_keepalive") and self._keepalive is not None:
+                try:
+                    self._keepalive.stop()
+                except Exception:
+                    logger.exception("Error stopping connection keep-alive")
+
             # Clear reference - remaining resources will be cleaned up by __del__ methods
             self.memory = None
             logger.debug("AsyncMemory resources closed")
-
-    # Background event loop (class-level, process-wide)
-    _bg_loop: asyncio.AbstractEventLoop | None = None
-    _bg_thread: threading.Thread | None = None
-    _bg_ready = threading.Event()
-    _bg_lock = threading.Lock()
 
     @classmethod
     def ensure_bg_loop(cls) -> asyncio.AbstractEventLoop:
@@ -631,37 +553,7 @@ class AsyncLocalClient:
             RuntimeError: If the background event loop fails to start.
 
         """
-        with cls._bg_lock:
-            # Reuse the existing long-lived loop if already running
-            if cls._bg_loop and cls._bg_thread and cls._bg_thread.is_alive():
-                logger.debug("Reusing existing long-lived background event loop")
-                return cls._bg_loop
-
-            logger.debug("Starting new long-lived background event loop")
-
-            # Define the function that runs in the new background thread
-            def _runner() -> None:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                cls._bg_loop = loop
-                cls._bg_ready.set()
-                logger.debug("Background event loop started (long-lived)")
-                loop.run_forever()  # Run the event loop forever (long lifecycle)
-
-            # Prepare to start a new background thread
-            cls._bg_ready.clear()
-            t = threading.Thread(target=_runner, name="mem0-bg-loop", daemon=True)
-            t.start()
-            cls._bg_thread = t
-            cls._bg_ready.wait()  # Wait until the loop is ready
-
-            loop = cls._bg_loop
-            if loop is None:
-                msg = "Background event loop failed to start"
-                logger.error(msg)
-                raise RuntimeError(msg)
-            logger.debug("Background event loop ready (long-lived, reusable)")
-            return loop
+        return BackgroundEventLoop.ensure_loop()
 
     @classmethod
     def shutdown(cls, timeout: float = 3.0) -> None:
@@ -670,42 +562,12 @@ class AsyncLocalClient:
         - Attempts to wait up to `timeout` seconds for pending tasks to finish.
         - Stops the loop and joins the background thread (best-effort).
         - Safe to call multiple times.
+
+        Args:
+            timeout: Maximum time to wait for pending tasks to complete.
+
         """
-        loop = cls._bg_loop
-        thread = cls._bg_thread
-        if loop is None:
-            logger.debug("No background event loop to shutdown")
-            return
-
-        logger.debug("Shutting down background event loop (timeout: %s)", timeout)
-
-        async def _drain_tasks(t: float) -> None:
-            # Exclude the current task and wait for others (best-effort)
-            with contextlib.suppress(Exception):
-                pending = [
-                    tsk
-                    for tsk in asyncio.all_tasks()
-                    if tsk is not asyncio.current_task()
-                ]
-                if pending:
-                    logger.debug(
-                        "Waiting for %d pending tasks to complete",
-                        len(pending),
-                    )
-                    await asyncio.wait(pending, timeout=t)
-
-        fut = asyncio.run_coroutine_threadsafe(_drain_tasks(timeout), loop)
-        with contextlib.suppress(Exception):
-            fut.result(timeout=timeout + 1.0)
-        with contextlib.suppress(Exception):
-            loop.call_soon_threadsafe(loop.stop)
-        if thread and thread.is_alive():
-            with contextlib.suppress(Exception):
-                thread.join(timeout=timeout)
-        # Clear references
-        cls._bg_loop = None
-        cls._bg_thread = None
-        logger.debug("Background event loop shutdown completed")
+        BackgroundEventLoop.shutdown(timeout)
 
     async def search(
         self,
@@ -774,7 +636,7 @@ class AsyncLocalClient:
             timeout_s=timeout,
             check_queue=True,  # Read operations check queue
         )
-        return _normalize_search_results(results)
+        return normalize_search_results(results)
 
     async def add(
         self,
@@ -935,7 +797,20 @@ class AsyncLocalClient:
         )
 
         async def _call() -> dict[str, Any]:
-            return await self.memory.get(memory_id)
+            try:
+                return await self.memory.get(memory_id)
+            except (AttributeError, ValueError) as e:
+                # Catch AttributeError from mem0 when existing_memory is None
+                # or ValueError when memory not found
+                # Convert to a consistent ValueError
+                if "'NoneType' object has no attribute" in str(e) or "not found" in str(e).lower():
+                    error_msg = (
+                        f"Memory with ID {memory_id} not found. "
+                        "Please provide a valid 'memory_id'"
+                    )
+                    raise ValueError(error_msg) from e
+                # Re-raise other AttributeErrors/ValueErrors
+                raise
 
         return await self._run_with_semaphore(
             "get",
@@ -969,7 +844,24 @@ class AsyncLocalClient:
         )
 
         async def _call() -> dict[str, Any]:
-            return await self.memory.update(memory_id, payload.get("text"))
+            try:
+                return await self.memory.update(memory_id, payload.get("text"))
+            except (AttributeError, ValueError) as e:
+                # Catch AttributeError from mem0 when existing_memory is None
+                # or ValueError when memory not found
+                # Convert to a consistent ValueError
+                error_str = str(e)
+                if (
+                    "'NoneType' object has no attribute 'payload'" in error_str
+                    or "not found" in error_str.lower()
+                ):
+                    error_msg = (
+                        f"Memory with ID {memory_id} not found. "
+                        "It may have already been deleted or never existed."
+                    )
+                    raise ValueError(error_msg) from e
+                # Re-raise other AttributeErrors/ValueErrors
+                raise
 
         return await self._run_with_semaphore(
             "update",
@@ -1001,7 +893,25 @@ class AsyncLocalClient:
         )
 
         async def _call() -> dict[str, Any]:
-            return await self.memory.delete(memory_id)
+            try:
+                return await self.memory.delete(memory_id)
+            except (AttributeError, ValueError) as e:
+                # Catch AttributeError from mem0 when existing_memory is None
+                # or ValueError when memory not found
+                # This can happen if the memory was already deleted or doesn't exist
+                # Convert to a consistent ValueError
+                error_str = str(e)
+                if (
+                    "'NoneType' object has no attribute 'payload'" in error_str
+                    or "not found" in error_str.lower()
+                ):
+                    error_msg = (
+                        f"Memory with ID {memory_id} not found. "
+                        "It may have already been deleted or never existed."
+                    )
+                    raise ValueError(error_msg) from e
+                # Re-raise other AttributeErrors/ValueErrors
+                raise
 
         return await self._run_with_semaphore(
             "delete",
@@ -1146,7 +1056,7 @@ class AsyncLocalClient:
         # 1. Queue overload check (optional, for both read and write operations)
         # Log at first occurrence - tool layer should NOT duplicate this log
         if check_queue:
-            pending = self.get_pending_tasks_count()
+            pending = TaskTracker.get_pending_tasks_count()
             if pending > self.max_ops * MAX_PENDING_TASKS_MULTIPLIER:
                 logger.warning(
                     "%s operation rejected: queue overloaded (%d pending tasks, max: %d)",
@@ -1202,21 +1112,54 @@ class AsyncLocalClient:
             return await _inner()
 
 
-def _cleanup_async_client(client: AsyncLocalClient, context: str = "cleanup") -> None:
-    """Cleanup AsyncLocalClient resources via background event loop.
+def _get_config_hash(credentials: dict[str, Any]) -> str:
+    """Generate a hash from credentials for cache key.
 
-    This helper function provides a unified way to cleanup AsyncLocalClient
+    This function creates a hash of the credentials to detect configuration changes.
+    The hash is used only for in-memory comparison and is never logged or included
+    in exception messages to avoid exposing sensitive information.
+
+    Security notes:
+    - Uses SHA256 (one-way hash) - credentials cannot be recovered from the hash
+    - Hash value is only stored in memory, never logged or printed
+    - Hash includes all credential fields (including sensitive ones like api_key,
+      password, token) but the hash itself is safe to use for comparison
+
+    Args:
+        credentials: Configuration dictionary (may contain sensitive fields like
+            api_key, password, token, etc.).
+
+    Returns:
+        str: SHA256 hash of the serialized credentials (hex digest).
+
+    """
+    try:
+        cred_str = json.dumps(credentials, sort_keys=True)
+        return hashlib.sha256(cred_str.encode()).hexdigest()
+    except Exception as e:
+        # If serialization fails, log the error and return empty string to disable caching
+        logger.exception(
+            "Failed to generate config hash from credentials: %s",
+            type(e).__name__,
+        )
+        return ""
+
+
+def cleanup_async_client(client: AsyncMem0Client | None, context: str = "cleanup") -> None:
+    """Cleanup AsyncMem0Client resources via background event loop.
+
+    This helper function provides a unified way to cleanup AsyncMem0Client
     instances, avoiding code duplication.
 
     Args:
-        client: The AsyncLocalClient instance to cleanup.
+        client: The AsyncMem0Client instance to cleanup.
         context: Context string for logging (e.g., "replacement", "reset").
 
     """
     if client is None:
         return
 
-    loop = AsyncLocalClient._bg_loop  # noqa: SLF001
+    loop = BackgroundEventLoop._loop  # noqa: SLF001
     if loop is not None and loop.is_running():
         try:
             fut = asyncio.run_coroutine_threadsafe(client.aclose(), loop)
@@ -1234,78 +1177,16 @@ def _cleanup_async_client(client: AsyncLocalClient, context: str = "cleanup") ->
         )
 
 
-def get_local_client(credentials: dict[str, Any]) -> LocalClient:
-    """Get or create LocalClient instance, recreating if config changed.
-
-    This function provides a module-level factory for LocalClient instances,
-    ensuring resource reuse while supporting configuration changes.
-
-    All reads and writes to module-level variables are protected by
-    threading.Lock to ensure thread safety in multi-threaded environments.
-
-    Args:
-        credentials: Configuration dictionary for the LocalClient.
-
-    Returns:
-        LocalClient: The LocalClient instance, reused if config unchanged.
-
-    """
-    global _local_client, _local_client_config_hash  # noqa: PLW0603
-
-    config_hash = _get_config_hash(credentials)
-
-    # All reads and writes are protected by lock to ensure thread safety
-    with _local_client_lock:
-        # If config changed or client doesn't exist, create new instance
-        if _local_client is None or _local_client_config_hash != config_hash:
-            # LocalClient resources (PGVector, SQLiteManager) have __del__ methods
-            # that will be called during GC when the old reference is overwritten.
-            # LocalClient doesn't have a close() method, so we rely on __del__
-            # methods in mem0 resources for cleanup.
-            if _local_client is not None:
-                logger.debug("Replacing LocalClient due to config change")
-            _local_client = LocalClient(credentials)
-            _local_client_config_hash = config_hash
-        return _local_client
-
-
-def get_async_local_client(credentials: dict[str, Any]) -> AsyncLocalClient:
-    """Get or create AsyncLocalClient instance, recreating if config changed.
-
-    This function provides a module-level factory for AsyncLocalClient instances,
-    ensuring resource reuse while supporting configuration changes.
-
-    All reads and writes to module-level variables are protected by
-    threading.Lock to ensure thread safety in multi-threaded environments.
-
-    Args:
-        credentials: Configuration dictionary for the AsyncLocalClient.
-
-    Returns:
-        AsyncLocalClient: The AsyncLocalClient instance, reused if config unchanged.
-
-    """
-    global _async_client, _async_client_config_hash  # noqa: PLW0603
-
-    config_hash = _get_config_hash(credentials)
-
-    # All reads and writes are protected by lock to ensure thread safety
-    with _async_client_lock:
-        # If config changed or client doesn't exist, create new instance
-        if _async_client is None or _async_client_config_hash != config_hash:
-            # Cleanup old client before creating new one to prevent resource leaks
-            old_client = _async_client
-            if old_client is not None:
-                logger.debug(
-                    "Replacing AsyncLocalClient due to config change, cleaning up old instance",
-                )
-                _cleanup_async_client(old_client, context="replacement")
-            _async_client = AsyncLocalClient(credentials)
-            _async_client_config_hash = config_hash
-
-            # Initialize queue monitor on first client creation
-            _init_queue_monitor(credentials)
-        return _async_client
+# Module-level client instances and locks for thread-safe caching
+# Using a dictionary to hold state, avoiding global statements
+_cache: dict[str, Any] = {
+    "sync_client": None,
+    "sync_client_config_hash": None,
+    "sync_client_lock": threading.Lock(),
+    "async_client": None,
+    "async_client_config_hash": None,
+    "async_client_lock": threading.Lock(),
+}
 
 
 def _init_queue_monitor(_credentials: dict[str, Any]) -> None:
@@ -1318,6 +1199,10 @@ def _init_queue_monitor(_credentials: dict[str, Any]) -> None:
         queue_monitor_interval configuration has been removed.
         Queue monitor now uses a fixed default interval of 300 seconds (5 minutes).
 
+    This function is called whenever a new async client is created.
+    QueueMonitor.start() will return early if the monitor is already running,
+    so it's safe to call this multiple times.
+
     """
     try:
         # Use fixed default interval (300 seconds = 5 minutes)
@@ -1328,39 +1213,124 @@ def _init_queue_monitor(_credentials: dict[str, Any]) -> None:
             from .queue_monitor import QueueMonitor
 
             monitor = QueueMonitor.get_instance(interval)
-            monitor.start(
-                AsyncLocalClient.get_pending_tasks_count,
-                AsyncLocalClient.get_completed_stats,
+            # start() returns True if thread was started, False if already running
+            was_started = monitor.start(
+                AsyncMem0Client.get_pending_tasks_count,
+                AsyncMem0Client.get_completed_stats,
             )
-            logger.debug("Queue monitor initialized (interval: %ds)", interval)
+            # Only log if monitor was actually started (not already running)
+            if was_started:
+                logger.debug("Queue monitor initialized (interval: %ds)", interval)
         else:
             logger.debug("Queue monitor disabled (interval: 0)")
     except Exception:
         logger.exception("Failed to initialize queue monitor, continuing without it")
 
 
+def get_sync_client(credentials: dict[str, Any]) -> SyncMem0Client:
+    """Get or create SyncMem0Client instance, recreating if config changed.
+
+    This function provides a module-level factory for SyncMem0Client instances,
+    ensuring resource reuse while supporting configuration changes.
+
+    All reads and writes to module-level variables are protected by
+    threading.Lock to ensure thread safety in multi-threaded environments.
+
+    Args:
+        credentials: Configuration dictionary for the SyncMem0Client.
+
+    Returns:
+        SyncMem0Client: The SyncMem0Client instance, reused if config unchanged.
+
+    """
+    config_hash = _get_config_hash(credentials)
+
+    # All reads and writes are protected by lock to ensure thread safety
+    with _cache["sync_client_lock"]:
+        # If config changed or client doesn't exist, create new instance
+        if _cache["sync_client"] is None or _cache["sync_client_config_hash"] != config_hash:
+            # SyncMem0Client resources (PGVector, SQLiteManager) have __del__ methods
+            # that will be called during GC when the old reference is overwritten.
+            # SyncMem0Client doesn't have a close() method, so we rely on __del__
+            # methods in mem0 resources for cleanup.
+            if _cache["sync_client"] is not None:
+                logger.debug("Replacing SyncMem0Client due to config change")
+            _cache["sync_client"] = SyncMem0Client(credentials)
+            _cache["sync_client_config_hash"] = config_hash
+        return _cache["sync_client"]
+
+
+def get_async_client(credentials: dict[str, Any]) -> AsyncMem0Client:
+    """Get or create AsyncMem0Client instance, recreating if config changed.
+
+    This function provides a module-level factory for AsyncMem0Client instances,
+    ensuring resource reuse while supporting configuration changes.
+
+    All reads and writes to module-level variables are protected by
+    threading.Lock to ensure thread safety in multi-threaded environments.
+
+    Args:
+        credentials: Configuration dictionary for the AsyncMem0Client.
+
+    Returns:
+        AsyncMem0Client: The AsyncMem0Client instance, reused if config unchanged.
+
+    """
+    config_hash = _get_config_hash(credentials)
+
+    # All reads and writes are protected by lock to ensure thread safety
+    with _cache["async_client_lock"]:
+        # If config changed or client doesn't exist, create new instance
+        if _cache["async_client"] is None or _cache["async_client_config_hash"] != config_hash:
+            # Cleanup old client before creating new one to prevent resource leaks
+            old_client = _cache["async_client"]
+            if old_client is not None:
+                logger.debug(
+                    "Replacing AsyncMem0Client due to config change, cleaning up old instance",
+                )
+                cleanup_async_client(old_client, context="replacement")
+            _cache["async_client"] = AsyncMem0Client(credentials)
+            _cache["async_client_config_hash"] = config_hash
+
+            # Initialize queue monitor whenever a new client is created
+            _init_queue_monitor(credentials)
+
+    return _cache["async_client"]
+
+
 def reset_clients() -> None:
     """Reset client instances (useful for testing).
 
     This function clears the cached client instances, forcing new instances
-    to be created on the next call to get_local_client() or get_async_local_client().
+    to be created on the next call to get_sync_client() or get_async_client().
 
-    For AsyncLocalClient, this also attempts to cleanup resources (HTTP sessions,
+    For AsyncMem0Client, this also attempts to cleanup resources (HTTP sessions,
     database connections, etc.) to prevent resource leaks.
 
     """
-    global _local_client, _local_client_config_hash  # noqa: PLW0603
-    global _async_client, _async_client_config_hash  # noqa: PLW0603
+    with _cache["sync_client_lock"]:
+        _cache["sync_client"] = None
+        _cache["sync_client_config_hash"] = None
 
-    with _local_client_lock:
-        _local_client = None
-        _local_client_config_hash = None
-
-    with _async_client_lock:
+    with _cache["async_client_lock"]:
         # Cleanup async client resources before resetting
-        old_client = _async_client
+        old_client = _cache["async_client"]
         if old_client is not None:
-            _cleanup_async_client(old_client, context="reset")
+            cleanup_async_client(old_client, context="reset")
 
-        _async_client = None
-        _async_client_config_hash = None
+        _cache["async_client"] = None
+        _cache["async_client_config_hash"] = None
+
+
+def get_current_async_client() -> AsyncMem0Client | None:
+    """Get the current cached async client instance (if any).
+
+    This is used for cleanup operations where we need to access the current
+    client instance without credentials.
+
+    Returns:
+        AsyncMem0Client | None: The current async client instance, or None if not created.
+
+    """
+    with _cache["async_client_lock"]:
+        return _cache["async_client"]

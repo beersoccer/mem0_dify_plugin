@@ -29,9 +29,25 @@ Please provide the following metadata of your plugin to make it easier for the r
 
 <!-- Please briefly describe the purpose of the new plugin or the updates made to the existing plugin -->
 
-This version update (v0.1.8) brings dynamic log level configuration, timeout optimization, request tracing capabilities, and configuration cleanup to the Mem0 Dify Plugin. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
+This version update (v0.1.9) brings connection stability improvements, resource management optimization, and resolves critical production issues related to TCP connection silent timeouts and connection pool memory leaks. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
 
-### What's New in v0.1.8:
+### What's New in v0.1.9:
+
+- **🔧 Connection Stability & Resource Management**: Resolved critical production issues
+  - **TCP Connection Silent Timeout Prevention**: Implemented connection keep-alive mechanism
+    - Automatic periodic heartbeat requests to LLM, embedding, and vector store services
+    - Prevents TCP connections from being silently closed by network infrastructure
+    - Configurable heartbeat interval (default: 120 seconds, minimum: 30 seconds)
+  - **Connection Pool Memory Leak Prevention**: Implemented explicit resource cleanup
+    - Automatic cleanup of connection pools when client configuration changes
+    - Prevents memory leaks and connection pool exhaustion in long-running processes
+    - Proper lifecycle management for all database connections
+  - **PGVector Configuration Enhancement**: Improved connection pool management
+    - Automatic addition of TCP keepalive parameters to connection strings
+    - Two recommended configuration methods for production environments
+    - Connection pool settings now configured in vector store JSON config (not as separate credential fields)
+
+### Previous Updates (v0.1.8):
 
 - **🎯 Dynamic Log Level Configuration**: Added runtime log level control without redeployment
   - New `log_level` credential field (INFO/DEBUG/WARNING/ERROR) for online adjustment
@@ -81,9 +97,23 @@ This version update (v0.1.8) brings dynamic log level configuration, timeout opt
 
 ### ⚠️ Important Upgrade Notes:
 
-**⚠️ Critical: Configuration Changes in v0.1.8**
+**🔴 CRITICAL: Configuration Incompatibility**
 
-**Deprecated Fields Removed**: Legacy `*_json` configuration fields (e.g., `local_llm_json`, `local_embedder_json`) are no longer shown in the configuration UI. If you encounter configuration issues after upgrade, please delete old credentials and reconfigure using the new `*_secret` fields.
+**⚠️ BREAKING CHANGES**: The plugin has undergone **incompatible changes** in credentials configuration. You **MUST** delete old credentials before upgrading.
+
+**Configuration Field Changes:**
+- **Field Type & Names**: Changed from `*_json` (text-input) to `*_secret` (secret-input) fields
+- **Removed Fields**: `pgvector_min_connections` and `pgvector_max_connections` credential fields removed (v0.1.9+)
+  - **Migration**: Configure connection pool size in `local_vector_db_json_secret` JSON using `minconn` and `maxconn`
+- **Removed Fields**: Legacy `*_json` fields completely removed from UI (v0.1.8+)
+
+**Required Upgrade Steps:**
+1. **Backup** your configuration values
+2. **Delete** old credentials in Dify UI (`Settings` → `Plugins` → `mem0ai` → `Delete Credentials`)
+3. **Upgrade** the plugin
+4. **Reconfigure** using new `*_secret` fields and migrate pgvector connection pool settings to JSON config
+
+**⚠️ If you skip deleting credentials**: Plugin will fail to start or show "Internal Server Error".
 
 **Upgrading from v0.1.3:**
 
@@ -131,10 +161,10 @@ pip install transformers torch
   - All JSON configuration fields (`local_llm_json`, `local_embedder_json`, `local_vector_db_json`, `local_graph_db_json`, `local_reranker_json`) are now hidden in the UI
   - Sensitive information (API keys, passwords, tokens) is protected from accidental exposure
 
-- **⚙️ User-Configurable Performance Parameters**: Added three new optional configuration parameters for production environments
-  - `max_concurrent_memory_operations` - Control maximum concurrent async operations (default: 40, recommended > 20 for production)
-  - `pgvector_min_connections` - Set PGVector connection pool minimum size (default: 10)
-  - `pgvector_max_connections` - Set PGVector connection pool maximum size (default: 40, recommended to match max_concurrent_memory_operations)
+- **⚙️ User-Configurable Performance Parameters**: Added optional configuration parameters for production environments
+  - `max_concurrent_memory_operations` - Maximum concurrent memory operations (default: 40)
+  - **Note**: `pgvector_min_connections` and `pgvector_max_connections` were added in v0.1.6 but removed in v0.1.9. Configure connection pool size in vector store JSON config using `minconn` and `maxconn` instead
+  - **Concurrency Configuration Logic**: Validates all inputs with warning logs
 
 - **🐛 Bug Fixes**: Fixed Dify plugin framework compatibility issue (changed `type: number` to `type: text-input` for numeric configuration fields)
 
@@ -168,7 +198,9 @@ pip install transformers torch
 - **Production-Ready Features**:
   - Comprehensive timeout protection and service degradation
   - Robust error handling ensuring workflow continuity
-  - Database connection pool optimization for high concurrency (now user-configurable)
+  - Database connection pool optimization for high concurrency (configured in vector store JSON)
+  - Connection keep-alive mechanism to prevent TCP silent timeouts
+  - Automatic resource cleanup to prevent memory leaks
   - Unified logging configuration for better debugging
 
 ### Configuration:
@@ -220,6 +252,14 @@ Please confirm that your plugin README includes all necessary information:
 - **PRIVACY.md**: Complete privacy policy explaining self-hosted mode operation and data handling
 - **CHANGELOG.md**: Detailed version history and changes for all versions
 
+**Documentation Improvements in v0.1.9:**
+- Added comprehensive connection stability and resource management documentation
+- Documented TCP connection silent timeout prevention mechanism
+- Documented connection pool memory leak prevention
+- Added PGVector connection pool configuration migration guide (removed credential fields)
+- Enhanced upgrade guide with critical configuration incompatibility warnings
+- Streamlined documentation to eliminate duplicate content through cross-references
+
 **Documentation Improvements in v0.1.8:**
 - Added dynamic log level configuration documentation
 - Updated timeout values and operation behavior documentation
@@ -261,6 +301,11 @@ The plugin only processes:
 - Message metadata (timestamps, roles) - stored in user's own database
 
 **No personal identification information (PII) is required or collected beyond user-provided identifiers (user_id, agent_id, run_id).**
+
+**Security Enhancements in v0.1.9:**
+- Connection keep-alive mechanism ensures reliable service connectivity
+- Automatic resource cleanup prevents memory leaks and connection pool exhaustion
+- Enhanced connection stability reduces service interruptions
 
 **Security Enhancements in v0.1.8:**
 - Configuration cleanup removes deprecated fields from UI to prevent confusion

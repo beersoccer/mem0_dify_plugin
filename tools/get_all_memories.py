@@ -1,23 +1,29 @@
 """Dify tool for retrieving all memories from Mem0 for a specific user."""
 
-import asyncio
+from __future__ import annotations
+
 import json
 import time
-from collections.abc import Generator
-from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
-from dify_plugin.entities.tool import ToolInvokeMessage
 from utils.config_builder import is_async_mode
 from utils.constants import READ_OPERATION_TIMEOUT
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
-from utils.mem0_client import (
-    QueueOverloadError,
-    get_async_local_client,
-    get_local_client,
+from utils.mem0_client import get_async_client, get_sync_client
+from utils.memory_tool_helpers import (
+    build_status_and_message,
+    execute_async_read_operation,
+    init_request_context,
+    validate_user_id,
+    yield_error,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from dify_plugin.entities.tool import ToolInvokeMessage
 
 logger = get_logger(__name__)
 
@@ -25,32 +31,21 @@ logger = get_logger(__name__)
 class GetAllMemoriesTool(Tool):
     """Tool that retrieves all memories for a specific user, with optional filtering."""
 
-    def _invoke(
+    def _build_params(
         self,
         tool_parameters: dict[str, Any],
-    ) -> Generator[ToolInvokeMessage, None, None]:
-        # Get request ID for tracing (not used for memory filtering)
-        # Only use run_id if explicitly provided; no auto-generation to avoid fragmented call chains
-        request_id = tool_parameters.get("run_id") or "no-run-id"
-        start_time = time.time()
-
-        # Validate required user_id
-        user_id = tool_parameters.get("user_id")
-        if not user_id:
-            error_message = "user_id is required"
-            logger.error("[req:%s] Get all memories failed: %s", request_id, error_message)
-            yield self.create_json_message(
-                {"status": "ERROR", "messages": error_message, "results": []},
-            )
-            yield self.create_text_message(f"Error: {error_message}")
-            return
-
-        # Build params (NOTE: run_id is NOT included - it's only used for request tracing)
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        """Build params dict from tool_parameters. Returns None if filters JSON is invalid."""
         params: dict[str, Any] = {"user_id": user_id}
-        if tool_parameters.get("agent_id"):
-            params["agent_id"] = tool_parameters["agent_id"]
-        if tool_parameters.get("limit"):
-            params["limit"] = tool_parameters.get("limit")
+
+        agent_id = tool_parameters.get("agent_id")
+        if agent_id:
+            params["agent_id"] = agent_id
+
+        limit = tool_parameters.get("limit")
+        if limit:
+            params["limit"] = limit
 
         # Parse filters if provided (JSON string)
         filters_str = tool_parameters.get("filters")
@@ -58,13 +53,92 @@ class GetAllMemoriesTool(Tool):
             try:
                 params["filters"] = json.loads(filters_str)
             except json.JSONDecodeError:
-                error_message = "Invalid JSON format for filters"
-                logger.exception("[req:%s] Get all memories failed: %s", request_id, error_message)
-                yield self.create_json_message(
-                    {"status": "ERROR", "messages": error_message, "results": []},
+                return None
+
+        return params
+
+    def _execute_sync_get_all(
+        self,
+        params: dict[str, Any],
+        user_id: str,
+        request_id: str,
+        mode_str: str,
+        start_time: float,
+    ) -> list[dict[str, Any]]:
+        """Execute get_all in sync mode and return results."""
+        client = get_sync_client(self.runtime.credentials)
+        try:
+            return client.get_all(params)
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.exception(
+                "[req:%s] Get all operation failed with error: %s "
+                "(mode: %s, user_id: %s, duration: %.2fs)",
+                request_id,
+                type(e).__name__,
+                mode_str,
+                user_id,
+                elapsed,
+            )
+            return []
+
+    def _normalize_results(
+        self,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Normalize get_all results to standard format."""
+        memories = []
+        for r in results or []:
+            if not isinstance(r, dict):
+                continue
+            memories.append(
+                {
+                    "id": r.get("id"),
+                    "memory": r.get("memory"),
+                    "metadata": r.get("metadata", {}),
+                    "created_at": r.get("created_at"),
+                    "updated_at": r.get("updated_at", ""),
+                },
+            )
+        return memories
+
+    def _format_text_output(
+        self,
+        memories: list[dict[str, Any]],
+    ) -> str:
+        """Format memories as text output."""
+        text_response = f"Found {len(memories)} memories\n\n"
+        if memories:
+            for idx, r in enumerate(memories, 1):
+                text_response += (
+                    f"{idx}. ID: {r.get('id', '')}\n"
+                    f"   Memory: {r.get('memory', '')}\n"
+                    f"   Metadata: {r.get('metadata', {})}\n"
+                    f"   Created: {r.get('created_at', '')}\n"
+                    f"   Updated: {r.get('updated_at', '')}\n\n"
                 )
-                yield self.create_text_message(f"Error: {error_message}")
-                return
+        return text_response
+
+    def _invoke(
+        self,
+        tool_parameters: dict[str, Any],
+    ) -> Generator[ToolInvokeMessage, None, None]:
+        # Initialize request context
+        request_id, start_time = init_request_context(tool_parameters)
+
+        # Validate required user_id
+        user_id = validate_user_id(tool_parameters)
+        if not user_id:
+            yield from yield_error(self, request_id, "user_id is required", "get all memories", [])
+            return
+
+        # Build params
+        params = self._build_params(tool_parameters, user_id)
+        if params is None:
+            yield from yield_error(
+                self, request_id, "Invalid JSON format for filters", "get all memories", [],
+            )
+            return
 
         try:
             async_mode = is_async_mode(self.runtime.credentials)
@@ -84,85 +158,27 @@ class GetAllMemoriesTool(Tool):
                 logger,
                 "get_all",
             )
-            # Initialize results with default value to ensure it's always defined
+
+            # Execute get_all operation
             results: list[dict[str, Any]] = []
-            error_type = None  # Track error type for enhanced result
+            error_type: str | None = None
             if async_mode:
-                # Note: get_async_local_client() reuses instances when config is unchanged.
-                # Resources are managed at plugin lifecycle level via shutdown()
-                client = get_async_local_client(self.runtime.credentials)
-                # ensure_bg_loop() returns a long-lived, reusable event loop
-                loop = client.ensure_bg_loop()
-                future = asyncio.run_coroutine_threadsafe(
-                    client.get_all(params, timeout_s=timeout),
-                    loop,
+                client = get_async_client(self.runtime.credentials)
+                results, error_type = execute_async_read_operation(
+                    self,
+                    client.get_all,
+                    (params,),
+                    {"timeout_s": timeout},
+                    timeout,
+                    request_id,
+                    mode_str,
+                    start_time,
+                    f"get_all_memories(user_id={user_id})",
                 )
-                client.track_bg_task(
-                    future,
-                    f"get_all_memories(user_id={user_id}, req_id={request_id})",
-                )
-                try:
-                    failsafe_timeout = timeout + 1.0
-                    results = future.result(timeout=failsafe_timeout)
-                except asyncio.TimeoutError:
-                    # Timeout already logged by _run_with_semaphore - don't duplicate
-                    error_type = "TIMEOUT"
-                    results = []
-                except FuturesTimeoutError:
-                    # Failsafe timeout - this is a second layer of protection
-                    future.cancel()
-                    elapsed = time.time() - start_time
-                    logger.warning(
-                        "[req:%s] Get all operation failsafe timeout after %s seconds "
-                        "(mode: %s, user_id: %s, duration: %.2fs)",
-                        request_id,
-                        failsafe_timeout,
-                        mode_str,
-                        user_id,
-                        elapsed,
-                    )
-                    error_type = "TIMEOUT"
-                    results = []
-                except QueueOverloadError:
-                    # Queue overload already logged by _run_with_semaphore - don't duplicate
-                    error_type = "OVERLOAD"
-                    results = []
-                except Exception as e:
-                    # Catch all other exceptions (network errors, connection errors, DNS failures,
-                    # SSL errors, authentication failures, etc.) to ensure service degradation
-                    # works for all failure scenarios, not just timeouts
-                    elapsed = time.time() - start_time
-                    logger.exception(
-                        "[req:%s] Get all operation failed with error: %s "
-                        "(mode: %s, user_id: %s, duration: %.2fs)",
-                        request_id,
-                        type(e).__name__,
-                        mode_str,
-                        user_id,
-                        elapsed,
-                    )
-                    error_type = "ERROR"
-                    results = []
             else:
-                # Sync mode: no timeout protection (blocking call)
-                # If timeout protection is needed, use async_mode=true
-                client = get_local_client(self.runtime.credentials)
-                try:
-                    results = client.get_all(params)
-                except Exception as e:
-                    # Catch all exceptions for sync mode to ensure service degradation
-                    elapsed = time.time() - start_time
-                    logger.exception(
-                        "[req:%s] Get all operation failed with error: %s "
-                        "(mode: %s, user_id: %s, duration: %.2fs)",
-                        request_id,
-                        type(e).__name__,
-                        mode_str,
-                        user_id,
-                        elapsed,
-                    )
-                    # Service degradation: return empty results to allow workflow to continue
-                    results = []
+                results = self._execute_sync_get_all(
+                    params, user_id, request_id, mode_str, start_time,
+                )
 
             # Log completion (only for sync mode; async mode logs in callback)
             if not async_mode:
@@ -177,37 +193,12 @@ class GetAllMemoriesTool(Tool):
                     elapsed,
                 )
 
-            # JSON output
-            memories = []
-            for r in results or []:
-                if not isinstance(r, dict):
-                    continue
-                memories.append(
-                    {
-                        "id": r.get("id"),
-                        "memory": r.get("memory"),
-                        "metadata": r.get("metadata", {}),
-                        "created_at": r.get("created_at"),
-                        "updated_at": r.get("updated_at", ""),
-                    },
-                )
+            # Normalize results
+            memories = self._normalize_results(results)
 
             # Build result with appropriate status and message
-            if error_type:
-                # Operation failed - return error status with descriptive message
-                if error_type == "TIMEOUT":
-                    status = "TIMEOUT"
-                    messages = "Operation timed out, returning empty results"
-                elif error_type == "OVERLOAD":
-                    status = "OVERLOAD"
-                    messages = "System overloaded, returning empty results"
-                else:
-                    status = "ERROR"
-                    messages = "Operation failed, returning empty results"
-            else:
-                # Operation succeeded - return success with result summary
-                status = "SUCCESS"
-                messages = f"Found {len(memories)} memories"
+            success_msg = f"Found {len(memories)} memories"
+            status, messages = build_status_and_message(error_type, success_msg)
 
             yield self.create_json_message({
                 "status": status,
@@ -216,17 +207,8 @@ class GetAllMemoriesTool(Tool):
             })
 
             # Text output
-            text_response = f"Found {len(memories)} memories\n\n"
-            if memories:
-                for idx, r in enumerate(memories, 1):
-                    text_response += (
-                        f"{idx}. ID: {r.get('id', '')}\n"
-                        f"   Memory: {r.get('memory', '')}\n"
-                        f"   Metadata: {r.get('metadata', {})}\n"
-                        f"   Created: {r.get('created_at', '')}\n"
-                        f"   Updated: {r.get('updated_at', '')}\n\n"
-                    )
-            yield self.create_text_message(text_response)
+            text_output = self._format_text_output(memories)
+            yield self.create_text_message(text_output)
 
         except Exception as e:
             # Catch all exceptions to ensure workflow continues
@@ -238,7 +220,10 @@ class GetAllMemoriesTool(Tool):
                 elapsed,
             )
             error_message = f"Error: {e!s}"
-            yield self.create_json_message(
-                {"status": "ERROR", "messages": error_message, "results": []},
+            yield from yield_error(
+                self,
+                request_id,
+                f"Failed to get memories: {error_message}",
+                "get all memories",
+                [],
             )
-            yield self.create_text_message(f"Failed to get memories: {error_message}")
