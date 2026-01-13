@@ -4,14 +4,11 @@ import asyncio
 import concurrent.futures
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import ClassVar
 
 from .logger import get_logger
 
 logger = get_logger(__name__)
-
-if TYPE_CHECKING:
-    pass
 
 
 class TaskTracker:
@@ -25,13 +22,13 @@ class TaskTracker:
     # Class-level tracking of all background tasks submitted to the event loop
     # (includes both read operations that wait for results and write operations
     # that are fire-and-forget). Used for global flow control and monitoring.
-    _bg_tasks: set[asyncio.Future] = set()
-    _bg_tasks_lock: threading.Lock = threading.Lock()
+    _bg_tasks: ClassVar[set[asyncio.Future]] = set()
+    _bg_tasks_lock: ClassVar[threading.Lock] = threading.Lock()
 
     # Statistics tracking for queue monitoring
-    _completed_tasks: int = 0
-    _total_task_duration: float = 0.0
-    _stats_lock: threading.Lock = threading.Lock()
+    _completed_tasks: ClassVar[int] = 0
+    _total_task_duration: ClassVar[float] = 0.0
+    _stats_lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def get_pending_tasks_count(cls) -> int:

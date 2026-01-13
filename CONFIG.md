@@ -8,7 +8,9 @@ This guide provides detailed installation and configuration instructions for the
 - [Configuration Steps](#configuration-steps)
 - [Configuration Examples](#configuration-examples)
 - [Quick Start: Testing Your Configuration](#quick-start-testing-your-configuration)
+- [Usage Examples](#usage-examples)
 - [Runtime Behavior](#runtime-behavior)
+- [Connection Stability & Resource Management](#connection-stability--resource-management)
 - [Important Operational Notes](#important-operational-notes)
 - [Upgrade Guide](#upgrade-guide)
 - [Troubleshooting](#troubleshooting)
@@ -44,9 +46,6 @@ This guide provides detailed installation and configuration instructions for the
 After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 8 tools:
 - `add_memory`, `search_memory`, `get_all_memories`, `get_memory`
 - `update_memory`, `delete_memory`, `delete_all_memories`, `get_memory_history`
-
-This plugin also provides a long-term memory consolidation tool:
-- `consolidate_long_term_memory`
 
 ## Configuration Steps
 
@@ -386,7 +385,7 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
 
 **Option 2: HuggingFace Reranker (Local model, requires manual installation)**
 
-> ⚠️ **Important**: Starting from v0.1.7, `transformers` and `torch` are **not included** in default dependencies to keep installation fast (~22 seconds instead of ~2 minutes 25 seconds). If you want to use HuggingFace reranker, you must manually install these dependencies. See [README.md - Upgrade Guide](README.md#-upgrade-guide) for installation steps.
+> ⚠️ **Important**: Starting from v0.1.7, `transformers` and `torch` are **not included** in default dependencies to keep installation fast (~22 seconds instead of ~2 minutes 25 seconds). If you want to use HuggingFace reranker, you must manually install these dependencies. See [README.md - Upgrade Guide](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-upgrade-guide) for installation steps.
 
 ```json
 {
@@ -458,6 +457,137 @@ After completing the configuration steps above, test your setup:
    - If you encounter errors, check the [Troubleshooting](#troubleshooting) section
 
 For detailed usage examples, see the [Usage Examples](#usage-examples) section below.
+
+## Usage Examples
+
+This section provides complete usage examples for all 8 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
+
+### Add Memory
+
+In Dify workflow, add the `add_memory` tool and configure the following parameters:
+
+![Add Memory Tool Configuration](images/add_memory_example.png)
+
+**Required Parameters:**
+- `user`: User message (e.g., "I love Italian food")
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `assistant`: Assistant response (e.g., "Great! I'll remember that.")
+- `agent_id`: Agent identifier for scoping (recommended to use Dify's `app_id` for stable scoping)
+- `run_id`: Workflow run ID for tracing (recommended to use Dify's `workflow_run_id`)
+- `metadata`: Custom JSON metadata string (e.g., `{"type": "preference", "priority": "high"}`)
+
+### Search Memory
+
+In Dify workflow, add the `search_memory` tool and configure the following parameters:
+
+![Search Memory Tool Configuration](images/search_memory_example.png)
+
+**Required Parameters:**
+- `query`: Search query (e.g., "What food does alex like?")
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `top_k`: Maximum number of results (default: 5)
+- `filters`: JSON filter string for advanced filtering (e.g., `{"AND": [{"user_id": "alex"}, {"agent_id": "scheduler"}]}`)
+- `agent_id`: Agent identifier for scoping
+- `run_id`: Workflow run ID for tracing
+
+**Search with Filters Example:**
+
+![Search Memory with Filters](images/search_memory_filters_example.png)
+
+Configure the `filters` parameter with a JSON string for advanced filtering:
+- Example: `{"categories": {"contains": "diet"}}`
+
+### Get All Memories
+
+In Dify workflow, add the `get_all_memories` tool and configure the following parameters:
+
+![Get All Memories Tool Configuration](images/get_all_memories_example.png)
+
+**Required Parameters:**
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `agent_id`: Agent identifier for scoping
+- `limit`: Maximum number of memories to return (default: 100)
+- `filters`: Advanced metadata filters as JSON string
+- `run_id`: Workflow run ID for tracing
+
+### Get Memory
+
+In Dify workflow, add the `get_memory` tool and configure the following parameters:
+
+![Get Memory Tool Configuration](images/get_memory_example.png)
+
+**Required Parameters:**
+- `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
+
+**Optional Parameters:**
+- `run_id`: Workflow run ID for tracing
+
+### Update Memory
+
+In Dify workflow, add the `update_memory` tool and configure the following parameters:
+
+![Update Memory Tool Configuration](images/update_memory_example.png)
+
+**Required Parameters:**
+- `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
+- `text`: New memory content (e.g., "I love Italian and French food")
+
+**Optional Parameters:**
+- `run_id`: Workflow run ID for tracing
+
+### Delete Memory
+
+In Dify workflow, add the `delete_memory` tool and configure the following parameters:
+
+![Delete Memory Tool Configuration](images/delete_memory_example.png)
+
+**Required Parameters:**
+- `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
+
+**Optional Parameters:**
+- `run_id`: Workflow run ID for tracing
+
+### Delete All Memories
+
+In Dify workflow, add the `delete_all_memories` tool and configure the following parameters:
+
+![Delete All Memories Tool Configuration](images/delete_all_memories_example.png)
+
+**Required Parameters:**
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `agent_id`: Agent identifier for filtering
+- `run_id`: Workflow run ID for tracing (recommended to use Dify's `workflow_run_id`)
+
+**Note**: This operation will automatically reset the vector index (normal behavior).
+
+### Get Memory History
+
+In Dify workflow, add the `get_memory_history` tool and configure the following parameters:
+
+![Get Memory History Tool Configuration](images/get_memory_history_example.png)
+
+**Required Parameters:**
+- `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
+
+**Optional Parameters:**
+- `run_id`: Workflow run ID for tracing
+
+**Important Notes:**
+- `user_id` is **required** for `add_memory`, `search_memory`, and `get_all_memories`
+- `filters` and `metadata` must be valid JSON strings when provided (the client will automatically parse them)
+- `top_k` defaults to 5 if not specified for `search_memory`
+- All tool parameters are case-sensitive
+- **`run_id` Parameter** (optional): Recommended to use Dify's `workflow_run_id` to link multiple memory operations in the same workflow. **Important**: This parameter is only used for request tracing and logging; it is NOT used as a condition for memory layering or filtering
+- **`agent_id` Parameter**: When using `agent_id` in Dify workflows, you should use the **Dify application's `app_id`** (not `workflow_id`). This is because `workflow_id` changes every time you publish a workflow, while `app_id` remains stable and allows you to scope memories consistently across workflow versions
+- For runtime behavior details (async vs sync mode), see [Runtime Behavior](#runtime-behavior) section
 
 ## Runtime Behavior
 
@@ -582,7 +712,7 @@ See the [Vector Store Configuration](#vector-store-configuration-local_vector_db
 
 ## Upgrade Guide
 
-> 📖 **For complete upgrade instructions, see [README.md - Upgrade Guide](README.md#-upgrade-guide)**
+> 📖 **For complete upgrade instructions, see [README.md - Upgrade Guide](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-upgrade-guide)**
 
 ### ⚠️ CRITICAL: Configuration Incompatibility
 
@@ -601,7 +731,7 @@ See the [Vector Store Configuration](#vector-store-configuration-local_vector_db
 
 **⚠️ If you skip deleting credentials**: Plugin will fail to start or show "Internal Server Error".
 
-For detailed upgrade instructions and field mapping, see [README.md - Upgrade Guide](README.md#-upgrade-guide).
+For detailed upgrade instructions and field mapping, see [README.md - Upgrade Guide](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-upgrade-guide).
 
 ## Troubleshooting
 
@@ -652,7 +782,7 @@ For detailed upgrade instructions and field mapping, see [README.md - Upgrade Gu
 - **Solution**:
   - Ensure `filters` parameter is a valid JSON string
   - Use an online JSON validator to check format
-  - Refer to examples in [CHANGELOG.md](CHANGELOG.md)
+  - Refer to examples in [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md)
 
 **Problem**: HTTP timeout
 - **Solution**:
@@ -694,133 +824,11 @@ For detailed upgrade instructions and field mapping, see [README.md - Upgrade Gu
   2. Reconfigure using the new `*_secret` fields (e.g., `local_llm_json_secret`, `local_embedder_json_secret`)
   3. Legacy `*_json` fields are no longer shown in the UI and should not be used
 
-## Usage Examples
-
-This section provides complete usage examples for all 8 tools. For a quick overview, see [README.md - Usage Examples](README.md#-usage-examples).
-
-### Basic Tool Usage
-
-**Add Memory (user_id required):**
-```json
-{
-  "user": "I love Italian food",
-  "assistant": "Great! I'll remember that.",
-  "user_id": "alex"
-}
-```
-
-**Search Memory:**
-```json
-{
-  "query": "What food does alex like?",
-  "user_id": "alex",
-  "top_k": 5
-}
-```
-
-**Search with Filters:**
-```json
-{
-  "query": "user preferences",
-  "user_id": "alex",
-  "filters": "{\"AND\": [{\"user_id\": \"alex\"}, {\"agent_id\": \"scheduler\"}]}",
-  "top_k": 5
-}
-```
-
-### Consolidate Long Term Memory (Dify History → Mem0)
-
-This tool scans Dify conversation history for specified users up to `run_at`, extracts three subtypes
-of long-term memories, and writes them to Mem0:
-- `semantic`: stable preferences / enduring facts / long-term goals
-- `episodic`: notable events/outcomes that may be referenced later
-- `procedural`: reusable workflows/steps/rules
-
-Example payload:
-
-```json
-{
-  "run_at": "2025-12-23T00:00:00Z",
-  "user_ids": "[\"alex\",\"bob\"]",
-  "app_id": "your_dify_app_id",
-  "max_users_per_run": 100,
-  "budget_tokens": 200000,
-  "dify_base_url": "http://localhost:5001",
-  "dify_api_key": "your-dify-api-key"
-}
-```
-
-Important notes:
-- The tool uses Mem0 **checkpoint** memories stored in Mem0 itself for idempotency and resume.
-  These checkpoint items are marked as internal via `metadata.__internal=true` and are not intended
-  for user-facing retrieval.
-- If you use `search_memory` and want to exclude internal checkpoint items, add a NOT filter:
-
-```json
-{
-  "query": "alex preferences",
-  "user_id": "alex",
-  "filters": "{\"NOT\":[{\"__internal\":{\"eq\":true}}]}",
-  "top_k": 5
-}
-```
-
-**Get All Memories:**
-```json
-{
-  "user_id": "alex",
-  "agent_id": "travel_assistant",
-  "limit": 50
-}
-```
-
-**Get Memory (by ID):**
-```json
-{
-  "memory_id": "memory-uuid-here"
-}
-```
-
-**Add Memory with Metadata:**
-```json
-{
-  "user": "I prefer morning meetings",
-  "assistant": "Noted!",
-  "user_id": "alex",
-  "agent_id": "scheduler",
-  "metadata": "{\"type\": \"preference\", \"priority\": \"high\"}"
-}
-```
-
-**Update Memory:**
-```json
-{
-  "memory_id": "memory-uuid-here",
-  "new_text": "I love Italian and French food"
-}
-```
-
-**Delete Memory:**
-```json
-{
-  "memory_id": "memory-uuid-here"
-}
-```
-
-**Important Notes:**
-- `user_id` is **required** for `add_memory`, `search_memory`, and `get_all_memories`
-- `filters` and `metadata` must be valid JSON strings when provided (the client will automatically parse them)
-- `top_k` defaults to 5 if not specified for `search_memory`
-- All tool parameters are case-sensitive
-- **`run_id` Parameter** (optional): Recommended to use Dify's `workflow_run_id` to link multiple memory operations in the same workflow. **Important**: This parameter is only used for request tracing and logging; it is NOT used as a condition for memory layering or filtering
-- **`agent_id` Parameter**: When using `agent_id` in Dify workflows, you should use the **Dify application's `app_id`** (not `workflow_id`). This is because `workflow_id` changes every time you publish a workflow, while `app_id` remains stable and allows you to scope memories consistently across workflow versions
-- For runtime behavior details (async vs sync mode), see [Runtime Behavior](#runtime-behavior) section
-
 ## Additional Resources
 
-- **Privacy Policy**: See [PRIVACY.md](PRIVACY.md) for details about data handling in self-hosted mode
-- **Changelog**: See [CHANGELOG.md](CHANGELOG.md) for detailed version history
-- **Main README**: See [README.md](README.md) for project overview and features
+- **Privacy Policy**: See [PRIVACY.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/PRIVACY.md) for details about data handling in self-hosted mode
+- **Changelog**: See [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md) for detailed version history
+- **Main README**: See [README.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md) for project overview and features
 - **Mem0 Official Docs**: https://docs.mem0.ai
 - **Dify Plugin Docs**: https://docs.dify.ai/docs/plugins
 

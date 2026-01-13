@@ -4,7 +4,7 @@
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups.
+A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
 ---
 
@@ -19,9 +19,6 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - ✅ **Delete Memory** - Remove individual memories
 - ✅ **Delete All Memories** - Batch delete with filters
 - ✅ **Get Memory History** - View change history
-
-### Long-term Memory Consolidation (New)
-- ✅ **Consolidate Long Term Memory** - Incrementally scan Dify conversation history for specified users and consolidate long-term memories into Mem0 (semantic/episodic/procedural)
 
 ### Advanced Capabilities
 - 🖥️ **Self-Hosted Mode** - Run with Local Mem0 (JSON-based config)
@@ -45,84 +42,9 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
   - **PGVector Configuration Enhancement**: Improved connection pool management
     - Automatic addition of TCP keepalive parameters to connection strings
     - Two recommended configuration methods for production environments
-    - See [CONFIG.md](CONFIG.md#connection-stability--resource-management) for details
+    - See [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#connection-stability--resource-management) for details
 
-### Previous Updates (v0.1.8)
-- **Dynamic Log Level Configuration**: Added runtime log level control without redeployment
-  - New `log_level` credential field (INFO/DEBUG/WARNING/ERROR) for online adjustment
-  - Thread-safe log level updates apply to all existing loggers immediately
-  - Default log level is INFO; can be changed to DEBUG for detailed troubleshooting
-- **Timeout Optimization**: Unified and optimized operation timeouts for better performance
-  - Read operations (Search/Get/Get_All/History): unified timeout reduced to 15 seconds (from 30s)
-  - Write operations (Add/Update/Delete): timeout set to 30 seconds for persistence operations
-  - Improved responsiveness while maintaining reliability
-- **Request Tracing Enhancement**: Added `run_id` parameter to all tools for call chain tracking
-  - Recommended to use Dify's `workflow_run_id` to link multiple memory operations in the same workflow
-  - **Important**: `run_id` is only used for request tracing and logging; it is NOT used as a condition for memory layering or filtering
-  - All tools now include request ID in logs for better traceability
-- **Configuration Cleanup**: Removed deprecated configuration fields from UI
-  - Legacy `*_json` fields (e.g., `local_llm_json`) are no longer shown in configuration UI
-  - Only `*_secret` fields (e.g., `local_llm_json_secret`) are available for new installations
-  - **Important**: If you encounter configuration issues after upgrade, please delete old credentials and reconfigure using the new `*_secret` fields
-
-### Previous Updates (v0.1.7)
-- **CPU Overload Protection**: Implemented comprehensive task queue monitoring and overload protection
-  - Background task tracking prevents task accumulation causing CPU 99% utilization
-  - Automatic rejection of new write operations when queue exceeds 5x concurrency limit
-  - Enhanced logging with pending task counts for better observability
-- **Seamless Upgrade Compatibility**: Resolved upgrade errors from v0.1.3 to v0.1.7. See [Upgrade Guide](#-upgrade-guide) for details.
-- **Installation Time Optimization**: Removed `transformers` and `torch` dependencies to restore fast installation (~22 seconds). See [Upgrade Guide](#-upgrade-guide) for local reranker installation instructions.
-- **Configuration Validation**: Added validation to catch common configuration errors
-  - Detects when LLM providers are mistakenly used in vector database configuration
-  - Provides clear error messages before Mem0 validation fails
-- **Code Quality Improvements**:
-  - Fixed recurring indentation errors in multiple tool files
-  - Optimized code formatting and removed line length violations
-  - Changed `_max_ops` from private to public attribute (`max_ops`)
-  - Used `MAX_PENDING_TASKS_MULTIPLIER` constant instead of hardcoded values
-
-### Previous Updates (v0.1.6)
-- **Security Enhancement**: All sensitive configuration fields now use `secret-input` type to protect API keys and credentials in the Dify UI
-  - All JSON configuration fields (`local_llm_json`, `local_embedder_json`, `local_vector_db_json`, `local_graph_db_json`, `local_reranker_json`) are now hidden in the UI
-- **User-Configurable Performance Parameters**: Added optional configuration parameters for production environments
-  - `max_concurrent_memory_operations` - Maximum concurrent memory operations (default: 40)
-  - **Note**: `pgvector_min_connections` and `pgvector_max_connections` were added in v0.1.6 but removed in v0.1.9. Configure connection pool size in vector store JSON config using `minconn` and `maxconn` instead (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
-
-### Previous Updates (v0.1.5)
-- **Search Memory Timestamp Support**: Added timestamp field to search results, displaying the most recent timestamp (created_at or updated_at) in second precision format (`2025-11-03T20:06:27`)
-- **Code Refactoring**: Created `utils/helpers.py` to centralize common utility functions
-  - Abstracted `parse_timeout()` function for unified timeout parameter parsing across all read operations
-  - Abstracted `format_recent_timestamp()` and `parse_iso_timestamp()` for timestamp handling
-- **Code Quality Improvements**: 
-  - Removed unused class imports (`LocalClient`, `AsyncLocalClient`) from tool files
-  - Changed `AsyncLocalClient.ensure_bg_loop()` to instance method call `client.ensure_bg_loop()`
-  - Fixed indentation errors in multiple tool files
-
-### Previous Updates (v0.1.4)
-- **Logging Investigation**: Documented logging output behavior and investigated potential improvements. Identified that logs may appear twice (JSON format from Dify handler + standard format from Python root logger) and that JSON format uses Unicode encoding for non-ASCII characters.
-
-### Previous Updates (v0.1.3)
-- **Unified Logging Configuration**: Implemented centralized logging using Dify's official plugin logger handler to ensure all logs are properly output to the Dify plugin container for better debugging and monitoring.
-- **Database Connection Pool Optimization**: Added automatic connection pool settings for pgvector (min: 10, max: 20) to align with concurrent operation limits, ensuring sufficient database connections for high-concurrency scenarios.
-- **PGVector Configuration Enhancement**: Optimized pgvector configuration handling according to Mem0 official documentation, properly supporting parameter priority (connection_pool > connection_string > individual parameters) and automatically building connection strings from discrete parameters.
-- **Constant Naming Optimization**: Renamed `MAX_CONCURRENT_MEM_ADDS` to `MAX_CONCURRENT_MEMORY_OPERATIONS` (default: 10) to accurately reflect that it controls concurrency for all async memory operations, not just add operations.
-
-### Previous Updates (v0.1.2)
-- **Configurable Timeout Parameters**: All read operations (Search/Get/Get_All/History) now support user-configurable timeout values through the Dify plugin configuration interface. Timeout parameters are set as manual input fields (not exposed to LLM), allowing users to customize timeout behavior per tool based on their specific needs.
-- **Optimized Default Timeouts**: Reduced default timeout values for better responsiveness - all read operations now default to 30 seconds (previously 60s for Search/Get_All), and `MAX_REQUEST_TIMEOUT` reduced to 60 seconds (from 120s).
-- **Code Quality**: Added missing module and class docstrings, fixed formatting issues to comply with Python best practices.
-
-### Previous Updates (v0.1.1)
-- **Timeout & Service Degradation**: Added comprehensive timeout mechanisms for all async read operations (Search/Get/Get_All/History) with graceful service degradation. When operations timeout or encounter errors, the plugin logs the event and returns default/empty results to ensure Dify workflow continuity.
-- **Robust Error Handling**: Enhanced exception handling across all tools to catch all error types (network errors, connection failures, etc.), ensuring workflows continue even when individual tools fail.
-- **Resource Management**: Improved background task cancellation on timeout to prevent resource leaks and hanging tasks.
-- **Production Stability**: Fixed production issues where tools would hang indefinitely, ensuring reliable operation in production environments.
-
-### Previous Updates (v0.1.0)
-- **Smart Memory Management**: `add_memory` tool description updated to reflect its ability to intelligently add, update, or delete memories based on context.
-- **Robust Error Handling**: Enhanced `get_memory`, `update_memory`, and `delete_memory` to gracefully handle non-existent memories and race conditions with clear error messages instead of crashes.
-- **Bug Fixes**: Fixed `get_all_memories` returning empty results by correctly parsing Mem0's dictionary response format.
-- **Documentation**: Added important notes about `delete_all` index reset warnings and vector store connection details.
+> 📖 **For previous version updates, see [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md)**
 
 ---
 
@@ -130,7 +52,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ### Installation
 
-> 📖 **For detailed installation steps, see [CONFIG.md - Installation](CONFIG.md#installation)**
+> 📖 **For detailed installation steps, see [CONFIG.md - Installation](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#installation)**
 
 1. **In Dify Dashboard**
    - Go to `Settings` → `Plugins`
@@ -140,7 +62,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ### Configuration
 
-> 📖 **For detailed configuration steps and examples, see [CONFIG.md - Configuration Steps](CONFIG.md#configuration-steps)**
+> 📖 **For detailed configuration steps and examples, see [CONFIG.md - Configuration Steps](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#configuration-steps)**
 
 After installation, you need to configure:
 
@@ -149,7 +71,8 @@ After installation, you need to configure:
 3. **Optional Configs**: `local_graph_db_json_secret`, `local_reranker_json_secret`
 4. **Performance Parameters** (optional): `max_concurrent_memory_operations`
    - **Note**: PGVector connection pool settings (`minconn`, `maxconn`) are configured in the vector store JSON config, not as separate credential fields
-5. **Log Level** (optional): `log_level` (INFO/DEBUG/WARNING/ERROR, default: INFO) - can be changed online without redeployment
+5. **Connection Keep-Alive** (optional): `heartbeat_interval` (default: 120 seconds, minimum: 30 seconds) - configurable heartbeat interval for connection keep-alive mechanism
+6. **Log Level** (optional): `log_level` (INFO/DEBUG/WARNING/ERROR, default: INFO) - can be changed online without redeployment
 
 **Note**: All JSON configuration fields are displayed as password fields (hidden input) in the Dify UI to protect sensitive information. Legacy `*_json` fields are no longer shown in the UI.
 
@@ -159,29 +82,41 @@ Once configured, all 8 tools are available in your workflows!
 
 ---
 
-## 📖 Usage Examples
+## 📖 Quick Examples
 
-> 📖 **For complete usage examples with all 8 tools, see [CONFIG.md - Usage Examples](CONFIG.md#usage-examples)**
+> 📖 **For complete usage examples with all 8 tools, see [CONFIG.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#usage-examples)**
 
-### Quick Examples
+### Add Memory
 
-**Add Memory:**
-```json
-{
-  "user": "I love Italian food",
-  "assistant": "Great! I'll remember that.",
-  "user_id": "alex"
-}
-```
+In Dify workflow, add the `add_memory` tool and configure the following parameters:
 
-**Search Memories:**
-```json
-{
-  "query": "What food does alex like?",
-  "user_id": "alex",
-  "top_k": 5
-}
-```
+![Add Memory Tool Configuration](images/add_memory_example.png)
+
+**Required Parameters:**
+- `user`: User message (e.g., "I love Italian food")
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `assistant`: Assistant response (e.g., "Great! I'll remember that.")
+- `agent_id`: Agent identifier for scoping
+- `run_id`: Workflow run ID for tracing (recommended to use Dify's `workflow_run_id`)
+- `metadata`: Custom JSON metadata string
+
+### Search Memories
+
+In Dify workflow, add the `search_memory` tool and configure the following parameters:
+
+![Search Memory Tool Configuration](images/search_memory_example.png)
+
+**Required Parameters:**
+- `query`: Search query (e.g., "What food does alex like?")
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `top_k`: Maximum number of results (default: 5)
+- `filters`: JSON filter string for advanced filtering
+- `agent_id`: Agent identifier for scoping
+- `run_id`: Workflow run ID for tracing
 
 **Key Points:**
 - `user_id` is **required** for `add_memory`, `search_memory`, and `get_all_memories`
@@ -203,71 +138,16 @@ Once configured, all 8 tools are available in your workflows!
 | `delete_memory` | Delete single memory |
 | `delete_all_memories` | Batch delete memories |
 | `get_memory_history` | View change history |
-| `consolidate_long_term_memory` | Incrementally consolidate long-term memories from Dify history |
-
-### `consolidate_long_term_memory` Quick Example
-
-```json
-{
-  "run_at": "2025-12-23T00:00:00Z",
-  "user_ids": "[\"alex\",\"bob\"]",
-  "app_id": "your_dify_app_id",
-  "max_users_per_run": 100,
-  "budget_tokens": 200000,
-  "dify_base_url": "http://localhost:5001",
-  "dify_api_key": "your-dify-api-key"
-}
-```
-
-Notes:
-- The tool writes three memory subtypes and sets `metadata.memory_subtype` to `semantic|episodic|procedural`.
-- Checkpoints are stored in Mem0 as internal memories (`metadata.__internal=true`). If you later use `search_memory`, add a filter to exclude internal items.
 
 ---
 
 ## 📚 Documentation
 
-- **[CONFIG.md](CONFIG.md)** - Complete installation and configuration guide
-- **[CHANGELOG.md](CHANGELOG.md)** - Detailed changelog and version history
-- **[PRIVACY.md](PRIVACY.md)** - Privacy policy and data handling
+- **[CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md)** - Complete installation and configuration guide
+- **[CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md)** - Detailed changelog and version history
+- **[PRIVACY.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/PRIVACY.md)** - Privacy policy and data handling
 - **[Mem0 Official Docs](https://docs.mem0.ai)** - Full API documentation
 - **[Dify Plugin Docs](https://docs.dify.ai/docs/plugins)** - Dify plugin development guide
-
----
-
-## 🎯 Use Cases
-
-### Personal Assistant
-```python
-# Remember user preferences
-add_memory("I prefer morning meetings", user_id="john")
-add_memory("I'm vegetarian", user_id="john")
-
-# Query preferences
-search("when does john prefer meetings?", user_id="john")
-```
-
-### Customer Support
-```python
-# Track interactions
-add_memory("Customer reported login issue", user_id="customer_123")
-
-# Retrieve context
-search("previous issues", user_id="customer_123")
-```
-
-### Multi-Agent Systems
-```python
-# Agent-specific memories
-add_memory("User likes Italian food", agent_id="food_agent")
-add_memory("User prefers Rome", agent_id="travel_agent")
-
-# Search across agents
-search(
-    "user preferences",
-    filters='{"OR": [{"agent_id": "food_agent"}, {"agent_id": "travel_agent"}]}'
-)
-```
 
 ---
 
@@ -280,11 +160,11 @@ search(
 #### Configuration Field Changes
 
 **Version History:**
-- **v0.1.3 and earlier**: Used `text-input` type fields (e.g., `local_llm_json`, `local_embedder_json`, `local_vector_db_json`)
+- **v0.1.9+**: Removed `pgvector_min_connections` and `pgvector_max_connections` credential fields (now configured in vector store JSON)
+- **v0.1.8+**: Removed legacy `*_json` fields completely, only `*_secret` fields are available
 - **v0.1.6**: Changed to `secret-input` type fields (e.g., `local_llm_json_secret`, `local_embedder_json_secret`, `local_vector_db_json_secret`)
 - **v0.1.6**: Added `pgvector_min_connections` and `pgvector_max_connections` as separate credential fields
-- **v0.1.8+**: Removed legacy `*_json` fields completely, only `*_secret` fields are available
-- **v0.1.9+**: Removed `pgvector_min_connections` and `pgvector_max_connections` credential fields (now configured in vector store JSON)
+- **v0.1.3 and earlier**: Used `text-input` type fields (e.g., `local_llm_json`, `local_embedder_json`, `local_vector_db_json`)
 
 **Why This Causes Issues:**
 - Dify framework **cannot automatically migrate** credentials from `text-input` to `secret-input` type
@@ -318,7 +198,7 @@ search(
      - `local_graph_db_json_secret` (was `local_graph_db_json`, optional)
      - `local_reranker_json_secret` (was `local_reranker_json`, optional)
    - **Important**: If you previously used `pgvector_min_connections` and `pgvector_max_connections` credential fields, you must now configure them in the `local_vector_db_json_secret` JSON config:
-     - Add `"minconn": 10` and `"maxconn": 40` to your pgvector config JSON (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for examples)
+     - Add `"minconn": 10` and `"maxconn": 40` to your pgvector config JSON (see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for examples)
      - These fields are no longer available as separate credential fields
    - Use the same configuration values you backed up in step 1
    - Save the configuration
@@ -397,7 +277,7 @@ pip install transformers torch
 
 ## 📌 Important Notes
 
-> 📖 **For detailed operational notes, runtime behavior, and troubleshooting, see [CONFIG.md](CONFIG.md)**
+> 📖 **For detailed operational notes, runtime behavior, and troubleshooting, see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md)**
 
 ### Quick Reference
 
@@ -443,7 +323,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
-| v0.1.9 | 2025-12-26 | Connection stability & resource management: TCP silent timeout prevention, connection pool memory leak prevention, PGVector configuration enhancement |
+| v0.1.9 | 2025-01-11 | Connection stability & resource management: TCP silent timeout prevention, connection pool memory leak prevention, PGVector configuration enhancement |
 | v0.1.8 | 2025-12-25 | Dynamic log level configuration, timeout optimization, request tracing with run_id, configuration cleanup |
 | v0.1.7 | 2025-12-16 | CPU overload protection, seamless upgrade compatibility, configuration validation, code quality improvements |
 | v0.1.6 | 2025-12-08 | Security enhancement (secret-input for all configs), user-configurable performance parameters |
@@ -461,7 +341,7 @@ done
 | v0.0.2 | 2025-02-24 | Basic add and retrieve functionality |
 | v0.0.1 | Initial | First release |
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+See [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md) for detailed changes.
 
 ---
 
@@ -485,7 +365,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](../../issues)
+- **Issues**: [GitHub Issues](https://github.com/beersoccer/mem0_dify_plugin/issues)
 - **Documentation**: [Mem0 Docs](https://docs.mem0.ai)
 - **Dify Docs**: [Plugin Development](https://docs.dify.ai/docs/plugins)
 
@@ -493,7 +373,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ⭐ Show Your Support
 
-If you find this plugin useful, please give it a ⭐ on GitHub!
+If you find this plugin useful, please give it a ⭐ on [GitHub](https://github.com/beersoccer/mem0_dify_plugin)!
 
 ---
 

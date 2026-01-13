@@ -19,7 +19,7 @@ This release focuses on resolving critical production issues related to TCP conn
   - Prevents connection pool exhaustion and memory leaks in long-running processes
 - **PGVector Connection Pool Configuration Enhancement**: Improved connection pool management with TCP keepalive support
   - Automatic addition of TCP keepalive parameters to connection strings if not present
-  - Support for two recommended configuration methods (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for details)
+  - Support for two recommended configuration methods (see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for details)
   - Automatic creation of psycopg3 ConnectionPool with best practice defaults
   - Connection pool parameters properly configured to prevent connection exhaustion
 
@@ -61,7 +61,7 @@ This release focuses on resolving critical production issues related to TCP conn
 #### ⚠️ Migration Notes
 - **No Breaking Changes**: All changes are backward compatible
 - **Removed Configuration Fields**: `pgvector_min_connections` and `pgvector_max_connections` credential fields removed
-  - **Migration**: Configure connection pool size in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
+  - **Migration**: Configure connection pool size in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
   - If you have these fields in old credentials, delete credentials and reconfigure
 - **Automatic Features**: Connection keep-alive and TCP keepalive parameters are automatically enabled
 - **Configuration Optional**: `heartbeat_interval` can be configured in credentials (default: 120 seconds)
@@ -74,7 +74,7 @@ This release focuses on resolving critical production issues related to TCP conn
 
 #### 🎯 Performance Recommendations
 1. **Connection Keep-Alive**: Default heartbeat interval (120 seconds) is suitable for most environments. Adjust if needed based on network infrastructure timeout settings.
-2. **PGVector Configuration**: Use recommended configuration methods (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret)) with TCP keepalive parameters for optimal connection stability.
+2. **PGVector Configuration**: Use recommended configuration methods (see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret)) with TCP keepalive parameters for optimal connection stability.
 3. **Resource Management**: Connection pools are automatically managed; no manual cleanup required. System will automatically clean up resources when configuration changes.
 
 ---
@@ -159,7 +159,7 @@ This release introduces dynamic log level configuration, optimizes operation tim
 - **Removed**: Legacy `*_json` fields (e.g., `local_llm_json`, `local_embedder_json`) are **completely removed** from the configuration UI
 - **Removed**: `pgvector_min_connections` and `pgvector_max_connections` credential fields (v0.1.9+)
 - **Required**: Only `*_secret` fields (e.g., `local_llm_json_secret`, `local_embedder_json_secret`) are available
-- **Migration**: PGVector connection pool settings must now be configured in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [CONFIG.md](CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
+- **Migration**: PGVector connection pool settings must now be configured in `local_vector_db_json_secret` JSON using `minconn` and `maxconn` (see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret))
 
 **Required Upgrade Steps:**
 1. **Backup your configuration** (copy all credential values)
@@ -173,7 +173,7 @@ This release introduces dynamic log level configuration, optimizes operation tim
 - "Internal Server Error" when accessing plugin settings
 - Tools may not work correctly
 
-For detailed upgrade instructions, see [README.md - Upgrade Guide](README.md#-upgrade-guide).
+For detailed upgrade instructions, see [README.md - Upgrade Guide](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-upgrade-guide).
 
 **Other Changes:**
 - **Timeout Changes**: Read operation timeout reduced from 30s to 15s
@@ -253,7 +253,7 @@ This release focuses on resolving CPU overload issues, implementing backward-com
   - `max_concurrent_memory_operations` configured: Uses configured value directly
   - Not configured: Uses default value (40)
   - Invalid/unset values: Uses defaults with warning logs
-  - See [CONFIG.md](CONFIG.md#step-3-configure-performance-parameters-optional-recommended-for-production) for detailed documentation
+  - See [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#step-3-configure-performance-parameters-optional-recommended-for-production) for detailed documentation
 
 #### 📝 Files Changed
 - **Modified Files**:
@@ -271,7 +271,7 @@ This release focuses on resolving CPU overload issues, implementing backward-com
   - `build_package.sh` - Updated version to 0.1.7
 
 #### ⚠️ Migration Notes
-- **Upgrading from v0.1.3**: See [README.md - Upgrade Guide](README.md#-upgrade-guide) for detailed upgrade instructions and installation time optimization details.
+- **Upgrading from v0.1.3**: See [README.md - Upgrade Guide](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-upgrade-guide) for detailed upgrade instructions and installation time optimization details.
 - **Credential Migration**: 
   - **Code-level backward compatibility**: Code can read both old `*_json` and new `*_secret` fields
   - **UI-level change**: New `*_secret` fields are shown in UI, old `*_json` fields are hidden
