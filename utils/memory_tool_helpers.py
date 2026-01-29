@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from utils.logger import get_logger
 from utils.mem0_client import (
@@ -148,7 +149,7 @@ def execute_async_read_operation(  # noqa: PLR0913
     try:
         failsafe_timeout = timeout + 1.0
         result = future.result(timeout=failsafe_timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         error_type = "TIMEOUT"
         result = None
     except FuturesTimeoutError:

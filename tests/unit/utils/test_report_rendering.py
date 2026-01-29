@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from logs.analyze_mem0_log import render_markdown_performance_report
 from logs.log_analyzer import AnalysisResult, EventKind, LogEvent
@@ -8,7 +8,7 @@ from logs.log_analyzer import AnalysisResult, EventKind, LogEvent
 
 def test_report_markdown_formatting_no_top_query_and_no_rank_col() -> None:
     tz = timezone(timedelta(hours=8))
-    base = datetime(2025, 12, 22, 2, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2025, 12, 22, 2, 0, 0, tzinfo=UTC)
 
     # Build a small set of events that will produce:
     # - hourly stats table

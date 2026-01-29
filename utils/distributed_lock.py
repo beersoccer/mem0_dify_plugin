@@ -156,10 +156,14 @@ class LockManager:
         # 2. Check if existing lock has expired
         if existing_lock:
             if not existing_lock.is_expired():
+                time_since_acquired = (
+                    datetime.now(UTC) - parse_iso_timestamp(existing_lock.acquired_at)
+                ).total_seconds()
+                expires_in = existing_lock.ttl_seconds - time_since_acquired
                 logger.warning(
                     f"Lock already held by {existing_lock.holder_id} "
                     f"(acquired at {existing_lock.acquired_at}, "
-                    f"expires in {existing_lock.ttl_seconds - (datetime.now(UTC) - parse_iso_timestamp(existing_lock.acquired_at)).total_seconds():.0f}s)"
+                    f"expires in {expires_in:.0f}s)"
                 )
                 return False, existing_lock
 
@@ -232,7 +236,8 @@ class LockManager:
         """Check lock status (without acquiring).
 
         Returns:
-            (is_locked, lock): Returns (True, lock) if lock exists and not expired, (False, None) otherwise
+            (is_locked, lock): Returns (True, lock) if lock exists and not expired,
+                (False, None) otherwise
         """
         _, existing_lock = self._load_lock(user_id, app_id)
 

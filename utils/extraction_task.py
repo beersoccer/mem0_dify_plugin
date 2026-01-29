@@ -253,8 +253,12 @@ class TaskManager:
             
             # Create new task with infer=False to avoid LLM calls and embedding
             metadata = self._task_metadata(task.task_id)
-            user_id = task.user_ids[0] if task.user_ids and len(task.user_ids) == 1 else "__system__"
-            res = self.mem.add(text, user_id=user_id, metadata=metadata, infer=False)
+            user_id = (
+                task.user_ids[0]
+                if task.user_ids and len(task.user_ids) == 1
+                else "__system__"
+            )
+            _ = self.mem.add(text, user_id=user_id, metadata=metadata, infer=False)
             
             # Note: The memory_id may change after delete+add, but this is acceptable
             # for internal task tracking

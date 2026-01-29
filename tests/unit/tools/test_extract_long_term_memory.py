@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 
 def test_parse_user_ids_variants() -> None:
     from utils.helpers import _parse_user_ids

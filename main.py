@@ -16,6 +16,7 @@ os.environ.setdefault("DO_NOT_TRACK", "1")
 os.environ.setdefault("DIFY_PLUGIN_RUNTIME", "1")
 
 from dify_plugin import DifyPluginEnv, Plugin
+
 from utils.background_loop import BackgroundEventLoop
 from utils.constants import MAX_REQUEST_TIMEOUT
 from utils.logger import get_logger

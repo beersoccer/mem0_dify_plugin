@@ -51,7 +51,10 @@ class CheckExtractionStatusTool(Tool):
                     {
                         "status": "NOT_FOUND",
                         "task_id": task_id,
-                        "message": f"Task {task_id} not found. It may have been completed and cleaned up, or never existed.",
+                        "message": (
+                            f"Task {task_id} not found. It may have been completed "
+                            "and cleaned up, or never existed."
+                        ),
                     }
                 )
                 yield self.create_text_message(
@@ -86,8 +89,13 @@ class CheckExtractionStatusTool(Tool):
             status_msg = f"Task {task_id} status: {task_status.status.upper()}"
             if task_status.status == "running":
                 status_msg += f" ({task_status.progress * 100:.1f}% complete)"
-            status_msg += f"\nProcessed: {task_status.processed_users}/{task_status.user_count} users"
-            status_msg += f"\nScanned: {task_status.scanned_conversations} conversations, {task_status.scanned_messages} messages"
+            status_msg += (
+                f"\nProcessed: {task_status.processed_users}/{task_status.user_count} users"
+            )
+            status_msg += (
+                f"\nScanned: {task_status.scanned_conversations} conversations, "
+                f"{task_status.scanned_messages} messages"
+            )
             status_msg += f"\nWritten memories: {task_status.written_memories}"
 
             if task_status.error:

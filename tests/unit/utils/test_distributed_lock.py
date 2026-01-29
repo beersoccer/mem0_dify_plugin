@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
-
-import pytest
 
 from utils.distributed_lock import DistributedLock, LockManager
 

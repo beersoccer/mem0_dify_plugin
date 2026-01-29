@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from tools.extract_long_term_memory import (
     _count_message_tokens,
     _truncate_to_recent_messages,

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from logs.log_analyzer import analyze_events, parse_plugin_log_line
 
 
 def test_timeout_then_completed_found0_is_degraded() -> None:
-    ts = datetime(2025, 12, 22, 2, 51, 26, tzinfo=timezone.utc)
+    ts = datetime(2025, 12, 22, 2, 51, 26, tzinfo=UTC)
     timeout_line = (
         "2025/12/22 02:51:26 stdio.go:182: [INFO]plugin beersoccer/mem0ai:0.1.7: "
         "Search operation timed out after 5.0 seconds (async, query: 我是谁..., user_id: u1)"
@@ -28,7 +28,7 @@ def test_timeout_then_completed_found0_is_degraded() -> None:
 
 
 def test_failed_then_completed_found0_is_degraded() -> None:
-    ts = datetime(2025, 12, 22, 3, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2025, 12, 22, 3, 0, 0, tzinfo=UTC)
     failed_line = (
         "2025/12/22 03:00:00 stdio.go:182: [INFO]plugin beersoccer/mem0ai:0.1.7: "
         "Search operation failed with error: ConnectionError (async, query: q..., user_id: u2)"
@@ -49,7 +49,7 @@ def test_failed_then_completed_found0_is_degraded() -> None:
 
 
 def test_completed_found0_without_error_is_not_degraded() -> None:
-    ts = datetime(2025, 12, 22, 4, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2025, 12, 22, 4, 0, 0, tzinfo=UTC)
     completed_line = (
         "2025/12/22 04:00:00 stdio.go:182: [INFO]plugin beersoccer/mem0ai:0.1.7: "
         "Search completed (async, query: q..., user_id: u3, found 0 results, results: [])"
