@@ -1,0 +1,18 @@
+---
+alwaysApply: true
+description: Security and secrets management rules
+---
+
+# Security & Secrets
+
+## Secrets
+- Never commit secrets (API keys, passwords, tokens)
+- `.env` files and private keys must be ignored by git and excluded from packaging
+- If configuration must store sensitive fields: use encrypted strings or environment-variable injection
+- For any change touching auth/credentials: add a short security note in the plan (risk + mitigation)
+
+## Telemetry / Analytics
+- Do not remove or bypass telemetry disabling in `main.py` without a clear reason
+- If enabling telemetry for debugging:
+  - Gate behind explicit env var and keep default disabled
+  - Document in SPEC/PLAN and ensure secrets are not leaked

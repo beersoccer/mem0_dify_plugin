@@ -1,0 +1,29 @@
+identity:
+  author: mem0
+  name: check_extraction_status
+  label:
+    en_US: Check Extraction Status
+    zh_Hans: 查询记忆提取任务状态
+description:
+  human:
+    en_US: Check the status and progress of an async extraction task. Use this tool after calling extract_long_term_memory to monitor task progress.
+    zh_Hans: 查询异步记忆提取任务的状态和进度。在调用 extract_long_term_memory 后使用此工具来监控任务进度。
+  llm: Use this tool to check the status and progress of an async extraction task. Call this after extract_long_term_memory to monitor task progress.
+parameters:
+  - name: task_id
+    type: string
+    required: true
+    label:
+      en_US: Task ID
+      zh_Hans: 任务ID
+    human_description:
+      en_US: The task_id returned by extract_long_term_memory tool when the task was accepted.
+      zh_Hans: extract_long_term_memory 工具接受任务时返回的 task_id。
+    llm_description: The task_id returned by extract_long_term_memory tool when the task was accepted.
+    form: llm
+extra:
+  python:
+    source: tools/check_extraction_status.py
+
+
+

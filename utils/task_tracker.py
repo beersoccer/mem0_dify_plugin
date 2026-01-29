@@ -66,7 +66,9 @@ class TaskTracker:
         """
         with cls._stats_lock:
             completed = cls._completed_tasks
-            avg_duration = cls._total_task_duration / completed if completed > 0 else 0.0
+            avg_duration = (
+                cls._total_task_duration / completed if completed > 0 else 0.0
+            )
             # Reset counters for next monitoring period
             cls._completed_tasks = 0
             cls._total_task_duration = 0.0
@@ -132,7 +134,10 @@ class TaskTracker:
                 # (e.g., memory already deleted, concurrent operations)
                 # Log at warning level without stack trace
                 error_msg = str(e)
-                if "not found" in error_msg.lower() or "already been deleted" in error_msg.lower():
+                if (
+                    "not found" in error_msg.lower()
+                    or "already been deleted" in error_msg.lower()
+                ):
                     logger.warning(
                         "Background task '%s' completed with expected error (duration: %.2fs): %s",
                         task_name,
@@ -159,4 +164,3 @@ class TaskTracker:
                 )
 
         future.add_done_callback(_done_callback)
-

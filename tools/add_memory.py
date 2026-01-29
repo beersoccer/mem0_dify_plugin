@@ -7,6 +7,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
+
 from utils.config_builder import is_async_mode
 from utils.constants import (
     ADD_ACCEPT_RESULT,
@@ -72,6 +73,10 @@ class AddMemoryTool(Tool):
         if metadata:
             payload["metadata"] = metadata
 
+        # Explicitly set infer=True to ensure memory extraction happens
+        # Mem0 defaults to infer=True, but being explicit ensures consistency
+        payload["infer"] = True
+
         return payload
 
     def _should_skip(
@@ -79,12 +84,8 @@ class AddMemoryTool(Tool):
         messages: list[dict[str, str]],
     ) -> bool:
         """Check if memory addition should be skipped due to empty messages."""
-        return (
-            not messages
-            or not any(
-                isinstance(m.get("content"), str) and m["content"].strip()
-                for m in messages
-            )
+        return not messages or not any(
+            isinstance(m.get("content"), str) and m["content"].strip() for m in messages
         )
 
     def _execute_async_add(  # noqa: PLR0913
@@ -107,11 +108,13 @@ class AddMemoryTool(Tool):
             future,
             f"add_memory(user_id={user_id}, req_id={request_id})",
         )
-        yield self.create_json_message({
-            "status": "SUCCESS",
-            "messages": messages,
-            **ADD_ACCEPT_RESULT,
-        })
+        yield self.create_json_message(
+            {
+                "status": "SUCCESS",
+                "messages": messages,
+                **ADD_ACCEPT_RESULT,
+            }
+        )
         yield self.create_text_message(
             "Memory addition has been accepted and will be processed asynchronously.",
         )
@@ -137,15 +140,19 @@ class AddMemoryTool(Tool):
             user_id,
             elapsed,
         )
-        yield self.create_json_message({
-            "status": "SUCCESS",
-            "messages": messages,
-            "results": result,
-        })
+        yield self.create_json_message(
+            {
+                "status": "SUCCESS",
+                "messages": messages,
+                "results": result,
+            }
+        )
         yield self.create_text_message("Memory added synchronously.")
         log_thread_info(logger, request_id, "COMPLETED", start_time)
 
-    def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
+    def _invoke(
+        self, tool_parameters: dict[str, Any]
+    ) -> Generator[ToolInvokeMessage, None, None]:
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
@@ -155,7 +162,9 @@ class AddMemoryTool(Tool):
         # Validate user_id
         user_id = validate_user_id(tool_parameters)
         if not user_id:
-            yield from yield_error(self, request_id, "user_id is required", "add memory", {})
+            yield from yield_error(
+                self, request_id, "user_id is required", "add memory", {}
+            )
             return
 
         # Build messages and payload
@@ -170,12 +179,16 @@ class AddMemoryTool(Tool):
                     request_id,
                     user_id,
                 )
-                yield self.create_json_message({
-                    "status": "SUCCESS",
-                    "messages": messages,
-                    **ADD_SKIP_RESULT,
-                })
-                yield self.create_text_message("Skipped memory addition for empty messages.")
+                yield self.create_json_message(
+                    {
+                        "status": "SUCCESS",
+                        "messages": messages,
+                        **ADD_SKIP_RESULT,
+                    }
+                )
+                yield self.create_text_message(
+                    "Skipped memory addition for empty messages."
+                )
                 return
 
             async_mode = is_async_mode(self.runtime.credentials)
@@ -198,11 +211,21 @@ class AddMemoryTool(Tool):
             # Execute add operation
             if async_mode:
                 yield from self._execute_async_add(
-                    payload, timeout, user_id, request_id, messages, start_time,
+                    payload,
+                    timeout,
+                    user_id,
+                    request_id,
+                    messages,
+                    start_time,
                 )
             else:
                 yield from self._execute_sync_add(
-                    payload, user_id, request_id, mode_str, messages, start_time,
+                    payload,
+                    user_id,
+                    request_id,
+                    mode_str,
+                    messages,
+                    start_time,
                 )
 
         except Exception as e:

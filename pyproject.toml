@@ -1,0 +1,53 @@
+[project]
+name = "mem0-dify-plugin"
+version = "0.1.9"
+description = "Mem0 Dify plugin"
+requires-python = ">=3.12"
+dependencies = [
+  "mem0ai>1.0.0",
+  "openai",
+  "azure-identity",
+  "langchain-neo4j",
+  "rank-bm25",
+  "psycopg[binary,pool]",
+  "dify_plugin",
+  "tiktoken",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.4",
+  "ruff==0.8.4",
+  "locust>=2.0.0",
+  "python-dotenv>=1.0.0",
+  "pytest-forked>=1.6.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-p no:warnings -p no:langsmith --tb=short"
+testpaths = ["tests"]
+# Disable langsmith auto-upload to avoid recursion errors with connection pools
+# Set LANGCHAIN_TRACING_V2=false or LANGCHAIN_ENDPOINT="" to disable
+# Disable output capturing to avoid gevent monkey patching issues
+# Use forked mode to isolate tests that import dify_plugin
+# Run with: pytest --forked -m dify_plugin
+# Note: --forked requires pytest-forked plugin
+# Suppress warnings (MonkeyPatchWarning from gevent)
+filterwarnings = [
+    "ignore::gevent.monkey.MonkeyPatchWarning",
+    "ignore::UserWarning:gevent",
+]
+# Suppress session header by setting log_cli to false
+log_cli = false
+log_cli_level = "INFO"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "dify_plugin: tests that import dify_plugin (requires fork isolation to avoid gevent monkey patching conflicts)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

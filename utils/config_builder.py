@@ -96,7 +96,9 @@ def _validate_parsed_data(data: dict[str, Any], field_name: str) -> None:
         _raise_config_error(msg)
 
 
-def _parse_json_block(raw: str | dict[str, Any] | None, field_name: str) -> dict[str, Any] | None:
+def _parse_json_block(
+    raw: str | dict[str, Any] | None, field_name: str
+) -> dict[str, Any] | None:
     """Parse a JSON block from string or dict.
 
     Args:
@@ -186,7 +188,9 @@ def _parse_required_configs(
         "local_llm_json",
     )
     embedder = _parse_json_block(
-        _get_credential_value(credentials, "local_embedder_json_secret", "local_embedder_json"),
+        _get_credential_value(
+            credentials, "local_embedder_json_secret", "local_embedder_json"
+        ),
         "local_embedder_json",
     )
     vector_store = _parse_json_block(
@@ -199,7 +203,9 @@ def _parse_required_configs(
     )
 
     if llm is None:
-        msg = "LLM configuration (local_llm_json_secret) is required in self-hosted mode"
+        msg = (
+            "LLM configuration (local_llm_json_secret) is required in self-hosted mode"
+        )
         _raise_config_error(msg)
     if embedder is None:
         msg = (
@@ -231,9 +237,8 @@ def _normalize_vector_store(vector_store: dict[str, Any]) -> None:
         vector_store: Vector store configuration dictionary (modified in-place).
 
     """
-    if (
-        vector_store.get("provider") == "pgvector"
-        and isinstance(vector_store.get("config"), dict)
+    if vector_store.get("provider") == "pgvector" and isinstance(
+        vector_store.get("config"), dict
     ):
         logger.debug("Normalizing pgvector configuration")
         vector_store["config"] = normalize_pgvector_config(
@@ -266,11 +271,15 @@ def _build_config_dict(
 
     """
     reranker = _parse_json_block(
-        _get_credential_value(credentials, "local_reranker_json_secret", "local_reranker_json"),
+        _get_credential_value(
+            credentials, "local_reranker_json_secret", "local_reranker_json"
+        ),
         "local_reranker_json",
     )
     graph_store = _parse_json_block(
-        _get_credential_value(credentials, "local_graph_db_json_secret", "local_graph_db_json"),
+        _get_credential_value(
+            credentials, "local_graph_db_json_secret", "local_graph_db_json"
+        ),
         "local_graph_db_json",
     )
 
@@ -334,7 +343,7 @@ def build_local_mem0_config(credentials: dict[str, Any]) -> dict[str, Any]:
 def is_async_mode(credentials: dict[str, Any]) -> bool:
     """Read async_mode from credentials and coerce to boolean.
 
-    Defaults to True (异步模式). Accepts common truthy/falsey string values.
+    Defaults to True (async mode). Accepts common truthy/falsey string values.
     """
     value = credentials.get("async_mode")
     if isinstance(value, bool):

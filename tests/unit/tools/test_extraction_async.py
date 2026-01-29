@@ -1,0 +1,573 @@
+"""Tests for async extraction implementation.
+
+This module tests the refactored extraction tool that uses:
+- BackgroundEventLoop for async execution
+- TaskTracker for task monitoring
+- Concurrent processing (up to 5 users)
+- Timeout controls and error handling
+"""
+
+import asyncio
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from tools.extract_long_term_memory import (
+    ExtractLongTermMemoryTool,
+    _execute_extraction_async,
+    _process_single_user,
+)
+from utils.constants import EXTRACTION_MAX_CONCURRENT_USERS
+from utils.extraction import ScanStats, UserCheckpoint
+
+
+@pytest.fixture
+def mock_memory():
+    """Mock Memory instance."""
+    memory = MagicMock()
+    memory.add.return_value = {"results": [{"event": "ADD", "id": "mem_123"}]}
+    memory.get_all.return_value = {"results": []}
+    memory.update.return_value = None
+    return memory
+
+
+@pytest.fixture
+def mock_subtype_mems(mock_memory):
+    """Mock subtype memory instances."""
+    return {
+        "semantic": MagicMock(memory=mock_memory),
+        "episodic": MagicMock(memory=mock_memory),
+        "procedural": MagicMock(memory=mock_memory),
+    }
+
+
+@pytest.fixture
+def mock_dify_client():
+    """Mock Dify API client."""
+    client = MagicMock()
+    client.list_conversations.return_value = {
+        "data": [
+            {
+                "id": "conv1",
+                "created_at": "2026-01-23T00:00:00Z",
+                "updated_at": "2026-01-23T12:00:00Z",
+            }
+        ],
+        "has_more": False,
+    }
+    client.list_messages.return_value = {
+        "data": [
+            {
+                "id": "msg1",
+                "query": "Hello",
+                "answer": "Hi there",
+                "created_at": "2026-01-23T10:00:00Z",
+            }
+        ],
+        "has_more": False,
+    }
+    return client
+
+
+@pytest.fixture
+def mock_lock_manager():
+    """Mock lock manager."""
+    manager = MagicMock()
+    manager.acquire_lock.return_value = (True, None)
+    manager.release_lock.return_value = None
+    return manager
+
+
+class TestProcessSingleUser:
+    """Tests for _process_single_user function."""
+
+    def test_successful_processing(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test successful user processing."""
+        with (
+            patch("tools.extract_long_term_memory.load_checkpoint") as mock_load,
+            patch("tools.extract_long_term_memory.save_checkpoint_atomic") as mock_save,
+            patch("tools.extract_long_term_memory.scan_user_conversations_incremental") as mock_scan,
+        ):
+            # Setup mocks
+            mock_load.return_value = (None, None)
+            mock_save.return_value = (True, "cp_123")
+            mock_scan.return_value = (
+                {},  # segments_by_conv
+                ScanStats(
+                    scanned_conversations=1,
+                    scanned_messages=1,
+                    dropped_future_messages=0,
+                ),
+                "success",
+            )
+
+            result = _process_single_user(
+                base_mem=mock_memory,
+                subtype_mems=mock_subtype_mems,
+                user_id="user1",
+                app_id="app1",
+                run_id="run1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify=mock_dify_client,
+                lock_manager=mock_lock_manager,
+                max_conversations=50,
+                max_tokens_per_conversation=64000,
+            )
+
+            assert result["user_id"] == "user1"
+            assert result["status"] == "SUCCESS"
+            assert result["skipped"] is False
+            assert mock_lock_manager.acquire_lock.called
+            assert mock_lock_manager.release_lock.called
+
+    def test_lock_not_acquired(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test user skipped when lock cannot be acquired."""
+        # Lock is held by another process
+        existing_lock = MagicMock(holder_id="other_run")
+        mock_lock_manager.acquire_lock.return_value = (False, existing_lock)
+
+        result = _process_single_user(
+            base_mem=mock_memory,
+            subtype_mems=mock_subtype_mems,
+            user_id="user1",
+            app_id="app1",
+            run_id="run1",
+            start_time="2026-01-23T00:00:00Z",
+            end_time="2026-01-24T00:00:00Z",
+            dify=mock_dify_client,
+            lock_manager=mock_lock_manager,
+            max_conversations=20,
+            max_tokens_per_conversation=64000,
+        )
+
+        assert result["status"] == "SKIPPED"
+        assert result["skipped"] is True
+        assert result["reason"] == "lock_held"
+        assert result["lock_holder"] == "other_run"
+
+    def test_already_processed(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test user skipped when already processed."""
+        with patch("tools.extract_long_term_memory.load_checkpoint") as mock_load:
+            # Checkpoint shows already processed
+            cp = UserCheckpoint()
+            cp.last_run_at = "2026-01-25T00:00:00Z"  # After end_time
+            mock_load.return_value = ("cp_123", cp)
+
+            result = _process_single_user(
+                base_mem=mock_memory,
+                subtype_mems=mock_subtype_mems,
+                user_id="user1",
+                app_id="app1",
+                run_id="run1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify=mock_dify_client,
+                lock_manager=mock_lock_manager,
+                max_conversations=50,
+                max_tokens_per_conversation=64000,
+            )
+
+            assert result["status"] == "SKIPPED"
+            assert result["skipped"] is True
+            assert result["reason"] == "already_processed"
+            assert mock_lock_manager.release_lock.called
+
+    def test_dify_api_error(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test error handling when Dify API fails."""
+        with (
+            patch("tools.extract_long_term_memory.load_checkpoint") as mock_load,
+            patch("tools.extract_long_term_memory.scan_user_conversations_incremental") as mock_scan,
+        ):
+            mock_load.return_value = (None, None)
+            mock_scan.side_effect = Exception("Dify API error")
+
+            result = _process_single_user(
+                base_mem=mock_memory,
+                subtype_mems=mock_subtype_mems,
+                user_id="user1",
+                app_id="app1",
+                run_id="run1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify=mock_dify_client,
+                lock_manager=mock_lock_manager,
+                max_conversations=50,
+                max_tokens_per_conversation=64000,
+            )
+
+            assert result["status"] == "ERROR"
+            assert len(result["errors"]) > 0
+            assert mock_lock_manager.release_lock.called
+
+
+@pytest.mark.asyncio
+class TestExecuteExtractionAsync:
+    """Tests for _execute_extraction_async function."""
+
+    async def test_concurrent_processing(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test that multiple users are processed concurrently."""
+        user_ids = [f"user{i}" for i in range(10)]
+
+        # Mock _process_single_user to return success
+        with (
+            patch("tools.extract_long_term_memory._process_single_user") as mock_process,
+            patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
+            patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
+            patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
+        ):
+            mock_dify_cls.return_value = mock_dify_client
+            mock_lock_cls.return_value = mock_lock_manager
+
+            # Track concurrent executions
+            concurrent_count = []
+            max_concurrent = [0]
+
+            def mock_process_user(*args, **kwargs):
+                concurrent_count.append(1)
+                max_concurrent[0] = max(max_concurrent[0], len(concurrent_count))
+                time.sleep(0.1)  # Simulate processing time
+                concurrent_count.pop()
+                return {
+                    "user_id": kwargs.get("user_id", args[2] if len(args) > 2 else "unknown"),
+                    "status": "SUCCESS",
+                    "skipped": False,
+                    "scanned_conversations": 1,
+                    "scanned_messages": 1,
+                    # Current implementation extracts only one classified type per conversation
+                    "written_memories": {"semantic": 1, "episodic": 0, "procedural": 0},
+                }
+
+            mock_process.side_effect = mock_process_user
+
+            result = await _execute_extraction_async(
+                base_mem=mock_memory,
+                subtype_mems=mock_subtype_mems,
+                task_id="task1",
+                run_id="run1",
+                user_ids=user_ids,
+                app_id="app1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify_base_url="http://localhost",
+                dify_api_key="test_key",
+                max_conversations=50,
+            )
+
+            assert result["status"] == "SUCCESS"
+            assert result["summary"]["processed_users"] == 10
+            assert len(result["per_user"]) == 10
+
+            # Verify concurrent processing (should be limited to 5)
+            assert max_concurrent[0] <= EXTRACTION_MAX_CONCURRENT_USERS
+
+    async def test_time_budget_exceeded(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test that processing stops when time budget is exceeded."""
+        user_ids = [f"user{i}" for i in range(100)]
+
+        with (
+            patch("tools.extract_long_term_memory._process_single_user") as mock_process,
+            patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
+            patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
+            patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
+            patch("tools.extract_long_term_memory.EXTRACTION_TIME_BUDGET", 0.5),  # 0.5 sec
+        ):
+            mock_dify_cls.return_value = mock_dify_client
+            mock_lock_cls.return_value = mock_lock_manager
+
+            def mock_process_user(*args, **kwargs):
+                time.sleep(0.2)  # Each user takes 0.2 seconds
+                return {
+                    "user_id": kwargs.get("user_id", "unknown"),
+                    "status": "SUCCESS",
+                    "skipped": False,
+                    "scanned_conversations": 1,
+                    "scanned_messages": 1,
+                    # Current implementation extracts only one classified type per conversation
+                    "written_memories": {"semantic": 0, "episodic": 1, "procedural": 0},
+                }
+
+            mock_process.side_effect = mock_process_user
+
+            result = await _execute_extraction_async(
+                base_mem=mock_memory,
+                subtype_mems=mock_subtype_mems,
+                task_id="task1",
+                run_id="run1",
+                user_ids=user_ids,
+                app_id="app1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify_base_url="http://localhost",
+                dify_api_key="test_key",
+                max_conversations=50,
+                max_tokens_per_conversation=64000,
+            )
+
+            # Should not process all 100 users due to timeout
+            assert result["status"] == "PARTIAL_SUCCESS"
+            assert result["summary"]["processed_users"] < 100
+            assert result["summary"]["skipped_users"] > 0
+
+    async def test_error_handling(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Test error handling when some users fail."""
+        user_ids = ["user1", "user2", "user3"]
+
+        with (
+            patch("tools.extract_long_term_memory._process_single_user") as mock_process,
+            patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
+            patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
+            patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
+        ):
+            mock_dify_cls.return_value = mock_dify_client
+            mock_lock_cls.return_value = mock_lock_manager
+
+            def mock_process_user(*args, **kwargs):
+                user_id = kwargs.get("user_id", args[2] if len(args) > 2 else "unknown")
+                if user_id == "user2":
+                    raise Exception("Processing error")
+                return {
+                    "user_id": user_id,
+                    "status": "SUCCESS",
+                    "skipped": False,
+                    "scanned_conversations": 1,
+                    "scanned_messages": 1,
+                    # Current implementation extracts only one classified type per conversation
+                    "written_memories": {"semantic": 0, "episodic": 0, "procedural": 1},
+                }
+
+            mock_process.side_effect = mock_process_user
+
+            result = await _execute_extraction_async(
+                base_mem=mock_memory,
+                subtype_mems=mock_subtype_mems,
+                task_id="task1",
+                run_id="run1",
+                user_ids=user_ids,
+                app_id="app1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify_base_url="http://localhost",
+                dify_api_key="test_key",
+                max_conversations=50,
+                max_tokens_per_conversation=64000,
+            )
+
+            assert result["status"] == "PARTIAL_SUCCESS"
+            assert result["summary"]["processed_users"] == 2  # user1 and user3
+
+            # Find error report for user2
+            user2_report = next(r for r in result["per_user"] if r["user_id"] == "user2")
+            assert user2_report["status"] == "ERROR"
+
+
+class TestExtractLongTermMemoryTool:
+    """Tests for ExtractLongTermMemoryTool class."""
+
+    def test_invoke_returns_immediately(self):
+        """Test that tool returns immediately with ACCEPTED status."""
+        # Mock runtime and session
+        mock_runtime = MagicMock()
+        mock_runtime.credentials = {
+            "local_llm_json_secret": "{}",
+            "local_embedder_json_secret": "{}",
+            "local_vector_db_json_secret": "{}",
+        }
+        mock_session = MagicMock()
+        
+        tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
+
+        with (
+            patch("tools.extract_long_term_memory.build_local_mem0_config") as mock_config,
+            patch("tools.extract_long_term_memory.Memory") as mock_memory_cls,
+            patch("tools.extract_long_term_memory.build_subtype_memories") as mock_subtypes,
+            patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
+            patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
+            patch("tools.extract_long_term_memory.TaskTracker") as mock_tracker,
+        ):
+            mock_config.return_value = {}
+            mock_memory = MagicMock()
+            mock_memory_cls.from_config.return_value = mock_memory
+            mock_subtypes.return_value = {}
+
+            mock_loop = MagicMock()
+            mock_loop_cls.ensure_loop.return_value = mock_loop
+
+            # Mock asyncio.run_coroutine_threadsafe
+            mock_future = MagicMock()
+            with patch("asyncio.run_coroutine_threadsafe", return_value=mock_future):
+                messages = list(
+                    tool._invoke(
+                        {
+                            "user_ids": '["user1"]',
+                            "app_id": "app1",
+                            "dify_base_url": "http://localhost",
+                            "dify_api_key": "test_key",
+                        }
+                    )
+                )
+
+            # Should return 2 messages (JSON + text)
+            assert len(messages) == 2
+
+            # First message should be JSON with ACCEPTED status
+            json_msg = messages[0]
+            assert hasattr(json_msg, "message")
+
+            # Verify task was tracked
+            assert mock_tracker.track_bg_task.called
+
+    def test_invoke_validation_errors(self):
+        """Test parameter validation errors."""
+        mock_runtime = MagicMock()
+        mock_session = MagicMock()
+        tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
+
+        # Test missing user_ids
+        messages = list(
+            tool._invoke(
+                {
+                    "app_id": "app1",
+                    "dify_base_url": "http://localhost",
+                    "dify_api_key": "test_key",
+                }
+            )
+        )
+
+        assert len(messages) == 2
+        # Should contain error message
+
+    def test_invoke_with_custom_limits(self):
+        """Test invoke with custom conversation and message limits."""
+        # Mock runtime and session
+        mock_runtime = MagicMock()
+        mock_runtime.credentials = {
+            "local_llm_json_secret": "{}",
+            "local_embedder_json_secret": "{}",
+            "local_vector_db_json_secret": "{}",
+        }
+        mock_session = MagicMock()
+        
+        tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
+
+        with (
+            patch("tools.extract_long_term_memory.build_local_mem0_config") as mock_config,
+            patch("tools.extract_long_term_memory.Memory") as mock_memory_cls,
+            patch("tools.extract_long_term_memory.build_subtype_memories") as mock_subtypes,
+            patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
+            patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
+            patch("tools.extract_long_term_memory.TaskTracker") as mock_tracker,
+        ):
+            mock_config.return_value = {}
+            mock_memory = MagicMock()
+            mock_memory_cls.from_config.return_value = mock_memory
+            mock_subtypes.return_value = {}
+
+            mock_loop = MagicMock()
+            mock_loop_cls.ensure_loop.return_value = mock_loop
+
+            with patch("asyncio.run_coroutine_threadsafe", return_value=MagicMock()):
+                messages = list(
+                    tool._invoke(
+                        {
+                            "user_ids": '["user1"]',
+                            "app_id": "app1",
+                            "dify_base_url": "http://localhost",
+                            "dify_api_key": "test_key",
+                            "conversations_limit": 50,
+                            "max_tokens_per_conversation": 64,
+                        }
+                    )
+                )
+
+            assert len(messages) == 2
+
+
+class TestConcurrencyControl:
+    """Tests for concurrency control mechanisms."""
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrency(self):
+        """Test that semaphore correctly limits concurrent executions."""
+        max_concurrent = [0]
+        current_concurrent = []
+
+        async def mock_task():
+            current_concurrent.append(1)
+            max_concurrent[0] = max(max_concurrent[0], len(current_concurrent))
+            await asyncio.sleep(0.1)
+            current_concurrent.pop()
+
+        semaphore = asyncio.Semaphore(EXTRACTION_MAX_CONCURRENT_USERS)
+
+        async def task_with_semaphore():
+            async with semaphore:
+                await mock_task()
+
+        # Start 20 tasks
+        tasks = [task_with_semaphore() for _ in range(20)]
+        await asyncio.gather(*tasks)
+
+        # Max concurrent should not exceed limit
+        assert max_concurrent[0] <= EXTRACTION_MAX_CONCURRENT_USERS
+        assert max_concurrent[0] > 0
+
+
+class TestIntegration:
+    """Integration tests for the complete flow."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_end_to_end_extraction(
+        self,
+        mock_memory,
+        mock_subtype_mems,
+    ):
+        """Test end-to-end extraction with mocked dependencies."""
+        # This would be a full integration test with real-ish data
+        # Skip in CI, run manually for validation
+        pytest.skip("Integration test - run manually")
+

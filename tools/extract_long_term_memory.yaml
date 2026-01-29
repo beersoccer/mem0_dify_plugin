@@ -1,0 +1,119 @@
+identity:
+  name: extract_long_term_memory
+  author: beersoccer
+  label:
+    en_US: Extract Long Term Memory
+    zh_Hans: 提取长期记忆
+description:
+  human:
+    en_US: Incrementally scan Dify conversation history for specified users and write extracted long-term memories into Mem0. This tool runs asynchronously and returns a task_id immediately; use the check_extraction_status tool to query task progress.
+    zh_Hans: 对指定用户增量扫描 Dify 历史对话，并将提取出的长期记忆写入 Mem0。此工具以异步方式运行，会立即返回 task_id，可使用 check_extraction_status 工具查询任务进度。
+  llm: Use this tool to scan Dify conversation history for specified users and extract long-term memories into Mem0 as an asynchronous task. It returns a task_id immediately; use the check_extraction_status tool to query task progress.
+parameters:
+  - name: user_ids
+    type: string
+    required: true
+    label:
+      en_US: User IDs
+      zh_Hans: 用户ID列表
+    human_description:
+      en_US: Required. User IDs to process. Provide a JSON array string (recommended) or comma-separated list.
+      zh_Hans: 必填。需要处理的 user_id 列表。建议传 JSON 数组字符串，或用英文逗号分隔。
+    llm_description: Required list of user_ids (JSON array string recommended).
+    form: form
+  - name: app_id
+    type: string
+    required: true
+    label:
+      en_US: App ID
+      zh_Hans: 应用ID
+    human_description:
+      en_US: Required. Dify App ID for memory isolation. Each app maintains separate memory space for the same user.
+      zh_Hans: 必填。Dify 应用 ID，用于记忆隔离。同一用户在不同应用中的记忆相互隔离。
+    llm_description: Required Dify App ID to ensure app-level memory isolation.
+    form: form
+  - name: run_id
+    type: string
+    required: false
+    label:
+      en_US: Run ID
+      zh_Hans: 运行ID
+    human_description:
+      en_US: "Optional unique identifier for tracking the entire memory operation call chain. Recommended to use Dify's workflow_run_id to link multiple memory operations in the same workflow. Note: This parameter is only for tracing the call chain and is NOT used as a condition for memory layering or filtering."
+      zh_Hans: 可选的唯一标识符，用于追踪整个记忆操作调用链。推荐使用 Dify 的 workflow_run_id 来关联同一工作流中的多个记忆操作。注意：此参数仅用于追踪调用链，不作为记忆分层或过滤的条件。
+    llm_description: "Optional unique identifier for tracking the entire memory operation call chain. Recommended to use Dify's workflow_run_id to link multiple memory operations in the same workflow. This parameter is only for tracing and is NOT used as a condition for memory layering or filtering."
+    form: form
+  - name: days_back
+    type: number
+    required: false
+    default: 3
+    label:
+      en_US: Days Back
+      zh_Hans: 回溯天数
+    human_description:
+      en_US: "Optional. Number of days to look back for extracting conversation history (1-7, default 3). For example, days_back=2 extracts yesterday and the day before yesterday."
+      zh_Hans: "可选。回溯天数，抽取前几天的用户会话历史（1-7，默认3天）。例如 days_back=2 表示抽取昨天和前天的数据。"
+    llm_description: Number of days to look back for extracting conversation history (1-7, default 3).
+    form: form
+  - name: conversations_limit
+    type: number
+    required: false
+    default: 50
+    label:
+      en_US: Max Conversations Per User
+      zh_Hans: 每个用户最大会话数
+    human_description:
+      en_US: "Optional. Maximum conversations to process per user per execution (10-500, default: 50). This prevents malicious users from generating excessive conversations and consuming too much processing time. For 3-day cycle: light users ~15, normal users ~30-45, heavy users ~60-90. Adjust based on your execution cycle."
+      zh_Hans: "可选。每次执行每个用户最多处理的会话数（10-500，默认：50）。防止恶意用户生成过多会话占用处理时间。3天周期下：轻度用户约15个，正常用户约30-45个，重度用户约60-90个。根据执行周期调整。"
+    llm_description: "Optional. Maximum conversations to process per user per execution (10-500, default: 50). Prevents abuse by limiting total conversations processed. For 3-day cycle, 50 covers 90% of normal users."
+    form: form
+  - name: max_tokens_per_conversation
+    type: number
+    required: false
+    default: 64
+    label:
+      en_US: Max Tokens Per Conversation (K)
+      zh_Hans: 每个会话最大Token数（K）
+    human_description:
+      en_US: "Optional. Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during data fetching to optimize network transfer. If a conversation exceeds this limit, pagination stops early and only the most recent messages are fetched. Adjust based on your LLM's context window (e.g., GPT-4: 128K, Claude 3.5: 200K)."
+      zh_Hans: "可选。每个会话用于记忆抽取的最大Token数（单位：千，1-200，默认：64K，与 EXTRACTION_DEFAULT_MAX_TOKENS 相同）。Token限制在数据获取阶段应用以优化网络传输。如果会话超过此限制，分页提前停止，只获取最近的消息。根据您的LLM上下文窗口调整（例如 GPT-4：128K，Claude 3.5：200K）。"
+    llm_description: "Optional. Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during Dify API pagination to avoid fetching unnecessary historical messages. Uses tiktoken (EXTRACTION_DEFAULT_ENCODING = cl100k_base) for accurate token counting. Adjust based on your LLM's context window."
+    form: form
+  - name: dify_base_url
+    type: string
+    required: true
+    label:
+      en_US: Dify Base URL
+      zh_Hans: Dify Base URL
+    human_description:
+      en_US: "Required. Example: http://localhost:5001"
+      zh_Hans: "必填。例如：http://localhost:5001"
+    llm_description: Required Dify base URL for API calls.
+    form: form
+  - name: dify_api_key
+    type: string
+    required: true
+    label:
+      en_US: Dify API Key
+      zh_Hans: Dify API Key
+    human_description:
+      en_US: >
+        Required. Dify API key for the current Dify App (each app has its own key).
+        Best practice: store the key in the App's environment/secret variables and
+        reference it here via expression (e.g. {{secrets.DIFY_API_KEY}}), instead of
+        typing the raw key directly.
+      zh_Hans: >
+        必填。当前 Dify 应用自己的 API Key（不同应用的值不同）。
+        推荐做法：将 Key 保存在应用的环境变量/私密变量中，在这里通过表达式引用
+        （例如 {{secrets.DIFY_API_KEY}}），而不是直接在界面输入明文。
+    llm_description: >
+      Required Dify API key for API calls. Each Dify App should pass its own key,
+      preferably via app-level secret variables (e.g. {{secrets.DIFY_API_KEY}}),
+      not hard-coded in the workflow.
+    form: form
+extra:
+  python:
+    source: tools/extract_long_term_memory.py
+
+
+

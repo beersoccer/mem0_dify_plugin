@@ -1,0 +1,35 @@
+---
+globs: ["main.py"]
+description: Critical runtime invariants that must not be broken
+---
+
+# Key Runtime Invariants (DO NOT BREAK)
+
+## Startup Contract (`main.py`)
+- Environment variables disabling telemetry MUST be set before importing mem0:
+  - `MEM0_TELEMETRY=False`
+  - `POSTHOG_DISABLED=1`
+  - `DO_NOT_TRACK=1`
+- Plugin is created as: `plugin = Plugin(DifyPluginEnv(MAX_REQUEST_TIMEOUT=MAX_REQUEST_TIMEOUT))`
+
+## Graceful Shutdown Requirements
+- Graceful shutdown is required:
+  - atexit handler must remain registered
+  - SIGTERM handler must call graceful shutdown and exit
+  - KeyboardInterrupt must call graceful shutdown and exit
+
+## Shutdown Contract
+`_graceful_shutdown()` must:
+1. Log start
+2. Close current async client if present (via BackgroundEventLoop loop if running)
+3. Call `AsyncMem0Client.shutdown(timeout=3.0)`
+4. Log completion
+
+Shutdown must be invoked on:
+- atexit
+- SIGTERM handler
+- KeyboardInterrupt path
+
+## Change Policy
+- Any changes to startup env vars, signal handling, background loop, or async client shutdown MUST include a regression test (see `06-cursor-collaboration.mdc` for test execution policy)
+- Avoid altering timeouts without justification (keep `fut.result(timeout=2.0)` and `shutdown(timeout=3.0)` unless you add tests/metrics)

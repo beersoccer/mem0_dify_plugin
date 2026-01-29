@@ -5,40 +5,78 @@ are properly output to the Dify plugin container using the official plugin logge
 """
 
 import logging
+import os
 import threading
 
-from dify_plugin.config.logger_format import plugin_logger_handler
 
-# Module-level log level cache (defaults to INFO)
-_log_level = logging.INFO
-_log_level_lock = threading.Lock()
+def _is_dify_plugin_runtime() -> bool:
+    return os.environ.get("DIFY_PLUGIN_RUNTIME") == "1"
+
+
+if _is_dify_plugin_runtime():
+    try:
+        from dify_plugin.config.logger_format import plugin_logger_handler
+    except (ImportError, ModuleNotFoundError, RecursionError, RuntimeError):
+        plugin_logger_handler = logging.StreamHandler()
+else:
+    plugin_logger_handler = logging.StreamHandler()
+
+
+class _LoggerConfig:
+    """Thread-safe logger configuration manager."""
+
+    def __init__(self) -> None:
+        self._log_level = logging.INFO
+        self._lock = threading.Lock()
+
+    def set_log_level(self, level: str) -> None:
+        """Set log level for all loggers.
+
+        Args:
+            level: Log level string (DEBUG, INFO, WARNING, ERROR)
+
+        """
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+        }
+
+        with self._lock:
+            self._log_level = level_map.get(level.upper(), logging.INFO)
+            # Update all existing loggers in tools and utils modules
+            for logger_name in logging.Logger.manager.loggerDict:
+                if logger_name.startswith(("tools.", "utils.")):
+                    existing_logger = logging.getLogger(logger_name)
+                    existing_logger.setLevel(self._log_level)
+
+    def get_log_level(self) -> int:
+        """Get current log level.
+
+        Returns:
+            Current log level constant
+
+        """
+        with self._lock:
+            return self._log_level
+
+
+# Singleton instance
+_logger_config = _LoggerConfig()
 
 
 def set_log_level(level: str) -> None:
     """Set global log level for all loggers.
-    
+
     This function updates the log level for all existing loggers created by this module.
     It is thread-safe and can be called at runtime to dynamically adjust log verbosity.
-    
+
     Args:
         level: Log level string (DEBUG, INFO, WARNING, ERROR)
-    
+
     """
-    global _log_level
-    level_map = {
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "ERROR": logging.ERROR,
-    }
-    
-    with _log_level_lock:
-        _log_level = level_map.get(level.upper(), logging.INFO)
-        # Update all existing loggers in tools and utils modules
-        for logger_name in logging.Logger.manager.loggerDict:
-            if logger_name.startswith("tools.") or logger_name.startswith("utils."):
-                existing_logger = logging.getLogger(logger_name)
-                existing_logger.setLevel(_log_level)
+    _logger_config.set_log_level(level)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -52,14 +90,12 @@ def get_logger(name: str) -> logging.Logger:
 
     """
     logger = logging.getLogger(name)
-    
+
     # Set to current global log level
-    with _log_level_lock:
-        logger.setLevel(_log_level)
-    
+    logger.setLevel(_logger_config.get_log_level())
+
     # Only add handler if not already added to avoid duplicate logs
     if not logger.handlers:
         logger.addHandler(plugin_logger_handler)
-    
-    return logger
 
+    return logger

@@ -1,0 +1,19 @@
+---
+alwaysApply: true
+description: Legacy rule file - see other numbered rule files for organized rules
+---
+
+# Mem0 Dify Plugin Rules
+
+> **Note**: This file is kept for backward compatibility. All rules have been migrated to organized files in `.cursor/rules/`:
+> - `00-project-overview.mdc` - Project overview and source of truth
+> - `01-python-standards.mdc` - Python coding standards
+> - `02-runtime-invariants.mdc` - Runtime invariants
+> - `03-dify-plugin.mdc` - Dify plugin constraints
+> - `04-security.mdc` - Security rules
+> - `05-versioning.mdc` - Versioning discipline
+> - `06-cursor-collaboration.mdc` - Cursor collaboration rules
+> - `07-testing.mdc` - Testing rules and execution guidelines
+> - `08-github-actions.mdc` - GitHub Actions rules
+
+Please refer to the organized rule files above for detailed rules.

@@ -26,6 +26,25 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _is_internal_metadata(metadata: object) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(metadata.get("__internal") is True)
+
+
+def _default_exclude_internal_filter() -> dict[str, Any]:
+    return {"NOT": [{"__internal": {"eq": True}}]}
+
+
+def _merge_filters_excluding_internal(user_filters: object) -> dict[str, Any]:
+    base = _default_exclude_internal_filter()
+    if not user_filters:
+        return base
+    if not isinstance(user_filters, dict):
+        return base
+    return {"AND": [base, user_filters]}
+
+
 def init_request_context(
     tool_parameters: dict[str, Any],
 ) -> tuple[str, float]:
@@ -81,7 +100,9 @@ def yield_error(
     yield tool_instance.create_json_message(
         {"status": "ERROR", "messages": error_message, "results": default_results},
     )
-    yield tool_instance.create_text_message(f"Failed to {operation_name}: {error_message}")
+    yield tool_instance.create_text_message(
+        f"Failed to {operation_name}: {error_message}"
+    )
 
 
 def execute_async_read_operation(  # noqa: PLR0913
@@ -228,4 +249,3 @@ def build_status_and_message(
             return ("OVERLOAD", "System overloaded, returning empty results")
         return ("ERROR", "Operation failed, returning empty results")
     return ("SUCCESS", success_message)
-

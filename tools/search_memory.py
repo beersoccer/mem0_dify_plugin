@@ -7,12 +7,14 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
+
 from utils.config_builder import is_async_mode
 from utils.constants import READ_OPERATION_TIMEOUT, SEARCH_DEFAULT_TOP_K
 from utils.helpers import format_recent_timestamp, log_thread_info, parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import get_async_client, get_sync_client
 from utils.memory_tool_helpers import (
+    _is_internal_metadata,
     build_status_and_message,
     execute_async_read_operation,
     init_request_context,
@@ -65,6 +67,11 @@ class SearchMemoryTool(Tool):
                 )
             except json.JSONDecodeError as json_err:
                 return (payload, f"Invalid JSON in filters: {json_err}")
+        
+        # Note: We don't filter internal memories at query time because:
+        # 1. Many vector stores don't support NOT operators
+        # 2. Mem0's _process_metadata_filters doesn't handle nested NOT in AND correctly
+        # Instead, we filter internal memories from results after query
 
         # Optional scoping fields
         # NOTE: run_id is NOT included in payload - it's only used for request tracing
@@ -113,10 +120,15 @@ class SearchMemoryTool(Tool):
         self,
         results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Normalize search results to standard format."""
+        """Normalize search results to standard format, excluding internal memories."""
         norm_results = []
         for r in results or []:
             if not isinstance(r, dict):
+                continue
+            # Filter out internal memories (checkpoints, task status, etc.)
+            # This is done post-query because many vector stores don't support NOT operators
+            metadata = r.get("metadata")
+            if _is_internal_metadata(metadata):
                 continue
             timestamp = format_recent_timestamp(
                 r.get("created_at"),
@@ -126,7 +138,7 @@ class SearchMemoryTool(Tool):
                 "id": r.get("id"),
                 "memory": r.get("memory"),
                 "score": r.get("score", 0.0),
-                "metadata": r.get("metadata", {}),
+                "metadata": metadata or {},
             }
             if timestamp:
                 entry["timestamp"] = timestamp
@@ -145,7 +157,7 @@ class SearchMemoryTool(Tool):
                 lines.append("")
                 lines.append(f"{idx}. Memory: {r.get('memory', '')}")
                 score = r.get("score")
-                if isinstance(score, (int, float)):
+                if isinstance(score, int | float):
                     lines.append(f"   Score: {score:.2f}")
                 md = r.get("metadata")
                 if md:
@@ -177,7 +189,9 @@ class SearchMemoryTool(Tool):
         # Build payload
         payload, build_error = self._build_payload(tool_parameters, query, user_id)
         if build_error:
-            logger.exception("[req:%s] Search memory failed: %s", request_id, build_error)
+            logger.exception(
+                "[req:%s] Search memory failed: %s", request_id, build_error
+            )
             yield from yield_error(self, request_id, build_error, "search memory", [])
             return
 
@@ -217,7 +231,11 @@ class SearchMemoryTool(Tool):
                 )
             else:
                 results = self._execute_sync_search(
-                    payload, user_id, request_id, mode_str, start_time,
+                    payload,
+                    user_id,
+                    request_id,
+                    mode_str,
+                    start_time,
                 )
 
             # Normalize results
@@ -237,17 +255,21 @@ class SearchMemoryTool(Tool):
                 )
 
             # Build result with appropriate status and message
-            success_msg = f"Found {len(norm_results)} matching memories"
+            # Ensure norm_results is always a list, not None
+            final_results = norm_results if norm_results is not None else []
+            success_msg = f"Found {len(final_results)} matching memories"
             status, messages = build_status_and_message(error_type, success_msg)
 
-            yield self.create_json_message({
-                "status": status,
-                "messages": messages,
-                "results": norm_results,
-            })
+            yield self.create_json_message(
+                {
+                    "status": status,
+                    "messages": messages,
+                    "results": final_results,
+                }
+            )
 
             # Text output (detailed for downstream workflow consumption)
-            text_output = self._format_text_output(payload, norm_results)
+            text_output = self._format_text_output(payload, final_results)
             yield self.create_text_message(text_output)
 
             # Log thread information when method completes

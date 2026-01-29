@@ -7,12 +7,14 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
+
 from utils.config_builder import is_async_mode
 from utils.constants import READ_OPERATION_TIMEOUT
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import get_async_client, get_sync_client
 from utils.memory_tool_helpers import (
+    _merge_filters_excluding_internal,
     build_status_and_message,
     execute_async_read_operation,
     init_request_context,
@@ -51,9 +53,13 @@ class GetAllMemoriesTool(Tool):
         filters_str = tool_parameters.get("filters")
         if filters_str:
             try:
-                params["filters"] = json.loads(filters_str)
+                user_filters = json.loads(filters_str)
+                # Merge user filters with internal memory exclusion filter
+                params["filters"] = _merge_filters_excluding_internal(user_filters)
             except json.JSONDecodeError:
                 return None
+        # If no user filters provided, don't set filters key.
+        # Mem0 will use user_id/agent_id/run_id directly.
 
         return params
 
@@ -86,16 +92,24 @@ class GetAllMemoriesTool(Tool):
         self,
         results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Normalize get_all results to standard format."""
+        """Normalize get_all results to standard format, excluding internal memories."""
+        from utils.memory_tool_helpers import _is_internal_metadata
+
         memories = []
         for r in results or []:
             if not isinstance(r, dict):
+                continue
+            # Filter out internal memories (checkpoints, task status, etc.)
+            # This is done post-query because get_all with filters may not work correctly
+            # when filters contain NOT operators combined with user_id
+            metadata = r.get("metadata")
+            if _is_internal_metadata(metadata):
                 continue
             memories.append(
                 {
                     "id": r.get("id"),
                     "memory": r.get("memory"),
-                    "metadata": r.get("metadata", {}),
+                    "metadata": metadata or {},
                     "created_at": r.get("created_at"),
                     "updated_at": r.get("updated_at", ""),
                 },
@@ -129,14 +143,20 @@ class GetAllMemoriesTool(Tool):
         # Validate required user_id
         user_id = validate_user_id(tool_parameters)
         if not user_id:
-            yield from yield_error(self, request_id, "user_id is required", "get all memories", [])
+            yield from yield_error(
+                self, request_id, "user_id is required", "get all memories", []
+            )
             return
 
         # Build params
         params = self._build_params(tool_parameters, user_id)
         if params is None:
             yield from yield_error(
-                self, request_id, "Invalid JSON format for filters", "get all memories", [],
+                self,
+                request_id,
+                "Invalid JSON format for filters",
+                "get all memories",
+                [],
             )
             return
 
@@ -177,7 +197,11 @@ class GetAllMemoriesTool(Tool):
                 )
             else:
                 results = self._execute_sync_get_all(
-                    params, user_id, request_id, mode_str, start_time,
+                    params,
+                    user_id,
+                    request_id,
+                    mode_str,
+                    start_time,
                 )
 
             # Log completion (only for sync mode; async mode logs in callback)
@@ -200,11 +224,13 @@ class GetAllMemoriesTool(Tool):
             success_msg = f"Found {len(memories)} memories"
             status, messages = build_status_and_message(error_type, success_msg)
 
-            yield self.create_json_message({
-                "status": status,
-                "messages": messages,
-                "results": memories,
-            })
+            yield self.create_json_message(
+                {
+                    "status": status,
+                    "messages": messages,
+                    "results": memories,
+                }
+            )
 
             # Text output
             text_output = self._format_text_output(memories)

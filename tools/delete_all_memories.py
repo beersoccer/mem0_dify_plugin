@@ -7,6 +7,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
+
 from utils.config_builder import is_async_mode
 from utils.constants import DELETE_ALL_ACCEPT_RESULT, WRITE_OPERATION_TIMEOUT
 from utils.helpers import parse_timeout
@@ -32,7 +33,9 @@ logger = get_logger(__name__)
 class DeleteAllMemoriesTool(Tool):
     """Tool that deletes all memories for a specific user, with optional filtering."""
 
-    def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
+    def _invoke(
+        self, tool_parameters: dict[str, Any]
+    ) -> Generator[ToolInvokeMessage, None, None]:
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
@@ -40,7 +43,11 @@ class DeleteAllMemoriesTool(Tool):
         user_id = validate_user_id(tool_parameters)
         if not user_id:
             yield from yield_error(
-                self, request_id, "user_id is required", "delete all memories", {},
+                self,
+                request_id,
+                "user_id is required",
+                "delete all memories",
+                {},
             )
             return
 
@@ -80,11 +87,13 @@ class DeleteAllMemoriesTool(Tool):
                     future,
                     f"delete_all_memories(user_id={user_id}, req_id={request_id})",
                 )
-                yield self.create_json_message({
-                    "status": "SUCCESS",
-                    "messages": {"filters": params},
-                    **DELETE_ALL_ACCEPT_RESULT,
-                })
+                yield self.create_json_message(
+                    {
+                        "status": "SUCCESS",
+                        "messages": {"filters": params},
+                        **DELETE_ALL_ACCEPT_RESULT,
+                    }
+                )
                 yield self.create_text_message(
                     "Batch memory deletion has been accepted and will be processed asynchronously.",
                 )
@@ -100,11 +109,13 @@ class DeleteAllMemoriesTool(Tool):
                     user_id,
                     elapsed,
                 )
-                yield self.create_json_message({
-                    "status": "SUCCESS",
-                    "messages": {"filters": params},
-                    "results": result,
-                })
+                yield self.create_json_message(
+                    {
+                        "status": "SUCCESS",
+                        "messages": {"filters": params},
+                        "results": result,
+                    }
+                )
                 yield self.create_text_message(
                     f"All memories deleted successfully with filters : {params}",
                 )
@@ -120,5 +131,9 @@ class DeleteAllMemoriesTool(Tool):
             )
             error_message = f"Error: {e!s}"
             yield from yield_error(
-                self, request_id, error_message, "delete all memories", {},
+                self,
+                request_id,
+                error_message,
+                "delete all memories",
+                {},
             )

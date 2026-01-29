@@ -92,13 +92,22 @@ class GetMemoryTool(Tool):
         """Build status and message from error type and result."""
         if not result or not isinstance(result, dict):
             if error_type == "TIMEOUT":
-                return ("TIMEOUT", f"Operation timed out while retrieving memory: {memory_id}")
+                return (
+                    "TIMEOUT",
+                    f"Operation timed out while retrieving memory: {memory_id}",
+                )
             if error_type == "OVERLOAD":
-                return ("OVERLOAD", f"System overloaded, unable to retrieve memory: {memory_id}")
+                return (
+                    "OVERLOAD",
+                    f"System overloaded, unable to retrieve memory: {memory_id}",
+                )
             if error_type == "NOT_FOUND":
                 return ("NOT_FOUND", f"Memory not found: {memory_id}")
             if error_type == "ERROR":
-                return ("ERROR", f"Operation failed while retrieving memory: {memory_id}")
+                return (
+                    "ERROR",
+                    f"Operation failed while retrieving memory: {memory_id}",
+                )
             return ("NOT_FOUND", f"Memory not found: {memory_id}")
         return ("SUCCESS", "Memory retrieved successfully")
 
@@ -126,7 +135,9 @@ class GetMemoryTool(Tool):
         # Validate memory_id
         memory_id = validate_memory_id(tool_parameters)
         if not memory_id:
-            yield from yield_error(self, request_id, "memory_id is required", "get memory", {})
+            yield from yield_error(
+                self, request_id, "memory_id is required", "get memory", {}
+            )
             return
 
         try:
@@ -165,13 +176,18 @@ class GetMemoryTool(Tool):
                 )
             else:
                 result, error_type = self._execute_sync_get(
-                    memory_id, request_id, mode_str, start_time,
+                    memory_id,
+                    request_id,
+                    mode_str,
+                    start_time,
                 )
 
             # Check if memory exists or if operation failed
             if not result or not isinstance(result, dict):
                 elapsed = time.time() - start_time
-                status, messages = self._build_status_and_message(error_type, memory_id, result)
+                status, messages = self._build_status_and_message(
+                    error_type, memory_id, result
+                )
                 logger.warning(
                     "[req:%s] Get memory result: %s (memory_id: %s, duration: %.2fs)",
                     request_id,
@@ -179,11 +195,13 @@ class GetMemoryTool(Tool):
                     memory_id,
                     elapsed,
                 )
-                yield self.create_json_message({
-                    "status": status,
-                    "messages": messages,
-                    "results": {},
-                })
+                yield self.create_json_message(
+                    {
+                        "status": status,
+                        "messages": messages,
+                        "results": {},
+                    }
+                )
                 yield self.create_text_message(f"Error: {messages}")
                 return
 
@@ -200,13 +218,17 @@ class GetMemoryTool(Tool):
 
             # Normalize and return result
             normalized_result = self._normalize_result(result)
-            status, messages = self._build_status_and_message(error_type, memory_id, result)
+            status, messages = self._build_status_and_message(
+                error_type, memory_id, result
+            )
 
-            yield self.create_json_message({
-                "status": status,
-                "messages": messages,
-                "results": normalized_result,
-            })
+            yield self.create_json_message(
+                {
+                    "status": status,
+                    "messages": messages,
+                    "results": normalized_result,
+                }
+            )
 
             text_output = self._format_text_output(normalized_result)
             yield self.create_text_message(text_output)

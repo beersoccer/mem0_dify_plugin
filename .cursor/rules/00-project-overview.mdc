@@ -1,0 +1,87 @@
+---
+alwaysApply: true
+description: Project overview and source of truth information
+---
+
+# Project Overview
+
+This project is a **Dify plugin** written in **Python 3.12** that provides Mem0 long-term memory capabilities.
+
+## Project Snapshot (Source of Truth)
+- **Language**: Python 3.12
+- **Type**: Dify plugin
+- **Entrypoint**: `main.py`
+- **Plugin config**: `manifest.yaml`
+- **Runtime deps**: `pyproject.toml` (uv) + `requirements.txt` (legacy)
+- **Dev deps**: `pyproject.toml` [dependency-groups.dev] (uv) + `requirements-dev.txt` (legacy)
+- **Packaging**: `build_package.sh` + dify-plugin CLI
+- **CI**: GitHub Actions
+
+## Non-Negotiables
+
+### Planning & Execution
+- **Plan-first for multi-file changes**: Before editing, propose a plan (≤ 8 bullets) and list files to touch. Save plans to `.cursor/plans/`
+- **Small diffs**: Prefer multiple small commits/PRs over one large change
+- **Tests for behavior changes**: Any functional change must include/adjust pytest tests (see `06-cursor-collaboration.mdc` for test execution policy)
+- **No guessing**: 
+  - Do not invent manifest fields or plugin schema; read repo files first
+  - Do not invent runtime deps; read `pyproject.toml` first
+  - Do not invent dev deps; read `pyproject.toml` [dependency-groups.dev] first
+
+## Local Development Commands
+
+### Option A (Recommended): uv
+```bash
+# Create venv
+uv venv
+
+# Activate
+source .venv/bin/activate
+
+# Install all deps
+uv sync
+
+# Quick checks
+uv run ruff check . && uv run ruff format --check . && uv run pytest -q
+```
+
+### Option B: conda (legacy)
+```bash
+# Create env
+conda create -n dify python=3.12
+
+# Activate
+conda activate dify
+
+# Install runtime deps
+pip install -r requirements.txt
+
+# Install dev deps
+pip install -r requirements-dev.txt
+
+# Quick checks
+ruff check . && ruff format --check . && pytest -q
+```
+
+### Option C: venv + pip (legacy)
+```bash
+# Create venv
+python -m venv .venv
+
+# Activate
+source .venv/bin/activate
+
+# Install runtime deps
+pip install -r requirements.txt
+
+# Install dev deps
+pip install -r requirements-dev.txt
+
+# Quick checks
+ruff check . && ruff format --check . && pytest -q
+```
+
+## Additional Context
+- See `.cursor/AGENTS.md` for detailed project structure and architectural patterns
+- See `.cursor/SPEC.md` for current feature specifications
+- See `.cursor/workflows/` for common development workflows

@@ -138,7 +138,8 @@ tools:
   - tools/delete_memory.yaml
   - tools/delete_all_memories.yaml
   - tools/get_memory_history.yaml
-  # - tools/consolidate_long_term_memory.yaml  # Hidden: tool not yet complete
+  - tools/extract_long_term_memory.yaml
+  - tools/check_extraction_status.yaml
 extra:
   python:
     source: provider/mem0ai.py

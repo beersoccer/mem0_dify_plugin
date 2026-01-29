@@ -41,7 +41,7 @@ venv.bak/
 
 # Cursor IDE
 .cursorignore
-.cursor/
+# .cursor/
 .cursorrules
 
 # macOS
@@ -73,3 +73,8 @@ api-scraping-prompt.md
 # Log files
 logs/
 *.log
+
+# Performance testing artifacts
+performance/*.html
+performance/*.csv
+performance/*.csv_*

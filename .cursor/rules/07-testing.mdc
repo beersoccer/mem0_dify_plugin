@@ -1,0 +1,69 @@
+# Testing Rules
+
+## Running Tests
+
+### Recommended Approach: Manual Activation
+
+**For manual execution, activate virtual environment and use pytest directly**:
+
+```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Run tests
+pytest tests/unit/ -v                                    # All unit tests
+pytest tests/integration/ -v                             # Integration tests
+pytest tests/e2e/test_e2e_session_memory.py -v -s        # E2E tests
+pytest --forked -m dify_plugin -v -s                    # dify_plugin tests (requires fork mode)
+```
+
+**Why manual approach?**
+- More flexible, can use all pytest options
+- More intuitive, standard pytest commands
+- More efficient, no script wrapper needed
+- Aligns with Python development practices
+
+### Helper Script for Cursor Agent
+
+**For Cursor agent automatic execution, use the unified script** `./tests/run_tests.sh`:
+
+```bash
+# Check virtual environment
+./tests/run_tests.sh --check-env
+
+# Run unit tests (auto-activates venv)
+./tests/run_tests.sh tests/unit/ -v
+
+# Use fork mode (avoids gevent monkey patching conflicts)
+./tests/run_tests.sh --forked tests/e2e/ -v
+
+# Run E2E tests (auto-enables fork mode)
+./tests/run_tests.sh --e2e test_01_verify_dify_connectivity -v -s
+```
+
+**Script purpose:**
+- Verify virtual environment configuration
+- Auto-activate virtual environment (if not activated)
+- Validate pytest and dependencies are installed
+- Support fork mode, E2E mode, and output redirection
+
+### Test Organization
+
+Tests are organized by type:
+- `tests/unit/tools/` - Tool unit tests
+- `tests/unit/utils/` - Utility module unit tests
+- `tests/integration/` - Integration tests
+- `tests/e2e/` - End-to-end tests
+
+### Fork Mode for Dify Plugin Tests
+
+Tests that import `dify_plugin` require fork mode to avoid gevent monkey patching conflicts:
+
+```bash
+# Manual approach (recommended)
+source .venv/bin/activate
+pytest --forked tests/e2e/ -v
+
+# Or use script
+./tests/run_tests.sh --forked tests/e2e/ -v
+```

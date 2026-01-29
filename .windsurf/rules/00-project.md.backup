@@ -1,0 +1,57 @@
+---
+trigger: always_on
+---
+# Rule: Project Defaults (Always On)
+
+## Project snapshot (source of truth)
+- Language: Python 3.12
+- Type: Dify plugin
+- Entrypoint: main.py
+- Plugin config: manifest.yaml
+- Runtime deps: requirements.txt (pip)
+- Dev deps: requirements-dev.txt (pip)
+- Packaging: build_package.sh (if present) + dify-plugin CLI (CI workflow may package)
+
+## Key runtime invariants (do not break)
+- main.py MUST set telemetry env vars BEFORE importing mem0-related modules:
+  - MEM0_TELEMETRY=False
+  - POSTHOG_DISABLED=1
+  - DO_NOT_TRACK=1
+- Graceful shutdown is required:
+  - atexit handler must remain registered
+  - SIGTERM handler must call graceful shutdown and exit
+  - KeyboardInterrupt must call graceful shutdown and exit
+
+## Non-negotiables
+- Plan-first for multi-file changes:
+  - Before editing, propose a plan (<= 8 bullets) and list files to touch.
+- Small diffs:
+  - Prefer multiple small commits/PRs over one large change.
+- Tests for behavior changes:
+  - Any functional change must include/adjust pytest tests.
+- No guessing:
+  - Do not invent manifest fields or plugin schema; read repo files first.
+  - Do not invent runtime deps; read requirements.txt first.
+  - Do not invent dev deps; read requirements-dev.txt first.
+
+## Local commands (macOS)
+- Option A (recommended): uv
+  - Create venv: uv venv
+  - Activate: source .venv/bin/activate
+  - Install runtime deps: uv pip install -r requirements.txt
+  - Install dev deps: uv pip install -r requirements-dev.txt
+  - Quick checks: uv run ruff check . && uv run ruff format --check . && uv run pytest -q
+
+- Option B: conda
+  - Create env: conda create -n dify python=3.12
+  - Activate: conda activate dify
+  - Install runtime deps: pip install -r requirements.txt
+  - Install dev deps: pip install -r requirements-dev.txt
+  - Quick checks: ruff check . && ruff format --check . && pytest -q
+
+- Option C: venv + pip
+  - Create venv: python -m venv .venv
+  - Activate: source .venv/bin/activate
+  - Install runtime deps: pip install -r requirements.txt
+  - Install dev deps: pip install -r requirements-dev.txt
+  - Quick checks: ruff check . && ruff format --check . && pytest -q
