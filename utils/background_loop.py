@@ -125,4 +125,3 @@ class BackgroundEventLoop:
         cls._loop = None
         cls._thread = None
         logger.debug("Background event loop shutdown completed")
-

@@ -8,7 +8,8 @@ import hashlib
 import json
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from mem0 import AsyncMemory, Memory
 
@@ -17,7 +18,6 @@ from .config_builder import build_local_mem0_config
 from .connection_keepalive import ConnectionKeepAlive
 from .constants import (
     ADD_SKIP_RESULT,
-    CUSTOM_PROMPT,
     HEARTBEAT_INTERVAL,
     MAX_CONCURRENT_MEMORY_OPERATIONS,
     MAX_PENDING_TASKS_MULTIPLIER,
@@ -89,8 +89,6 @@ class SyncMem0Client:
         """
         config = build_local_mem0_config(credentials)
         self.memory = Memory.from_config(config)
-        self.use_custom_prompt = True
-        self.custom_prompt = CUSTOM_PROMPT
 
         # Initialize connection keep-alive
         # Minimum interval is 30 seconds to ensure reasonable heartbeat frequency
@@ -150,15 +148,20 @@ class SyncMem0Client:
         kwargs: dict[str, Any] = {}
         if lim is not None:
             kwargs["limit"] = lim
+        
+        # Always extract user_id/agent_id/run_id from payload (required by mem0)
+        # These are needed even when filters are provided, as mem0's search requires
+        # at least one of these IDs for scoping, and filters are merged with them
+        if payload.get("user_id"):
+            kwargs["user_id"] = payload.get("user_id")
+        if payload.get("agent_id"):
+            kwargs["agent_id"] = payload.get("agent_id")
+        if payload.get("run_id"):
+            kwargs["run_id"] = payload.get("run_id")
+        
+        # Add filters if provided (will be merged with user_id/agent_id/run_id by mem0)
         if isinstance(filters, dict):
             kwargs["filters"] = filters
-        else:
-            if payload.get("user_id"):
-                kwargs["user_id"] = payload.get("user_id")
-            if payload.get("agent_id"):
-                kwargs["agent_id"] = payload.get("agent_id")
-            if payload.get("run_id"):
-                kwargs["run_id"] = payload.get("run_id")
 
         try:
             results = self.memory.search(query, **kwargs)
@@ -212,8 +215,11 @@ class SyncMem0Client:
             kwargs["run_id"] = payload.get("run_id")
         if metadata is not None:
             kwargs["metadata"] = metadata
-        if self.use_custom_prompt:
-            kwargs["prompt"] = self.custom_prompt
+        
+        # Explicitly pass infer parameter if provided, default to True
+        # This ensures memory extraction happens even if Mem0's default behavior changes
+        infer = payload.get("infer", True)
+        kwargs["infer"] = infer
 
         # Use messages directly if provided; assume upstream has validated inputs
         messages = payload.get("messages")
@@ -317,9 +323,16 @@ class SyncMem0Client:
         Returns:
             dict: Success message, typically {"message": "Memory deleted successfully!"}.
 
+        Raises:
+            ValueError: If memory is not found.
+            AttributeError: If memory is not found (some vector stores raise this).
+
         """
         try:
             result = self.memory.delete(memory_id)
+        except (ValueError, AttributeError):
+            # Memory not found - let caller handle logging
+            raise
         except Exception:
             logger.exception("Error deleting memory %s", memory_id)
             raise
@@ -394,9 +407,6 @@ class AsyncMem0Client:
         )
 
         self._semaphore = asyncio.Semaphore(self.max_ops)
-        # Toggle whether to use custom prompt
-        self.use_custom_prompt = True
-        self.custom_prompt = CUSTOM_PROMPT
 
         # Initialize connection keep-alive
         # Minimum interval is 30 seconds to ensure reasonable heartbeat frequency
@@ -612,15 +622,18 @@ class AsyncMem0Client:
         kwargs: dict[str, Any] = {}
         if lim is not None:
             kwargs["limit"] = lim
+        
+        # Always extract user_id/agent_id/run_id from payload (required by mem0)
+        if payload.get("user_id"):
+            kwargs["user_id"] = payload.get("user_id")
+        if payload.get("agent_id"):
+            kwargs["agent_id"] = payload.get("agent_id")
+        if payload.get("run_id"):
+            kwargs["run_id"] = payload.get("run_id")
+        
+        # Add filters if provided
         if isinstance(filters, dict):
             kwargs["filters"] = filters
-        else:
-            if payload.get("user_id"):
-                kwargs["user_id"] = payload.get("user_id")
-            if payload.get("agent_id"):
-                kwargs["agent_id"] = payload.get("agent_id")
-            if payload.get("run_id"):
-                kwargs["run_id"] = payload.get("run_id")
 
         timeout = self._get_operation_timeout_s(
             timeout_s=timeout_s,
@@ -688,15 +701,18 @@ class AsyncMem0Client:
             kwargs["run_id"] = payload.get("run_id")
         if metadata is not None:
             kwargs["metadata"] = metadata
-        if self.use_custom_prompt:
-            kwargs["prompt"] = self.custom_prompt
+        
+        # Explicitly pass infer parameter if provided, default to True
+        # This ensures memory extraction happens even if Mem0's default behavior changes
+        infer = payload.get("infer", True)
+        kwargs["infer"] = infer
 
         messages = payload.get("messages")
         # Skip add when messages is empty/blank, return response aligned with mem0 add result shape
         if (
             messages is None
             or (isinstance(messages, str) and messages.strip() == "")
-            or (isinstance(messages, (list, tuple)) and len(messages) == 0)
+            or (isinstance(messages, list | tuple) and len(messages) == 0)
         ):
             return ADD_SKIP_RESULT
 
@@ -762,6 +778,7 @@ class AsyncMem0Client:
             timeout_s=timeout_s,
             default_s=READ_OPERATION_TIMEOUT,
         )
+
         async def _call() -> dict[str, Any]:
             return await self.memory.get_all(**kwargs)
 
@@ -803,7 +820,10 @@ class AsyncMem0Client:
                 # Catch AttributeError from mem0 when existing_memory is None
                 # or ValueError when memory not found
                 # Convert to a consistent ValueError
-                if "'NoneType' object has no attribute" in str(e) or "not found" in str(e).lower():
+                if (
+                    "'NoneType' object has no attribute" in str(e)
+                    or "not found" in str(e).lower()
+                ):
                     error_msg = (
                         f"Memory with ID {memory_id} not found. "
                         "Please provide a valid 'memory_id'"
@@ -1050,7 +1070,7 @@ class AsyncMem0Client:
 
         Raises:
             QueueOverloadError: If queue is overloaded and check_queue is True.
-            asyncio.TimeoutError: If operation exceeds timeout_s.
+            TimeoutError: If operation exceeds timeout_s.
 
         """
         # 1. Queue overload check (optional, for both read and write operations)
@@ -1100,9 +1120,9 @@ class AsyncMem0Client:
         if timeout_s is not None:
             try:
                 return await asyncio.wait_for(_inner(), timeout=timeout_s)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
-                    "%s operation timed out after %ds (asyncio.TimeoutError)",
+                    "%s operation timed out after %ds (TimeoutError)",
                     op_name.capitalize(),
                     timeout_s,
                 )
@@ -1145,7 +1165,9 @@ def _get_config_hash(credentials: dict[str, Any]) -> str:
         return ""
 
 
-def cleanup_async_client(client: AsyncMem0Client | None, context: str = "cleanup") -> None:
+def cleanup_async_client(
+    client: AsyncMem0Client | None, context: str = "cleanup"
+) -> None:
     """Cleanup AsyncMem0Client resources via background event loop.
 
     This helper function provides a unified way to cleanup AsyncMem0Client
@@ -1248,7 +1270,10 @@ def get_sync_client(credentials: dict[str, Any]) -> SyncMem0Client:
     # All reads and writes are protected by lock to ensure thread safety
     with _cache["sync_client_lock"]:
         # If config changed or client doesn't exist, create new instance
-        if _cache["sync_client"] is None or _cache["sync_client_config_hash"] != config_hash:
+        if (
+            _cache["sync_client"] is None
+            or _cache["sync_client_config_hash"] != config_hash
+        ):
             # SyncMem0Client resources (PGVector, SQLiteManager) have __del__ methods
             # that will be called during GC when the old reference is overwritten.
             # SyncMem0Client doesn't have a close() method, so we rely on __del__
@@ -1281,7 +1306,10 @@ def get_async_client(credentials: dict[str, Any]) -> AsyncMem0Client:
     # All reads and writes are protected by lock to ensure thread safety
     with _cache["async_client_lock"]:
         # If config changed or client doesn't exist, create new instance
-        if _cache["async_client"] is None or _cache["async_client_config_hash"] != config_hash:
+        if (
+            _cache["async_client"] is None
+            or _cache["async_client_config_hash"] != config_hash
+        ):
             # Cleanup old client before creating new one to prevent resource leaks
             old_client = _cache["async_client"]
             if old_client is not None:

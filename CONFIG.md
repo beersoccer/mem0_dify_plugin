@@ -43,9 +43,11 @@ This guide provides detailed installation and configuration instructions for the
 
 ### Step 3: Verify Installation
 
-After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 8 tools:
+After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 10 tools:
 - `add_memory`, `search_memory`, `get_all_memories`, `get_memory`
 - `update_memory`, `delete_memory`, `delete_all_memories`, `get_memory_history`
+- `extract_long_term_memory` (extract semantic/episodic/procedural memories from Dify conversation history)
+- `check_extraction_status` (check the status and progress of async extraction tasks)
 
 ## Configuration Steps
 
@@ -460,7 +462,7 @@ For detailed usage examples, see the [Usage Examples](#usage-examples) section b
 
 ## Usage Examples
 
-This section provides complete usage examples for all 8 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
+This section provides complete usage examples for all 10 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
 
 ### Add Memory
 
@@ -580,6 +582,200 @@ In Dify workflow, add the `get_memory_history` tool and configure the following 
 **Optional Parameters:**
 - `run_id`: Workflow run ID for tracing
 
+### Extract Long-Term Memory
+
+In Dify workflow, add the `extract_long_term_memory` tool to automatically extract semantic, episodic, and procedural memories from your Dify conversation history.
+
+**Required Parameters:**
+- `user_ids`: User IDs to process (JSON array string, e.g., `["user1", "user2"]`)
+- `app_id`: Dify App ID for memory isolation. Each app maintains separate memory space for the same user. This ensures memories are scoped to specific applications
+- `dify_base_url`: Dify API base URL (e.g., `http://localhost:5001`)
+- `dify_api_key`: Dify API key with access to conversations/messages APIs
+
+**Optional Parameters:**
+- `run_id`: Unique identifier for tracking the entire memory operation call chain. Recommended to use Dify's workflow_run_id to link multiple memory operations in the same workflow. **Note**: This parameter is **only for tracing the call chain** and is **NOT used as a condition for memory layering or filtering**
+- `days_back`: Number of days to look back for extracting conversation history (1-7, default: 3). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as:
+  - `start_time`: (today - days_back) at 00:00:00
+  - `end_time`: today at 00:00:00
+- `conversations_limit`: Maximum conversations to fetch per user (1-100, default: 20)
+- `messages_limit`: Maximum messages to fetch per conversation (1-100, default: 20)
+
+**Example Configuration:**
+```json
+{
+  "user_ids": "[\"alice\", \"bob\"]",
+  "app_id": "my-chatbot-app",
+  "run_id": "workflow_run_12345",
+  "days_back": 3,
+  "conversations_limit": 20,
+  "messages_limit": 20,
+  "dify_base_url": "http://localhost:5001",
+  "dify_api_key": "your-dify-api-key"
+}
+```
+
+**Memory Isolation with app_id:**
+
+The `app_id` parameter provides application-level memory isolation following Mem0 best practices:
+
+1. **Write (Consolidation)**: Each app writes memories with its `app_id` in metadata
+   - Ensures memories are tagged with their source application
+   - Prevents memory pollution between different apps
+
+2. **Read (Search/Get)**: `app_id` is OPTIONAL in search operations
+   - **With app_id**: Returns only memories from that specific app
+   - **Without app_id**: Returns all user memories across all apps (cross-app memory sharing)
+
+3. **Checkpoint Isolation**: Each (user_id, app_id) pair has its own checkpoint
+   - Different apps can independently process the same user's conversations
+   - Prevents checkpoint conflicts between apps
+
+**Use Cases:**
+- **Isolated Apps**: Set `app_id` in both consolidation and search for strict app boundaries
+- **Shared Knowledge**: Omit `app_id` in search to access user's memories across all apps
+- **Multi-tenant**: Use different `app_id` values for different tenants/customers
+
+**Time Range Examples:**
+
+If today is January 25, 2026:
+- `days_back=1`: Extracts [Jan 24 00:00:00, Jan 25 00:00:00) - yesterday only
+- `days_back=3`: Extracts [Jan 22 00:00:00, Jan 25 00:00:00) - last 3 days (default)
+- `days_back=7`: Extracts [Jan 18 00:00:00, Jan 25 00:00:00) - last week
+
+**Output:**
+The tool returns a structured JSON report with:
+- `status`: SUCCESS/PARTIAL_SUCCESS/ERROR
+- `run_id`: Unique execution identifier
+- `app_id`: App ID used for this consolidation run
+- `start_time` and `end_time`: Processed time range (automatically calculated from days_back)
+- `summary`: Processing statistics (users processed, memories written by type, etc.)
+- `per_user`: Detailed results for each user (scanned conversations/messages, written memories, errors)
+- `checkpoint_updates`: Checkpoint status for resumable processing
+
+**Memory Types:**
+- **Semantic**: Long-term facts, preferences, and constraints that remain valid over time
+- **Episodic**: Key events and experiences with temporal context
+- **Procedural**: Reusable workflows, rules, and step-by-step procedures
+
+**Features:**
+- ✅ **Idempotent**: Safe to run multiple times (checkpoint-based)
+- ✅ **Incremental**: Only processes new messages since last run
+- ✅ **Robust**: Automatic retry on transient failures (3 attempts with exponential backoff)
+- ✅ **Concurrent-safe**: Distributed lock prevents multiple tasks from processing the same user
+- ✅ **Atomic checkpoint**: Saves progress atomically with automatic rollback on failure
+
+For detailed implementation and design, see the tool documentation in `tools/extract_long_term_memory.py`.
+
+### Check Extraction Status
+
+In Dify workflow, add the `check_extraction_status` tool to query the status and progress of an async extraction task. Use this tool after calling `extract_long_term_memory` to monitor task progress.
+
+![Check Extraction Status Tool Configuration](images/check_extraction_status_example.png)
+
+**Required Parameters:**
+- `task_id`: The task ID returned by `extract_long_term_memory` tool when the task was accepted
+
+**Example Configuration:**
+```json
+{
+  "task_id": "extraction_task_12345"
+}
+```
+
+**Output:**
+The tool returns a structured JSON response with:
+- `status`: SUCCESS/NOT_FOUND/ERROR
+- `task_id`: The task ID being queried
+- `run_id`: Unique execution identifier (if available)
+- `task_status`: Current task status (running/completed/failed)
+- `progress`: Progress percentage (0.0-1.0, rounded to 2 decimal places)
+- `started_at`: Task start timestamp
+- `updated_at`: Last update timestamp
+- `user_count`: Total number of users to process
+- `processed_users`: Number of users already processed
+- `skipped_users`: Number of users skipped
+- `scanned_conversations`: Total conversations scanned
+- `scanned_messages`: Total messages scanned
+- `written_memories`: Total memories written
+- `error`: Error message (if task failed)
+- `final_report`: Final processing report (if task completed)
+
+**Task Status Values:**
+- `running`: Task is currently in progress
+- `completed`: Task has finished successfully
+- `failed`: Task encountered an error
+
+**Usage Workflow:**
+1. Call `extract_long_term_memory` tool to start an extraction task
+2. The tool returns immediately with a `task_id`
+3. Use `check_extraction_status` with the returned `task_id` to monitor progress
+4. Poll periodically until `task_status` is `completed` or `failed`
+
+**Example Response (Running Task):**
+```json
+{
+  "status": "SUCCESS",
+  "task_id": "extraction_task_12345",
+  "run_id": "workflow_run_12345",
+  "task_status": "running",
+  "progress": 0.65,
+  "started_at": "2026-01-25T10:00:00Z",
+  "updated_at": "2026-01-25T10:05:00Z",
+  "user_count": 10,
+  "processed_users": 6,
+  "skipped_users": 1,
+  "scanned_conversations": 45,
+  "scanned_messages": 320,
+  "written_memories": 28
+}
+```
+
+**Example Response (Completed Task):**
+```json
+{
+  "status": "SUCCESS",
+  "task_id": "extraction_task_12345",
+  "run_id": "workflow_run_12345",
+  "task_status": "completed",
+  "progress": 1.0,
+  "started_at": "2026-01-25T10:00:00Z",
+  "updated_at": "2026-01-25T10:10:00Z",
+  "user_count": 10,
+  "processed_users": 10,
+  "skipped_users": 0,
+  "scanned_conversations": 78,
+  "scanned_messages": 542,
+  "written_memories": 45,
+  "final_report": {
+    "status": "SUCCESS",
+    "summary": {
+      "users_processed": 10,
+      "memories_written": {
+        "semantic": 20,
+        "episodic": 15,
+        "procedural": 10
+      }
+    }
+  }
+}
+```
+
+**Example Response (Task Not Found):**
+```json
+{
+  "status": "NOT_FOUND",
+  "task_id": "extraction_task_12345",
+  "message": "Task extraction_task_12345 not found. It may have been completed and cleaned up, or never existed."
+}
+```
+
+**Important Notes:**
+- The `task_id` is returned by `extract_long_term_memory` when the task is accepted
+- Tasks may be cleaned up after completion, so querying a completed task may return `NOT_FOUND`
+- Use this tool in a polling loop to monitor long-running extraction tasks
+- The `progress` field provides a percentage (0.0-1.0) of task completion
+- If the task failed, check the `error` field for details
+
 **Important Notes:**
 - `user_id` is **required** for `add_memory`, `search_memory`, and `get_all_memories`
 - `filters` and `metadata` must be valid JSON strings when provided (the client will automatically parse them)
@@ -587,6 +783,8 @@ In Dify workflow, add the `get_memory_history` tool and configure the following 
 - All tool parameters are case-sensitive
 - **`run_id` Parameter** (optional): Recommended to use Dify's `workflow_run_id` to link multiple memory operations in the same workflow. **Important**: This parameter is only used for request tracing and logging; it is NOT used as a condition for memory layering or filtering
 - **`agent_id` Parameter**: When using `agent_id` in Dify workflows, you should use the **Dify application's `app_id`** (not `workflow_id`). This is because `workflow_id` changes every time you publish a workflow, while `app_id` remains stable and allows you to scope memories consistently across workflow versions
+- **`app_id` Parameter** (for `extract_long_term_memory`): Required for memory isolation. Each app maintains separate memory space for the same user. This ensures memories are scoped to specific applications
+- **`days_back` Parameter** (for `extract_long_term_memory`): Number of days to look back for extracting conversation history (1-7, default: 3). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as `start_time = (today - days_back) 00:00:00` and `end_time = today 00:00:00`
 - For runtime behavior details (async vs sync mode), see [Runtime Behavior](#runtime-behavior) section
 
 ## Runtime Behavior

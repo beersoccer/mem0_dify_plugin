@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -59,26 +61,45 @@ def parse_timeout(
 
 
 def parse_iso_timestamp(value: object) -> datetime | None:
-    """Parse ISO8601 timestamp string into timezone-aware datetime.
+    """Parse timestamp into timezone-aware datetime.
 
     Supports formats like:
-    - "2025-11-03T20:06:27.669359-08:00"
-    - "2025-11-03T20:06:27Z"
-    - "2025-11-03T20:06:27"
+    - "2025-11-03T20:06:27.669359-08:00" (ISO8601 string)
+    - "2025-11-03T20:06:27Z" (ISO8601 string with Z suffix)
+    - "2025-11-03T20:06:27" (ISO8601 string without timezone)
+    - 1768622401 (Unix timestamp as int)
+    - 1768622401.123 (Unix timestamp as float)
 
     Args:
-        value: The timestamp string to parse.
+        value: The timestamp to parse (string, int, or float).
 
     Returns:
         A timezone-aware datetime object, or None if parsing fails.
 
     """
+    if value is None:
+        return None
+
+    # Handle Unix timestamps (int or float)
+    if isinstance(value, int | float):
+        try:
+            return datetime.fromtimestamp(value, tz=UTC)
+        except (OSError, OverflowError, ValueError):
+            return None
+
     if not isinstance(value, str) or not value:
         return None
 
     normalized = value.strip()
     if not normalized:
         return None
+
+    # Require time component (ISO8601 should have 'T' separator)
+    # Reject date-only formats like "2026-01-17"
+    if "T" not in normalized and not normalized.endswith("Z"):
+        # Check if it's a date-only format (YYYY-MM-DD)
+        if len(normalized) == 10 and normalized.count("-") == 2:
+            return None
 
     # Convert 'Z' suffix to '+00:00' for fromisoformat compatibility
     if normalized.endswith("Z"):
@@ -91,7 +112,7 @@ def parse_iso_timestamp(value: object) -> datetime | None:
 
     # Ensure timezone-aware (assume UTC if naive)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -243,3 +264,40 @@ def log_thread_info(
             thread_name,
             timestamp,
         )
+
+
+def _parse_user_ids(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list | tuple):
+        ids: list[str] = []
+        for x in value:
+            if x is None:
+                continue
+            s = str(x).strip()
+            if s:
+                ids.append(s)
+        return ids
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        return [s.strip() for s in text.split(",") if s.strip()]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _build_run_id(run_at: str, user_ids: list[str], app_id: str | None) -> str:
+    base = {
+        "run_at": run_at,
+        "user_ids": sorted(set(user_ids)),
+        "app_id": app_id or "",
+    }
+    raw = json.dumps(base, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]

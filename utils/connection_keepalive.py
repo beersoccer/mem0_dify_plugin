@@ -2,10 +2,9 @@
 
 import threading
 
-from mem0 import Memory
-
 from .constants import HEARTBEAT_INTERVAL
 from .logger import get_logger
+from .mem0_client import Memory
 
 logger = get_logger(__name__)
 
@@ -68,7 +67,10 @@ class ConnectionKeepAlive:
         - HuggingFace: model.encode() or client.embeddings.create()
         - Vertex AI, Together, etc.: provider-specific APIs
         """
-        if not hasattr(self.memory, "embedding_model") or self.memory.embedding_model is None:
+        if (
+            not hasattr(self.memory, "embedding_model")
+            or self.memory.embedding_model is None
+        ):
             return
 
         try:
@@ -127,7 +129,9 @@ class ConnectionKeepAlive:
         while not self._stop_event.is_set():
             try:
                 self._heartbeat_all()
-                logger.debug("Executing heartbeat for all services completed successfully")
+                logger.debug(
+                    "Executing heartbeat for all services completed successfully"
+                )
             except Exception as e:
                 logger.warning("Error in heartbeat loop: %s", e)
 
@@ -141,7 +145,8 @@ class ConnectionKeepAlive:
 
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._run, daemon=True, name="Mem0-ConnectionKeepAlive")
+            target=self._run, daemon=True, name="Mem0-ConnectionKeepAlive"
+        )
         self._thread.start()
         self._running = True
         logger.info("Connection keep-alive started (interval: %ds)", self.interval)
@@ -156,4 +161,3 @@ class ConnectionKeepAlive:
             self._thread.join(timeout=5.0)
         self._running = False
         logger.info("Connection keep-alive stopped")
-

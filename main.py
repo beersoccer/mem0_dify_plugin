@@ -13,6 +13,7 @@ import warnings
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 os.environ.setdefault("POSTHOG_DISABLED", "1")
 os.environ.setdefault("DO_NOT_TRACK", "1")
+os.environ.setdefault("DIFY_PLUGIN_RUNTIME", "1")
 
 from dify_plugin import DifyPluginEnv, Plugin
 from utils.background_loop import BackgroundEventLoop
@@ -34,6 +35,7 @@ logger = get_logger(__name__)
 
 plugin = Plugin(DifyPluginEnv(MAX_REQUEST_TIMEOUT=MAX_REQUEST_TIMEOUT))
 
+
 def _graceful_shutdown() -> None:
     logger.info("Initiating graceful shutdown of Mem0 plugin")
     # Cleanup async client resources before shutting down event loop
@@ -46,12 +48,15 @@ def _graceful_shutdown() -> None:
     AsyncMem0Client.shutdown(timeout=3.0)
     logger.info("Graceful shutdown completed")
 
+
 atexit.register(_graceful_shutdown)
+
 
 def _on_term(signum: int, frame: object | None) -> None:  # noqa: ARG001
     logger.info("Received signal %s, shutting down", signum)
     _graceful_shutdown()
     sys.exit(0)
+
 
 with contextlib.suppress(Exception):
     signal.signal(signal.SIGTERM, _on_term)

@@ -1,4 +1,4 @@
-version: 0.1.9
+version: 0.2.2
 type: plugin
 author: beersoccer
 name: mem0ai
@@ -7,9 +7,9 @@ label:
   ja_JP: mem0ai
   zh_Hans: mem0ai
 description:
-  en_US: Self-hosted mode mem0 plugin, async_mode enabled by default. Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block. Supports dynamic log level configuration.
-  ja_JP: セルフホストモードの mem0 プラグイン，async_mode は既定で有効。非同期時は書込操作（Add/Update/Delete）非ブロッキング，読取操作（Search/Get/History）は常に待機，同期時はすべての操作が完了までブロック。動的ログレベル設定をサポート。
-  zh_Hans: 本地托管模式的 mem0 插件，async_mode 默认开启。异步模式下写操作（Add/Update/Delete）非阻塞，读操作（Search/Get/History）始终等待，同步模式下所有操作阻塞直至完成。支持动态日志级别配置。
+  en_US: Self-hosted mode mem0 plugin, async_mode enabled by default. Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block. Supports dynamic log level configuration. Performance optimizations: smart memory classification (33% LLM call reduction), token-aware processing with tiktoken.
+  ja_JP: セルフホストモードの mem0 プラグイン，async_mode は既定で有効。非同期時は書込操作（Add/Update/Delete）非ブロッキング，読取操作（Search/Get/History）は常に待機，同期時はすべての操作が完了までブロック。動的ログレベル設定をサポート。パフォーマンス最適化：スマートメモリ分類（LLM呼び出し33%削減），tiktokenによるトークン認識処理。
+  zh_Hans: 本地托管模式的 mem0 插件，async_mode 默认开启。异步模式下写操作（Add/Update/Delete）非阻塞，读操作（Search/Get/History）始终等待，同步模式下所有操作阻塞直至完成。支持动态日志级别配置。性能优化：智能记忆分类（LLM调用减少33%），使用tiktoken进行token感知处理。
 icon: mem0_plugin.png
 resource:
   memory: 884000000

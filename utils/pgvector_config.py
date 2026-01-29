@@ -41,6 +41,7 @@ def _extract_pool_parameters(
 
     try:
         from psycopg_pool import ConnectionPool as Psycopg3Pool
+
         psycopg3_available = True
     except ImportError:
         pass
@@ -48,6 +49,7 @@ def _extract_pool_parameters(
     # Try to import psycopg2
     try:
         import psycopg2.pool  # noqa: F401
+
         psycopg2_available = True
     except ImportError:
         pass
@@ -86,15 +88,17 @@ def _extract_pool_parameters(
             pool_check = Psycopg3Pool.check_connection
         # else: pool_check is a callable, use it as-is
 
-        pool_params.update({
-            "max_lifetime": pool_max_lifetime,
-            "max_idle": pool_max_idle,
-            "timeout": pool_timeout,
-            "reconnect_timeout": pool_reconnect_timeout,
-            "max_waiting": pool_max_waiting,
-            "open": pool_open,
-            "check": pool_check,
-        })
+        pool_params.update(
+            {
+                "max_lifetime": pool_max_lifetime,
+                "max_idle": pool_max_idle,
+                "timeout": pool_timeout,
+                "reconnect_timeout": pool_reconnect_timeout,
+                "max_waiting": pool_max_waiting,
+                "open": pool_open,
+                "check": pool_check,
+            }
+        )
 
     return pool_params, psycopg3_available, psycopg2_available
 
@@ -179,7 +183,9 @@ def _create_connection_pool(
     return None
 
 
-def _validate_pgvector_connection_params(normalized: dict[str, Any]) -> list[str] | None:
+def _validate_pgvector_connection_params(
+    normalized: dict[str, Any],
+) -> list[str] | None:
     """Validate required pgvector connection parameters.
 
     Args:
@@ -225,8 +231,7 @@ def _extract_query_params_from_url(connection_string: str) -> list[str]:
     parsed = urlparse(connection_string)
     existing_params = parse_qs(parsed.query, keep_blank_values=True)
     return [
-        f"{k}={quote_plus(str(v[0] if v else ''))}"
-        for k, v in existing_params.items()
+        f"{k}={quote_plus(str(v[0] if v else ''))}" for k, v in existing_params.items()
     ]
 
 
@@ -356,7 +361,9 @@ def _build_pgvector_connection_string(normalized: dict[str, Any]) -> str | None:
         # Parse query parameters from dbname
         params_from_dbname = parse_qs(query_string_in_dbname, keep_blank_values=True)
         # Convert list values to single values (parse_qs returns lists)
-        params_from_dbname = {k: v[0] if v else "" for k, v in params_from_dbname.items()}
+        params_from_dbname = {
+            k: v[0] if v else "" for k, v in params_from_dbname.items()
+        }
         logger.debug(
             "Extracted query parameters from dbname: %s",
             list(params_from_dbname.keys()),
@@ -381,7 +388,9 @@ def _build_pgvector_connection_string(normalized: dict[str, Any]) -> str | None:
         query_params_dict["sslmode"] = str(sslmode)
 
     # Build query parameters list (use encoded values for consistency)
-    query_params_list = [f"{k}={quote_plus(str(v))}" for k, v in query_params_dict.items()]
+    query_params_list = [
+        f"{k}={quote_plus(str(v))}" for k, v in query_params_dict.items()
+    ]
 
     # Add TCP keepalive parameters (best practice defaults) if not already present
     query_params_list = _add_pgvector_tcp_keepalive_params(query_params_list)
@@ -412,16 +421,18 @@ def _remove_connection_params(
     keys_to_remove = ["user", "password", "host", "port", "sslmode"]
 
     if also_remove_pool_params:
-        keys_to_remove.extend([
-            "connection_string",
-            "pool_max_lifetime",
-            "pool_max_idle",
-            "pool_timeout",
-            "pool_reconnect_timeout",
-            "pool_max_waiting",
-            "pool_open",
-            "pool_check",
-        ])
+        keys_to_remove.extend(
+            [
+                "connection_string",
+                "pool_max_lifetime",
+                "pool_max_idle",
+                "pool_timeout",
+                "pool_reconnect_timeout",
+                "pool_max_waiting",
+                "pool_open",
+                "pool_check",
+            ]
+        )
 
     for key in keys_to_remove:
         normalized.pop(key, None)
@@ -438,7 +449,9 @@ def _create_and_set_pool(
         connection_string: PostgreSQL connection string.
 
     """
-    pool_params, psycopg3_available, psycopg2_available = _extract_pool_parameters(normalized)
+    pool_params, psycopg3_available, psycopg2_available = _extract_pool_parameters(
+        normalized
+    )
 
     if not psycopg3_available and not psycopg2_available:
         logger.warning(
@@ -595,7 +608,8 @@ def normalize_pgvector_config(
         _remove_connection_params(normalized, also_remove_pool_params=True)
     # 2. connection_string (second priority) - create psycopg3 ConnectionPool
     elif "connection_string" in normalized and isinstance(
-        normalized["connection_string"], str,
+        normalized["connection_string"],
+        str,
     ):
         _handle_connection_string(normalized)
     # 3. Individual parameters (lowest priority) - build connection_string and create pool

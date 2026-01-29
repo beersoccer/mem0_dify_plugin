@@ -1,0 +1,46 @@
+---
+alwaysApply: true
+description: Cursor AI collaboration rules and preferences
+---
+
+# Cursor Collaboration Rules
+
+## General Workflow
+- Before editing: summarize a file-level plan (5-10 bullets) and list files to touch
+- If unsure: ask 1-3 clarifying questions before coding
+- Prefer repo files as truth. Do not invent Dify plugin fields; read `manifest.yaml` first
+
+## Test Execution Policy
+- **DO update/create test code** when making code changes (required)
+- **DO NOT automatically run tests** (pytest, test commands, etc.) to avoid token consumption
+- **ONLY run tests** when the user explicitly requests it (e.g., "run tests", "verify the changes work", "check if tests pass")
+- After code changes, mention that test files have been updated/created, but wait for user's explicit instruction before running tests
+- **When running tests as Cursor agent, use the helper script** `./tests/run_tests.sh`:
+  ```bash
+  # For Cursor agent: Use helper script (auto-activates venv)
+  ./tests/run_tests.sh tests/unit/tools/test_extract_long_term_memory.py -v
+  
+  # For manual execution: Activate venv first (recommended)
+  source .venv/bin/activate
+  pytest tests/unit/tools/test_extract_long_term_memory.py -v
+  ```
+- Alternative: Use `.venv/bin/pytest` directly (no activation needed):
+  ```bash
+  .venv/bin/pytest tests/unit/tools/test_extract_long_term_memory.py -v
+  ```
+
+## Documentation & Markdown Files
+- **Do NOT automatically create new markdown files** after completing code changes
+- **Do NOT automatically create summary/completion/implementation reports** unless explicitly requested
+- The user prefers to read results directly in the chat output
+- Only create markdown files when:
+  - User explicitly asks for documentation (e.g., "create a document explaining X")
+  - It's a test file (e.g., test_*.py) or test guide needed for test execution
+  - It's required by the task (e.g., user asks to "implement the plan and document it")
+  - It's part of the actual project documentation structure being actively edited (README.md, SPEC.md, CONFIG.md, etc.)
+- Examples of what NOT to create automatically:
+  - Implementation complete reports (e.g., IMPLEMENTATION_COMPLETE.md)
+  - Summary reports (e.g., SUMMARY.md, FIX_COMPLETE.md)
+  - Visualization documents (e.g., BUG_VISUALIZATION.md)
+  - Status updates (e.g., STATUS.md, PROGRESS.md)
+- When work is complete, provide a concise summary in the chat response instead

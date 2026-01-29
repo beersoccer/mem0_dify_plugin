@@ -4,6 +4,8 @@ This module intentionally avoids adding new dependencies (uses Python stdlib).
 It focuses on the two read-only capabilities needed by SPEC.md:
 - conversations list (sort_by=-updated_at + last_id pagination)
 - messages list (first_id + limit reverse pagination)
+
+Enhanced with retry mechanism for robust API calls.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+from .retry import retry_with_exponential_backoff
 
 
 class DifyAPIError(RuntimeError):
@@ -36,7 +40,15 @@ def _coerce_items(obj: object) -> list[dict[str, Any]]:
 class DifyClient:
     """Very small synchronous client for Dify HTTP APIs."""
 
-    def __init__(self, base_url: str, api_key: str, timeout: float = 20.0) -> None:
+    def __init__(self, base_url: str, api_key: str, timeout: float = 30.0) -> None:
+        """Initialize Dify API client.
+        
+        Args:
+            base_url: Dify API base URL
+            api_key: Dify API key
+            timeout: HTTP request timeout in seconds (default: 30s)
+                     Increased from 20s to handle larger conversation/message lists
+        """
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = (api_key or "").strip()
         self.timeout = float(timeout)
@@ -49,7 +61,9 @@ class DifyClient:
 
     def _get_json(self, path: str, params: dict[str, object]) -> dict[str, Any]:
         url = urllib.parse.urljoin(self.base_url + "/", path.lstrip("/"))
-        qs = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})
+        qs = urllib.parse.urlencode(
+            {k: v for k, v in params.items() if v not in (None, "")}
+        )
         if qs:
             url = f"{url}?{qs}"
         req = urllib.request.Request(
@@ -77,9 +91,16 @@ class DifyClient:
         except json.JSONDecodeError as e:
             raise DifyAPIError(f"Invalid JSON from {url}: {raw[:500]}") from e
         if not isinstance(parsed, dict):
-            raise DifyAPIError(f"Unexpected response type from {url}: {type(parsed).__name__}")
+            raise DifyAPIError(
+                f"Unexpected response type from {url}: {type(parsed).__name__}"
+            )
         return parsed
 
+    @retry_with_exponential_backoff(
+        max_retries=3,
+        initial_delay=1.0,
+        retriable_exceptions=(DifyAPIError, urllib.error.URLError, TimeoutError),
+    )
     def list_conversations(
         self,
         *,
@@ -88,7 +109,7 @@ class DifyClient:
         limit: int = 20,
         sort_by: str = "-updated_at",
     ) -> DifyPage:
-        """List conversations, newest first."""
+        """List conversations, newest first. Retries on transient failures."""
         data = self._get_json(
             "/v1/conversations",
             {
@@ -98,7 +119,9 @@ class DifyClient:
                 "sort_by": sort_by,
             },
         )
-        items = _coerce_items(data.get("data") or data.get("conversations") or data.get("items"))
+        items = _coerce_items(
+            data.get("data") or data.get("conversations") or data.get("items")
+        )
         next_cursor = (
             data.get("last_id")
             or data.get("next_cursor")
@@ -108,8 +131,17 @@ class DifyClient:
         # If API provides explicit has_more=false, respect it.
         if data.get("has_more") is False:
             has_more = False
-        return DifyPage(items=items, next_cursor=str(next_cursor) if next_cursor else None, has_more=has_more)
+        return DifyPage(
+            items=items,
+            next_cursor=str(next_cursor) if next_cursor else None,
+            has_more=has_more,
+        )
 
+    @retry_with_exponential_backoff(
+        max_retries=3,
+        initial_delay=1.0,
+        retriable_exceptions=(DifyAPIError, urllib.error.URLError, TimeoutError),
+    )
     def list_messages(
         self,
         *,
@@ -121,6 +153,7 @@ class DifyClient:
         """List messages in a conversation, reverse-paginated by first_id.
 
         Dify supports reverse pagination via `first_id` + `limit` (SPEC.md).
+        Retries on transient failures.
         """
         data = self._get_json(
             "/v1/messages",
@@ -131,7 +164,9 @@ class DifyClient:
                 "limit": limit,
             },
         )
-        items = _coerce_items(data.get("data") or data.get("messages") or data.get("items"))
+        items = _coerce_items(
+            data.get("data") or data.get("messages") or data.get("items")
+        )
         next_cursor = (
             data.get("first_id")
             or data.get("next_cursor")
@@ -140,6 +175,8 @@ class DifyClient:
         has_more = bool(data.get("has_more")) if "has_more" in data else bool(items)
         if data.get("has_more") is False:
             has_more = False
-        return DifyPage(items=items, next_cursor=str(next_cursor) if next_cursor else None, has_more=has_more)
-
-
+        return DifyPage(
+            items=items,
+            next_cursor=str(next_cursor) if next_cursor else None,
+            has_more=has_more,
+        )

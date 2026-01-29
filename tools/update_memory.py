@@ -31,7 +31,9 @@ logger = get_logger(__name__)
 class UpdateMemoryTool(Tool):
     """Tool that updates a memory by ID."""
 
-    def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
+    def _invoke(
+        self, tool_parameters: dict[str, Any]
+    ) -> Generator[ToolInvokeMessage, None, None]:
         """Invoke the tool.
 
         Args:
@@ -46,12 +48,16 @@ class UpdateMemoryTool(Tool):
 
         memory_id = tool_parameters.get("memory_id")
         if not memory_id:
-            yield from yield_error(self, request_id, "memory_id is required", "update memory", {})
+            yield from yield_error(
+                self, request_id, "memory_id is required", "update memory", {}
+            )
             return
 
         text = tool_parameters.get("text")
         if not text:
-            yield from yield_error(self, request_id, "text is required", "update memory", {})
+            yield from yield_error(
+                self, request_id, "text is required", "update memory", {}
+            )
             return
 
         try:
@@ -87,11 +93,13 @@ class UpdateMemoryTool(Tool):
                         memory_id,
                         elapsed,
                     )
-                    yield self.create_json_message({
-                        "status": "SUCCESS",
-                        "messages": {"memory_id": memory_id, "text": text},
-                        "results": result,
-                    })
+                    yield self.create_json_message(
+                        {
+                            "status": "SUCCESS",
+                            "messages": {"memory_id": memory_id, "text": text},
+                            "results": result,
+                        }
+                    )
                     yield self.create_text_message(
                         f"Memory {memory_id} updated to '{text}' successfully!",
                     )
@@ -106,7 +114,11 @@ class UpdateMemoryTool(Tool):
                     )
                     error_message = f"Memory not found: {memory_id}"
                     yield self.create_json_message(
-                        {"status": "NOT_FOUND", "messages": error_message, "results": {}},
+                        {
+                            "status": "NOT_FOUND",
+                            "messages": error_message,
+                            "results": {},
+                        },
                     )
                     yield self.create_text_message(f"Error: {error_message}")
             else:
@@ -123,11 +135,13 @@ class UpdateMemoryTool(Tool):
                     f"update_memory(memory_id={memory_id}, req_id={request_id})",
                 )
 
-                yield self.create_json_message({
-                    "status": "SUCCESS",
-                    "messages": {"memory_id": memory_id, "text": text},
-                    **UPDATE_ACCEPT_RESULT,
-                })
+                yield self.create_json_message(
+                    {
+                        "status": "SUCCESS",
+                        "messages": {"memory_id": memory_id, "text": text},
+                        **UPDATE_ACCEPT_RESULT,
+                    }
+                )
                 yield self.create_text_message(
                     "Memory update has been accepted and will be processed asynchronously.",
                 )

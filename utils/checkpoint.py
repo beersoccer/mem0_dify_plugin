@@ -1,24 +1,28 @@
-"""Checkpoint storage in Mem0 for Dify consolidation runs (no external DB).
+"""Checkpoint storage in Mem0 for Dify extraction runs (no external DB).
 
 Checkpoint is stored as an internal Mem0 memory with metadata markers (SPEC.md):
 - metadata.__internal = true
 - metadata.internal_type = "checkpoint"
-- metadata.checkpoint_key = "dify_consolidation_v1"
+- metadata.checkpoint_key = "dify_extraction_v1"
 - metadata.user_id = <user_id>
 - metadata.app_id = <app_id or "*">
+
+Enhanced with atomic save and rollback mechanism for robustness.
 """
 
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict
 from typing import Any
 
-from mem0 import Memory
+from .extraction import ConversationCheckpoint, UserCheckpoint
+from .logger import get_logger
+from .mem0_client import Memory
 
-from .consolidation import ConversationCheckpoint, UserCheckpoint
-
-CHECKPOINT_KEY = "dify_consolidation_v1"
+logger = get_logger(__name__)
+CHECKPOINT_KEY = "dify_extraction_v1"
 
 
 def checkpoint_metadata(*, user_id: str, app_id: str | None) -> dict[str, Any]:
@@ -59,6 +63,7 @@ def load_checkpoint(
     filters = checkpoint_filters(user_id=user_id, app_id=app_id)
     result = mem.get_all(user_id=user_id, limit=5, filters=filters)
     items = result.get("results", []) if isinstance(result, dict) else []
+
     if not isinstance(items, list) or not items:
         return None, None
 
@@ -66,10 +71,13 @@ def load_checkpoint(
     def _key(x: dict[str, Any]) -> str:
         return str(x.get("updated_at") or x.get("created_at") or "")
 
-    items_sorted = sorted([x for x in items if isinstance(x, dict)], key=_key, reverse=True)
+    items_sorted = sorted(
+        [x for x in items if isinstance(x, dict)], key=_key, reverse=True
+    )
     chosen = items_sorted[0]
     mem_id = str(chosen.get("id") or "").strip() or None
     raw = _extract_memory_text(chosen)
+
     if not raw:
         return mem_id, UserCheckpoint()
     try:
@@ -83,7 +91,6 @@ def load_checkpoint(
     cp = UserCheckpoint(
         last_run_at=data.get("last_run_at"),
         conversations={},
-        version=str(data.get("version") or "v1"),
     )
     conversations = data.get("conversations") or {}
     if isinstance(conversations, dict):
@@ -92,8 +99,8 @@ def load_checkpoint(
                 continue
             cp.conversations[str(cid)] = ConversationCheckpoint(
                 last_processed_message_id=cpd.get("last_processed_message_id"),
-                last_processed_message_created_at=cpd.get("last_processed_message_created_at"),
-                last_seen_updated_at=cpd.get("last_seen_updated_at"),
+                processed_range_start=cpd.get("processed_range_start"),
+                processed_range_end=cpd.get("processed_range_end"),
             )
     return mem_id, cp
 
@@ -106,16 +113,27 @@ def save_checkpoint(
     app_id: str | None,
     checkpoint: UserCheckpoint,
 ) -> tuple[bool, str | None]:
-    """Persist checkpoint; returns (ok, checkpoint_id)."""
+    """Persist checkpoint; returns (ok, checkpoint_id).
+    
+    Note: We use delete+add instead of update to avoid mem0's embedding
+    processing. Checkpoint data should be stored as-is without any LLM
+    inference or vectorization.
+    """
     payload = asdict(checkpoint)
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     md = checkpoint_metadata(user_id=user_id, app_id=app_id)
 
+    # If updating existing checkpoint, delete it first to avoid embedding
+    # mem0's update() method calls embedding_model.embed() which is unnecessary
+    # for internal metadata that should be stored as-is
     if checkpoint_id:
-        mem.update(checkpoint_id, text)
-        return True, checkpoint_id
+        try:
+            mem.delete(checkpoint_id)
+        except Exception:
+            # If delete fails (e.g., already deleted), continue to add new one
+            logger.warning(f"Failed to delete old checkpoint {checkpoint_id}, will add new one")
 
-    # Create new internal memory; infer=False to avoid LLM calls.
+    # Create new internal memory; infer=False to avoid LLM calls and embedding
     res = mem.add(text, user_id=user_id, metadata=md, infer=False)
     new_id: str | None = None
     if isinstance(res, dict):
@@ -127,3 +145,79 @@ def save_checkpoint(
     return True, new_id
 
 
+def save_checkpoint_atomic(
+    mem: Memory,
+    *,
+    user_id: str,
+    app_id: str | None,
+    checkpoint: UserCheckpoint,
+    max_retries: int = 3,
+) -> tuple[bool, str | None]:
+    """Atomically save checkpoint with retry and rollback mechanism.
+
+    Implementation strategy:
+    1. Read old checkpoint (as backup)
+    2. Attempt to save new checkpoint (with retries)
+    3. Rollback to old checkpoint on failure
+
+    Args:
+        mem: Mem0 client
+        user_id: User ID
+        app_id: App ID
+        checkpoint: New checkpoint object
+        max_retries: Maximum retry attempts
+
+    Returns:
+        (success, checkpoint_id): Returns (True, id) on success, (False, None) on failure
+    """
+    # 1. Load existing checkpoint as backup
+    old_cp_id, old_cp = load_checkpoint(mem, user_id=user_id, app_id=app_id)
+
+    # 2. Attempt to save (with retries)
+    for attempt in range(max_retries):
+        try:
+            ok, new_id = save_checkpoint(
+                mem,
+                checkpoint_id=old_cp_id,
+                user_id=user_id,
+                app_id=app_id,
+                checkpoint=checkpoint,
+            )
+
+            if ok:
+                logger.info(
+                    f"Checkpoint saved successfully for user {user_id} "
+                    f"(attempt: {attempt + 1}/{max_retries})"
+                )
+                return True, new_id
+
+        except Exception as e:
+            logger.error(
+                f"Failed to save checkpoint (attempt {attempt + 1}/{max_retries}): {e}"
+            )
+
+            if attempt < max_retries - 1:
+                # Exponential backoff
+                delay = 2**attempt
+                logger.info(f"Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+
+            # Last attempt failed, try to rollback
+            if old_cp:
+                logger.warning(f"Rolling back to previous checkpoint for user {user_id}")
+                try:
+                    save_checkpoint(
+                        mem,
+                        checkpoint_id=old_cp_id,
+                        user_id=user_id,
+                        app_id=app_id,
+                        checkpoint=old_cp,
+                    )
+                    logger.info("Rollback successful")
+                except Exception as rollback_error:
+                    logger.error(f"Rollback failed: {rollback_error}")
+
+            return False, None
+
+    return False, None

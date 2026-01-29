@@ -82,7 +82,9 @@ class GetMemoryHistoryTool(Tool):
         memory_id: str,
     ) -> str:
         """Format history as text output."""
-        text_response = f"Found {len(history)} history records for memory {memory_id}\n\n"
+        text_response = (
+            f"Found {len(history)} history records for memory {memory_id}\n\n"
+        )
         if history:
             for idx, h in enumerate(history, 1):
                 text_response += (
@@ -107,7 +109,11 @@ class GetMemoryHistoryTool(Tool):
         memory_id = validate_memory_id(tool_parameters)
         if not memory_id:
             yield from yield_error(
-                self, request_id, "memory_id is required", "get memory history", [],
+                self,
+                request_id,
+                "memory_id is required",
+                "get memory history",
+                [],
             )
             return
 
@@ -148,7 +154,10 @@ class GetMemoryHistoryTool(Tool):
                 )
             else:
                 results = self._execute_sync_history(
-                    memory_id, request_id, mode_str, start_time,
+                    memory_id,
+                    request_id,
+                    mode_str,
+                    start_time,
                 )
 
             # Normalize results
@@ -171,11 +180,13 @@ class GetMemoryHistoryTool(Tool):
             success_msg = f"Found {len(history)} history records"
             status, messages = build_status_and_message(error_type, success_msg)
 
-            yield self.create_json_message({
-                "status": status,
-                "messages": messages,
-                "results": history,
-            })
+            yield self.create_json_message(
+                {
+                    "status": status,
+                    "messages": messages,
+                    "results": history,
+                }
+            )
 
             # Text output
             text_output = self._format_text_output(history, memory_id)
@@ -191,4 +202,6 @@ class GetMemoryHistoryTool(Tool):
                 elapsed,
             )
             error_message = f"Error: {e!s}"
-            yield from yield_error(self, request_id, error_message, "get memory history", [])
+            yield from yield_error(
+                self, request_id, error_message, "get memory history", []
+            )

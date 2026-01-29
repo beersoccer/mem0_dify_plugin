@@ -13,6 +13,7 @@ from typing import Any
 
 from dify_plugin import ToolProvider
 from dify_plugin.errors.tool import ToolProviderCredentialValidationError
+
 from utils.config_builder import is_async_mode
 from utils.constants import READ_OPERATION_TIMEOUT
 from utils.logger import get_logger, set_log_level
@@ -106,12 +107,8 @@ class Mem0Provider(ToolProvider):
             # Check if this is a "credential not found in provider" error
             # which typically indicates legacy configuration fields
             error_msg = str(e)
-            is_credential_not_found = (
-                "not found in provider" in error_msg.lower()
-                or (
-                    "credential" in error_msg.lower()
-                    and "not found" in error_msg.lower()
-                )
+            is_credential_not_found = "not found in provider" in error_msg.lower() or (
+                "credential" in error_msg.lower() and "not found" in error_msg.lower()
             )
             if is_credential_not_found:
                 # Provide a friendly message to guide users to reconfigure

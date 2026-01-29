@@ -87,4 +87,3 @@ async def close_memory_resources(memory: object) -> None:
     await close_vector_store(memory, loop)
     await close_graph_store(memory, loop)
     await close_database(memory, loop)
-

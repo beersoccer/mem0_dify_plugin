@@ -1,0 +1,20 @@
+---
+alwaysApply: true
+description: Version number management discipline
+---
+
+# Versioning Discipline
+
+**Version number updates require explicit user approval**:
+- Do NOT automatically update version numbers in `manifest.yaml`, `README.md`, `CHANGELOG.md`, or any other files
+- ONLY update version numbers when the user explicitly requests it (e.g., "bump version to X.Y.Z")
+- If a code change warrants a version bump, mention it in the response but do NOT make the change automatically
+
+## User-Facing Changes
+- If user-facing change:
+  - Update `CHANGELOG.md` once per release (only when explicitly requested)
+  - Keep `manifest.yaml` version consistent with `CHANGELOG`
+
+## Internal-Only Changes
+- If internal-only change (CI/tests/refactor):
+  - Do NOT bump `manifest.yaml` version unless explicitly requested by the user

@@ -31,13 +31,17 @@ logger = get_logger(__name__)
 class DeleteMemoryTool(Tool):
     """Tool that deletes a specific memory by its ID."""
 
-    def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
+    def _invoke(
+        self, tool_parameters: dict[str, Any]
+    ) -> Generator[ToolInvokeMessage, None, None]:
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
         memory_id = tool_parameters.get("memory_id")
         if not memory_id:
-            yield from yield_error(self, request_id, "memory_id is required", "delete memory", {})
+            yield from yield_error(
+                self, request_id, "memory_id is required", "delete memory", {}
+            )
             return
 
         try:
@@ -73,12 +77,16 @@ class DeleteMemoryTool(Tool):
                         memory_id,
                         elapsed,
                     )
-                    yield self.create_json_message({
-                        "status": "SUCCESS",
-                        "messages": {"memory_id": memory_id},
-                        "results": result,
-                    })
-                    yield self.create_text_message(f"Memory {memory_id} deleted successfully!")
+                    yield self.create_json_message(
+                        {
+                            "status": "SUCCESS",
+                            "messages": {"memory_id": memory_id},
+                            "results": result,
+                        }
+                    )
+                    yield self.create_text_message(
+                        f"Memory {memory_id} deleted successfully!"
+                    )
                 except (ValueError, AttributeError):
                     # Mem0 throws ValueError or AttributeError when memory not found
                     elapsed = time.time() - start_time
@@ -90,7 +98,11 @@ class DeleteMemoryTool(Tool):
                     )
                     error_message = f"Memory not found: {memory_id}"
                     yield self.create_json_message(
-                        {"status": "NOT_FOUND", "messages": error_message, "results": {}},
+                        {
+                            "status": "NOT_FOUND",
+                            "messages": error_message,
+                            "results": {},
+                        },
                     )
                     yield self.create_text_message(f"Error: {error_message}")
             else:
@@ -107,11 +119,13 @@ class DeleteMemoryTool(Tool):
                     f"delete_memory(memory_id={memory_id}, req_id={request_id})",
                 )
 
-                yield self.create_json_message({
-                    "status": "SUCCESS",
-                    "messages": {"memory_id": memory_id},
-                    **DELETE_ACCEPT_RESULT,
-                })
+                yield self.create_json_message(
+                    {
+                        "status": "SUCCESS",
+                        "messages": {"memory_id": memory_id},
+                        **DELETE_ACCEPT_RESULT,
+                    }
+                )
                 yield self.create_text_message(
                     "Memory deletion has been accepted and will be processed asynchronously.",
                 )
