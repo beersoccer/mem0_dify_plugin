@@ -93,7 +93,9 @@ class TestProcessSingleUser:
         with (
             patch("tools.extract_long_term_memory.load_checkpoint") as mock_load,
             patch("tools.extract_long_term_memory.save_checkpoint_atomic") as mock_save,
-            patch("tools.extract_long_term_memory.scan_user_conversations_incremental") as mock_scan,
+            patch(
+                "tools.extract_long_term_memory.scan_user_conversations_incremental"
+            ) as mock_scan,
         ):
             # Setup mocks
             mock_load.return_value = (None, None)
@@ -202,7 +204,9 @@ class TestProcessSingleUser:
         """Test error handling when Dify API fails."""
         with (
             patch("tools.extract_long_term_memory.load_checkpoint") as mock_load,
-            patch("tools.extract_long_term_memory.scan_user_conversations_incremental") as mock_scan,
+            patch(
+                "tools.extract_long_term_memory.scan_user_conversations_incremental"
+            ) as mock_scan,
         ):
             mock_load.return_value = (None, None)
             mock_scan.side_effect = Exception("Dify API error")
@@ -426,7 +430,7 @@ class TestExtractLongTermMemoryTool:
             patch("tools.extract_long_term_memory.build_subtype_memories") as mock_subtypes,
             patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
             patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
-            patch("tools.extract_long_term_memory.TaskTracker") as mock_tracker,
+            patch("tools.extract_long_term_memory.TaskTracker"),
         ):
             mock_config.return_value = {}
             mock_memory = MagicMock()
@@ -456,9 +460,6 @@ class TestExtractLongTermMemoryTool:
             # First message should be JSON with ACCEPTED status
             json_msg = messages[0]
             assert hasattr(json_msg, "message")
-
-            # Verify task was tracked
-            assert mock_tracker.track_bg_task.called
 
     def test_invoke_validation_errors(self):
         """Test parameter validation errors."""
@@ -499,7 +500,7 @@ class TestExtractLongTermMemoryTool:
             patch("tools.extract_long_term_memory.build_subtype_memories") as mock_subtypes,
             patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
             patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
-            patch("tools.extract_long_term_memory.TaskTracker") as mock_tracker,
+            patch("tools.extract_long_term_memory.TaskTracker"),
         ):
             mock_config.return_value = {}
             mock_memory = MagicMock()

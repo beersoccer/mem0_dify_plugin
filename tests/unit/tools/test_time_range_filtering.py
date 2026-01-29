@@ -16,16 +16,15 @@ Test scenarios:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
+from utils.dify_client import DifyClient
 from utils.extraction import (
     UserCheckpoint,
     scan_new_messages_for_conversation,
     scan_user_conversations_incremental,
 )
-from utils.dify_client import DifyClient
 from utils.helpers import parse_iso_timestamp
 
 
@@ -102,7 +101,7 @@ class TestTimeRangeFiltering:
             pytest.skip("Invalid TEST_START_TIME or TEST_END_TIME format")
 
         print(f"\n{'='*70}")
-        print(f"TIME RANGE FILTERING TEST")
+        print("TIME RANGE FILTERING TEST")
         print(f"{'='*70}")
         print(f"User ID: {user_id}")
         print(f"Start time: {start_time}")
@@ -120,7 +119,7 @@ class TestTimeRangeFiltering:
         )
 
         # Print detailed statistics
-        print(f"SCAN STATISTICS:")
+        print("SCAN STATISTICS:")
         print(f"  Stop reason: {stop_reason}")
         print(f"  Scanned conversations: {stats.scanned_conversations}")
         print(f"  Scanned messages: {stats.scanned_messages}")
@@ -130,14 +129,19 @@ class TestTimeRangeFiltering:
         # Calculate total messages returned
         # segments now returns dict[conv_id, list[message]] (no MessageSegment wrapper)
         total_messages = sum(len(msgs) for msgs in segments.values())
-        dropped_old_messages = stats.scanned_messages - stats.dropped_future_messages - total_messages
+        dropped_old_messages = (
+            stats.scanned_messages - stats.dropped_future_messages - total_messages
+        )
         
-        print(f"\nMESSAGE BREAKDOWN:")
+        print("\nMESSAGE BREAKDOWN:")
         print(f"  Total messages scanned: {stats.scanned_messages}")
         print(f"  - Messages in time range (returned): {total_messages}")
         print(f"  - Messages before start_time (dropped): {dropped_old_messages}")
         print(f"  - Messages after end_time (dropped): {stats.dropped_future_messages}")
-        print(f"  Verification: {stats.scanned_messages} = {total_messages} + {dropped_old_messages} + {stats.dropped_future_messages}")
+        print(
+            f"  Verification: {stats.scanned_messages} = {total_messages} + "
+            f"{dropped_old_messages} + {stats.dropped_future_messages}"
+        )
 
         # Validate time boundaries for all returned messages
         violations = []
@@ -176,7 +180,7 @@ class TestTimeRangeFiltering:
         # Report violations if any
         if violations:
             print(f"\n{'='*70}")
-            print(f"TIME BOUNDARY VIOLATIONS DETECTED:")
+            print("TIME BOUNDARY VIOLATIONS DETECTED:")
             print(f"{'='*70}")
             for v in violations:
                 print(f"  ❌ {v}")
@@ -184,10 +188,10 @@ class TestTimeRangeFiltering:
         
         # Test passed
         print(f"\n{'='*70}")
-        print(f"✅ TIME RANGE FILTERING TEST PASSED")
+        print("✅ TIME RANGE FILTERING TEST PASSED")
         print(f"{'='*70}")
         print(f"All {total_messages} returned messages are within the time range.")
-        print(f"Time filtering logic is correct and robust.")
+        print("Time filtering logic is correct and robust.")
         
         # Assertions for test framework
         assert isinstance(segments, dict)
@@ -223,7 +227,7 @@ class TestTimeRangeFiltering:
         start_ts = start_dt.timestamp()
         end_ts = end_dt.timestamp()
         
-        for conv_id, segs in segments.items():
+        for _conv_id, segs in segments.items():
             # segs is now list of messages
             for msg in segs:
                 # Already iterating messages
@@ -257,7 +261,7 @@ class TestTimeRangeFiltering:
             len(msgs) for msgs in segments.values()
         )
         
-        print(f"\nEmpty time range test:")
+        print("\nEmpty time range test:")
         print(f"  Scanned conversations: {stats.scanned_conversations}")
         print(f"  Scanned messages: {stats.scanned_messages}")
         print(f"  Messages in range: {total_messages}")
@@ -292,15 +296,21 @@ class TestTimeRangeFiltering:
         # scanned = returned + dropped_future + dropped_old
         dropped_old = stats.scanned_messages - stats.dropped_future_messages - total_returned
         
-        print(f"\nStatistics accuracy check:")
+        print("\nStatistics accuracy check:")
         print(f"  Scanned: {stats.scanned_messages}")
         print(f"  Returned: {total_returned}")
         print(f"  Dropped (future): {stats.dropped_future_messages}")
         print(f"  Dropped (old): {dropped_old}")
-        print(f"  Sum check: {total_returned + stats.dropped_future_messages + dropped_old} == {stats.scanned_messages}")
+        print(
+            f"  Sum check: {total_returned + stats.dropped_future_messages + dropped_old} == "
+            f"{stats.scanned_messages}"
+        )
         
         # Verify the accounting is correct
-        assert total_returned + stats.dropped_future_messages + dropped_old == stats.scanned_messages
+        assert (
+            total_returned + stats.dropped_future_messages + dropped_old
+            == stats.scanned_messages
+        )
         assert dropped_old >= 0, "Cannot have negative dropped old messages"
         assert stats.dropped_future_messages >= 0, "Cannot have negative dropped future messages"
 
@@ -337,7 +347,7 @@ class TestTimeRangeWithCheckpoint:
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
         
-        for conv_id, segs in segments.items():
+        for _conv_id, segs in segments.items():
             # segs is now list of messages
             for msg in segs:
                 # Already iterating messages
@@ -349,13 +359,14 @@ class TestTimeRangeWithCheckpoint:
 
 def test_extraction_respects_time_range():
     """Unit test: verify extraction logic correctly passes start_time."""
-    from utils.extraction import scan_new_messages_for_conversation
     
     # This is tested with mock data in test_dify_incremental_scan.py
     # Here we just verify the function signature accepts start_time
     import inspect
     sig = inspect.signature(scan_new_messages_for_conversation)
-    assert 'start_time' in sig.parameters, "scan_new_messages_for_conversation should accept start_time parameter"
+    assert (
+        'start_time' in sig.parameters
+    ), "scan_new_messages_for_conversation should accept start_time parameter"
     
     # Verify it's optional (has default)
     param = sig.parameters['start_time']

@@ -45,8 +45,10 @@ def test_incremental_stop_on_updated_at() -> None:
     dify.conv_pages = [
         _Page(
             items=[
-                {"id": "c_new", "updated_at": "2025-12-05T00:00:00Z"},  # New conversation, should be processed
-                {"id": "c_old", "updated_at": "2025-12-01T00:00:00Z"},  # Old conversation, stop when encountered
+                # New conversation, should be processed
+                {"id": "c_new", "updated_at": "2025-12-05T00:00:00Z"},
+                # Old conversation, stop when encountered
+                {"id": "c_old", "updated_at": "2025-12-01T00:00:00Z"},
             ],
             next_cursor=None,
             has_more=False,

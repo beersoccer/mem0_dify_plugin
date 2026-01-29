@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from .constants import (
+    DIFY_API_MAX_ITEMS_PER_REQUEST,
     EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT,
     EXTRACTION_DEFAULT_ENCODING,
-    DIFY_API_MAX_ITEMS_PER_REQUEST,
 )
 from .dify_client import DifyClient
 from .helpers import parse_iso_timestamp

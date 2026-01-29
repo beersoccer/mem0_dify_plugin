@@ -5,11 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-import pytest
-
 from utils.extraction import (
     ConversationCheckpoint,
-    UserCheckpoint,
     scan_new_messages_for_conversation,
 )
 
