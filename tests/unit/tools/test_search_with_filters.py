@@ -44,9 +44,6 @@ async def test_search_with_filters_includes_user_id():
     client = AsyncMem0Client(config)
     
     try:
-        # Initialize memory
-        await client.get_memory()
-        
         # Build payload with user_id AND filters
         payload = {
             "query": "test query",
@@ -95,8 +92,6 @@ async def test_search_with_filters_includes_agent_id():
     client = AsyncMem0Client(config)
     
     try:
-        await client.get_memory()
-        
         payload = {
             "query": "test query",
             "agent_id": "test_agent_456",
@@ -140,8 +135,6 @@ async def test_search_without_filters_includes_user_id():
     client = AsyncMem0Client(config)
     
     try:
-        await client.get_memory()
-        
         # Payload without filters
         payload = {
             "query": "test query",
