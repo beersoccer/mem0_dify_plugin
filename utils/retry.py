@@ -97,7 +97,7 @@ def retry_with_exponential_backoff(
     return decorator
 
 
-def retry_operation(
+def retry_operation[T](
     operation: Callable[..., T],
     *args: object,
     max_retries: int = 3,

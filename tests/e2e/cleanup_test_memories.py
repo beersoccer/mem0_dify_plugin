@@ -12,11 +12,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from utils.mem0_client import get_sync_client
+
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from utils.mem0_client import get_sync_client
 
 
 def load_env_config() -> dict[str, str]:
@@ -100,7 +101,7 @@ def cleanup_test_memories():
                 else:
                     print(f"  ✓ 成功删除 {deleted_count} 条记忆")
             else:
-                print(f"  ✓ 删除操作已完成")
+                print("  ✓ 删除操作已完成")
             
             total_deleted += deleted_count
         
