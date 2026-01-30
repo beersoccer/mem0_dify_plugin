@@ -6,6 +6,8 @@ even when filters are provided, preventing ValidationError.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from utils.mem0_client import AsyncMem0Client
@@ -26,40 +28,56 @@ async def test_search_with_filters_includes_user_id():
         "mem0_org_id": "",
         "mem0_project_id": "",
         "provider": "local",
-        "embedder_provider": "ollama",
-        "embedder_config": {"model": "nomic-embed-text:latest"},
-        "llm_provider": "ollama",
-        "llm_config": {"model": "qwen2.5:latest"},
-        "vector_store_provider": "qdrant",
-        "vector_store_config": {"collection_name": "test_search_filters"},
+        "local_llm_json_secret": {
+            "provider": "ollama",
+            "config": {"model": "qwen2.5:latest"},
+        },
+        "local_embedder_json_secret": {
+            "provider": "ollama",
+            "config": {"model": "nomic-embed-text:latest"},
+        },
+        "local_vector_db_json_secret": {
+            "provider": "qdrant",
+            "config": {"collection_name": "test_search_filters"},
+        },
         "version": "v1.1",
     }
     
-    client = AsyncMem0Client(config)
+    # Mock AsyncMemory to avoid requiring actual provider dependencies
+    mock_memory = MagicMock()
+    mock_memory.search = AsyncMock(return_value={"results": []})
     
-    try:
-        # Initialize memory
-        await client.get_memory()
+    with patch("utils.mem0_client.AsyncMemory") as mock_async_memory_cls:
+        mock_async_memory_cls.from_config = AsyncMock(return_value=mock_memory)
         
-        # Build payload with user_id AND filters
-        payload = {
-            "query": "test query",
-            "user_id": "test_user_123",
-            "filters": {
-                "NOT": [{"__internal": {"eq": True}}]
-            },
-            "limit": 5,
-        }
+        client = AsyncMem0Client(config)
         
-        # This should NOT raise ValidationError
-        # The bug was that when filters were present, user_id was not passed to mem0
-        results = await client.search(payload)
-        
-        # Verify results is a list (even if empty)
-        assert isinstance(results, list)
-        
-    finally:
-        await client.aclose()
+        try:
+            # Build payload with user_id AND filters
+            payload = {
+                "query": "test query",
+                "user_id": "test_user_123",
+                "filters": {
+                    "NOT": [{"__internal": {"eq": True}}]
+                },
+                "limit": 5,
+            }
+            
+            # This should NOT raise ValidationError
+            # The bug was that when filters were present, user_id was not passed to mem0
+            results = await client.search(payload)
+            
+            # Verify results is a list (even if empty)
+            assert isinstance(results, list)
+            
+            # Verify that search was called with user_id in kwargs
+            mock_memory.search.assert_called_once()
+            call_args = mock_memory.search.call_args
+            assert call_args.kwargs.get("user_id") == "test_user_123"
+            assert "filters" in call_args.kwargs
+            
+        finally:
+            await client.aclose()
 
 
 @pytest.mark.asyncio
@@ -71,34 +89,51 @@ async def test_search_with_filters_includes_agent_id():
         "mem0_org_id": "",
         "mem0_project_id": "",
         "provider": "local",
-        "embedder_provider": "ollama",
-        "embedder_config": {"model": "nomic-embed-text:latest"},
-        "llm_provider": "ollama",
-        "llm_config": {"model": "qwen2.5:latest"},
-        "vector_store_provider": "qdrant",
-        "vector_store_config": {"collection_name": "test_search_filters_agent"},
+        "local_llm_json_secret": {
+            "provider": "ollama",
+            "config": {"model": "qwen2.5:latest"},
+        },
+        "local_embedder_json_secret": {
+            "provider": "ollama",
+            "config": {"model": "nomic-embed-text:latest"},
+        },
+        "local_vector_db_json_secret": {
+            "provider": "qdrant",
+            "config": {"collection_name": "test_search_filters_agent"},
+        },
         "version": "v1.1",
     }
     
-    client = AsyncMem0Client(config)
+    # Mock AsyncMemory to avoid requiring actual provider dependencies
+    mock_memory = MagicMock()
+    mock_memory.search = AsyncMock(return_value={"results": []})
     
-    try:
-        await client.get_memory()
+    with patch("utils.mem0_client.AsyncMemory") as mock_async_memory_cls:
+        mock_async_memory_cls.from_config = AsyncMock(return_value=mock_memory)
         
-        payload = {
-            "query": "test query",
-            "agent_id": "test_agent_456",
-            "filters": {
-                "NOT": [{"__internal": {"eq": True}}]
-            },
-        }
+        client = AsyncMem0Client(config)
         
-        # Should not raise ValidationError
-        results = await client.search(payload)
-        assert isinstance(results, list)
-        
-    finally:
-        await client.aclose()
+        try:
+            payload = {
+                "query": "test query",
+                "agent_id": "test_agent_456",
+                "filters": {
+                    "NOT": [{"__internal": {"eq": True}}]
+                },
+            }
+            
+            # Should not raise ValidationError
+            results = await client.search(payload)
+            assert isinstance(results, list)
+            
+            # Verify that search was called with agent_id in kwargs
+            mock_memory.search.assert_called_once()
+            call_args = mock_memory.search.call_args
+            assert call_args.kwargs.get("agent_id") == "test_agent_456"
+            assert "filters" in call_args.kwargs
+            
+        finally:
+            await client.aclose()
 
 
 @pytest.mark.asyncio
@@ -110,30 +145,46 @@ async def test_search_without_filters_includes_user_id():
         "mem0_org_id": "",
         "mem0_project_id": "",
         "provider": "local",
-        "embedder_provider": "ollama",
-        "embedder_config": {"model": "nomic-embed-text:latest"},
-        "llm_provider": "ollama",
-        "llm_config": {"model": "qwen2.5:latest"},
-        "vector_store_provider": "qdrant",
-        "vector_store_config": {"collection_name": "test_search_no_filters"},
+        "local_llm_json_secret": {
+            "provider": "ollama",
+            "config": {"model": "qwen2.5:latest"},
+        },
+        "local_embedder_json_secret": {
+            "provider": "ollama",
+            "config": {"model": "nomic-embed-text:latest"},
+        },
+        "local_vector_db_json_secret": {
+            "provider": "qdrant",
+            "config": {"collection_name": "test_search_no_filters"},
+        },
         "version": "v1.1",
     }
     
-    client = AsyncMem0Client(config)
+    # Mock AsyncMemory to avoid requiring actual provider dependencies
+    mock_memory = MagicMock()
+    mock_memory.search = AsyncMock(return_value={"results": []})
     
-    try:
-        await client.get_memory()
+    with patch("utils.mem0_client.AsyncMemory") as mock_async_memory_cls:
+        mock_async_memory_cls.from_config = AsyncMock(return_value=mock_memory)
         
-        # Payload without filters
-        payload = {
-            "query": "test query",
-            "user_id": "test_user_789",
-        }
+        client = AsyncMem0Client(config)
         
-        # Should not raise ValidationError
-        results = await client.search(payload)
-        assert isinstance(results, list)
-        
-    finally:
-        await client.aclose()
+        try:
+            # Payload without filters
+            payload = {
+                "query": "test query",
+                "user_id": "test_user_789",
+            }
+            
+            # Should not raise ValidationError
+            results = await client.search(payload)
+            assert isinstance(results, list)
+            
+            # Verify that search was called with user_id in kwargs
+            mock_memory.search.assert_called_once()
+            call_args = mock_memory.search.call_args
+            assert call_args.kwargs.get("user_id") == "test_user_789"
+            
+        finally:
+            await client.aclose()
 
