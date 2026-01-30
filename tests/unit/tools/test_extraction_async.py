@@ -287,6 +287,7 @@ class TestExecuteExtractionAsync:
                 dify_base_url="http://localhost",
                 dify_api_key="test_key",
                 max_conversations=50,
+                max_tokens_per_conversation=64000,
             )
 
             assert result["status"] == "SUCCESS"
