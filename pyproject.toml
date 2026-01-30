@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "pytest==8.3.4",
+  "pytest-asyncio>=0.21.0",
   "ruff==0.8.4",
   "locust>=2.0.0",
   "python-dotenv>=1.0.0",
@@ -26,6 +27,7 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-p no:warnings -p no:langsmith --tb=short"
 testpaths = ["tests"]
+asyncio_mode = "auto"
 # Disable langsmith auto-upload to avoid recursion errors with connection pools
 # Set LANGCHAIN_TRACING_V2=false or LANGCHAIN_ENDPOINT="" to disable
 # Disable output capturing to avoid gevent monkey patching issues
