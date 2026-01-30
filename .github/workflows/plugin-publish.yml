@@ -124,7 +124,10 @@ jobs:
 
       - name: Create PR via GitHub API
         env:
-          GH_TOKEN: ${{ secrets.PLUGIN_ACTION }} # Use the provided token for authentication
+          # How to config the token:
+          # 1. Profile -> Settings -> Developer settings -> Personal access tokens -> Generate new token (with repo scope) -> Copy the token
+          # 2. Go to the target repository -> Settings -> Secrets and variables -> Actions -> New repository secret -> Add the token as PLUGIN_ACTION
+          GH_TOKEN: ${{ secrets.PLUGIN_ACTION }}
         run: |
           gh pr create \
             --repo langgenius/dify-plugins \
@@ -134,7 +137,7 @@ jobs:
             --body "bump ${{ steps.get_basic_info.outputs.plugin_name }} plugin package to version ${{ steps.get_basic_info.outputs.version }}
 
             Changes:
-            - Updated plugin package file" || echo "PR already exists or creation skipped." # Handle cases where PR already exists
+            - Updated plugin package file" || echo "PR already exists or creation skipped."
 
       - name: Print environment info # Kept for debugging
         run: |
