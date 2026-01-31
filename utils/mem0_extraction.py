@@ -69,7 +69,16 @@ def build_subtype_memories(
         
         cfg["custom_fact_extraction_prompt"] = _subtype_extraction_prompt(subtype)  # type: ignore[index]
         cfg["custom_update_memory_prompt"] = build_update_memory_prompt(subtype=subtype)  # type: ignore[index]
-        memories[subtype] = SubtypeMem0(subtype=subtype, memory=Memory.from_config(cfg))
+        memory_instance = Memory.from_config(cfg)
+        
+        # Verify custom prompt is loaded (fail fast if misconfigured)
+        if not memory_instance.config.custom_fact_extraction_prompt:
+            raise ValueError(
+                f"Failed to load custom_fact_extraction_prompt for {subtype} memory. "
+                "This indicates a configuration error."
+            )
+        
+        memories[subtype] = SubtypeMem0(subtype=subtype, memory=memory_instance)
     
     # Restore connection pool to original base config (for any future use)
     if connection_pool is not None:

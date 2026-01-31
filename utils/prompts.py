@@ -46,7 +46,10 @@ General rules:
 SEMANTIC_FACT_EXTRACTION_PROMPT = f"""You are a Personal Information Organizer specialized in
 extracting SEMANTIC long-term memories.
 
-[CRITICAL]: Extract facts ONLY from USER messages, NOT from assistant/system messages.
+[CRITICAL]: Extract facts about the USER from the conversation. Primary source is USER messages,
+but you may also reference ASSISTANT messages for context, confirmation, or when assistant
+summarizes/confirms user information. Always ensure extracted facts are ABOUT THE USER, not
+about the assistant itself.
 
 SEMANTIC memories are STABLE, ENDURING facts about the user:
 - Personal Preferences: Likes, dislikes, consistent habits
@@ -59,11 +62,6 @@ Extract if the information:
 ✓ User ACTUALLY stated facts about themselves (not intentions or plans to share)
 ✓ Remains true across multiple conversations/contexts
 ✓ Describes inherent characteristics, not one-time states
-
-CRITICAL: Only extract what user ACTUALLY said about themselves, not:
-- Intentions to share information ("I want to tell you about myself")
-- Questions user asks
-- Assistant's observations or suggestions (unless user explicitly adopts them)
 
 EXCEPTION - User Adopting Assistant Suggestions:
 If assistant suggests a preference/approach and user EXPLICITLY commits to adopt it, EXTRACT:
@@ -120,15 +118,16 @@ Output: {{"facts": ["使用VSCode写代码"]}}
 {_common_rules()}
 Following is a conversation between the user and the assistant. Extract SEMANTIC long-term
 memories about the user from the conversation and return them in JSON format as shown above.
-
-Conversation:
 """
 
 
 EPISODIC_FACT_EXTRACTION_PROMPT = f"""You are a Personal Information Organizer specialized in
 extracting EPISODIC long-term memories.
 
-[CRITICAL]: Extract facts ONLY from USER messages, NOT from assistant/system messages.
+[CRITICAL]: Extract facts about the USER from the conversation. Primary source is USER messages,
+but you may also reference ASSISTANT messages for context, confirmation, or when assistant
+summarizes/confirms user experiences. Always ensure extracted facts are ABOUT THE USER, not
+about the assistant itself.
 
 EPISODIC memories are SPECIFIC, UNIQUE events with contextual details:
 - Significant Events: Meetings, milestones, achievements (with WHO)
@@ -140,11 +139,6 @@ Extract if the information:
 ✓ User ACTUALLY described events they experienced (not intentions to share)
 ✓ Happened at a particular time and place (5W context)
 ✓ Is a one-time occurrence, not a repeated pattern
-
-CRITICAL: Only extract events user ACTUALLY described, not:
-- Intentions to share experiences ("I want to tell you about my trip")
-- Questions about events
-- Assistant's descriptions or suggestions (unless user commits to future plans)
 
 EXCEPTION - User Adopting Assistant Suggestions:
 If assistant suggests a future action/plan and user EXPLICITLY commits, EXTRACT:
@@ -206,15 +200,16 @@ Output: {{"facts": ["计划从明天开始每天看30分钟英文新闻"]}}
 Following is a conversation between the user and the assistant. Extract EPISODIC memories
 (notable events and experiences) about the user from the conversation and return them in
 JSON format as shown above.
-
-Conversation:
 """
 
 
 PROCEDURAL_FACT_EXTRACTION_PROMPT = f"""You are a Personal Information Organizer specialized in
 extracting PROCEDURAL long-term memories.
 
-[CRITICAL]: Extract facts ONLY from USER messages, NOT from assistant/system messages.
+[CRITICAL]: Extract facts about the USER from the conversation. Primary source is USER messages,
+but you may also reference ASSISTANT messages for context, confirmation, or when assistant
+summarizes/confirms user workflows. Always ensure extracted facts are ABOUT THE USER, not
+about the assistant itself.
 
 PROCEDURAL memories are REPEATABLE workflows and methods the user has DEMONSTRATED or
 EXPLICITLY states they use regularly:
@@ -330,8 +325,6 @@ Output: {{"facts": ["面试准备流程：1) 刷算法题，2) 复习系统设�
 Following is a conversation between the user and the assistant. Extract PROCEDURAL memories
 (reusable workflows, rules, procedures) about the user from the conversation and return them in
 JSON format as shown above.
-
-Conversation:
 """
 
 
