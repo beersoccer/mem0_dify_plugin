@@ -804,7 +804,10 @@ class TestE2ESessionMemory:
                                 event = str(r.get("event", "UNKNOWN")).upper()
                                 event_counts[event] = event_counts.get(event, 0) + 1
                         if event_counts.get('NONE', 0) == len(results_list):
-                            test_logger.write("  ⚠️ 所有结果都是 NONE - 可能是记忆已存在（去重）或 LLM 未提取到新事实")
+                            test_logger.write(
+                                "  ⚠️ 所有结果都是 NONE - "
+                                "可能是记忆已存在（去重）或 LLM 未提取到新事实"
+                            )
                     elif len(results_list) == 0:
                         test_logger.write("  ⚠️ mem0 没有返回任何结果")
                 
