@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,9 @@ from utils.extraction import scan_user_conversations_incremental
 from utils.helpers import parse_iso_timestamp
 from utils.mem0_extraction import (
     build_memory_metadata,
-    build_subtype_memories,
-    classify_conversation_memory_type,
-    mem0_add_segment,
+    build_subtype_sync_clients,
+    classify_sync_conversation_memory_type,
+    mem0_sync_add_memory,
 )
 from utils.message_utils import (
     count_add_results,
@@ -526,8 +527,8 @@ class TestE2ESessionMemory:
         # 优先使用环境变量中的时间范围，否则使用默认1天
         start_time, end_time = _get_test_time_range(env_config, default_days_back=1)
         
-        # 创建Mem0实例
-        subtype_mems = build_subtype_memories(mem0_credentials)
+        # 创建Mem0客户端实例
+        subtype_clients = build_subtype_sync_clients(mem0_credentials)
         
         # 只测试第一个用户的第一个会话
         test_user_id = test_user_ids[0]
@@ -568,8 +569,8 @@ class TestE2ESessionMemory:
         # 步骤1: 分类会话类型并评估提取价值
         test_logger.write("\n步骤1: 分类会话记忆类型并评估提取价值...")
         
-        classified_type, should_extract = classify_conversation_memory_type(
-            mem=subtype_mems["semantic"].memory,
+        classified_type, should_extract = classify_sync_conversation_memory_type(
+            mem=subtype_clients["semantic"].memory,
             messages=mem0_msgs,
         )
         
@@ -623,8 +624,8 @@ class TestE2ESessionMemory:
             message_id_range=message_id_range,
         )
         
-        result = mem0_add_segment(
-            mem=subtype_mems[classified_type].memory,
+        result = mem0_sync_add_memory(
+            client=subtype_clients[classified_type],
             messages=mem0_msgs,
             user_id=test_user_id,
             metadata=metadata,
@@ -671,9 +672,14 @@ class TestE2ESessionMemory:
         
         test_logger.write(f"\n加载了 {len(conversations)} 个测试会话")
         
-        # 创建Mem0实例
-        subtype_mems = build_subtype_memories(mem0_credentials)
+        # 创建Mem0客户端实例
+        subtype_clients = build_subtype_sync_clients(mem0_credentials)
         app_id = env_config.get("DIFY_APP_ID", "test_app")
+        
+        # 为每个测试运行生成唯一的用户ID后缀，避免记忆去重问题
+        # 使用时间戳确保每次运行都使用新的用户ID
+        unique_suffix = f"_test_{int(time.time() * 1000)}"
+        test_logger.write(f"使用唯一用户ID后缀: {unique_suffix} (避免记忆去重)")
         
         # 统计信息
         total_tested = 0
@@ -691,7 +697,9 @@ class TestE2ESessionMemory:
         # 测试每个会话
         for conv in conversations:
             conv_id = conv.get("conversation_id", "unknown")
-            user_id = conv.get("user_id", "unknown")
+            base_user_id = conv.get("user_id", "unknown")
+            # 添加唯一后缀以避免记忆去重
+            user_id = f"{base_user_id}{unique_suffix}"
             expected_type = conv.get("memory_type", "").upper()
             messages = conv.get("messages", [])
             
@@ -721,8 +729,8 @@ class TestE2ESessionMemory:
             # 步骤1: 分类会话类型并评估提取价值（合并步骤）
             test_logger.write("\n  步骤1: 分类会话记忆类型并评估提取价值...")
             try:
-                classified_type, should_extract = classify_conversation_memory_type(
-                    mem=subtype_mems["semantic"].memory,
+                classified_type, should_extract = classify_sync_conversation_memory_type(
+                    mem=subtype_clients["semantic"].memory,
                     messages=mem0_msgs,
                 )
                 
@@ -775,8 +783,8 @@ class TestE2ESessionMemory:
                     message_id_range=message_id_range,
                 )
                 
-                result = mem0_add_segment(
-                    mem=subtype_mems[classified_type].memory,
+                result = mem0_sync_add_memory(
+                    client=subtype_clients[classified_type],
                     messages=mem0_msgs,
                     user_id=user_id,
                     metadata=metadata,
@@ -784,6 +792,22 @@ class TestE2ESessionMemory:
                 
                 # 统计抽取结果
                 memory_count = count_add_results(result)
+                
+                # 如果提取失败，提供诊断信息
+                if memory_count == 0 and isinstance(result, dict) and "results" in result:
+                    results_list = result.get("results", [])
+                    if isinstance(results_list, list) and len(results_list) > 0:
+                        # 统计事件类型用于诊断
+                        event_counts = {}
+                        for r in results_list:
+                            if isinstance(r, dict):
+                                event = str(r.get("event", "UNKNOWN")).upper()
+                                event_counts[event] = event_counts.get(event, 0) + 1
+                        if event_counts.get('NONE', 0) == len(results_list):
+                            test_logger.write("  ⚠️ 所有结果都是 NONE - 可能是记忆已存在（去重）或 LLM 未提取到新事实")
+                    elif len(results_list) == 0:
+                        test_logger.write("  ⚠️ mem0 没有返回任何结果")
+                
                 test_logger.write(f"  ✓ 成功抽取 {memory_count} 条记忆")
                 
                 if memory_count > 0:

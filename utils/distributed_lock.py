@@ -209,12 +209,16 @@ class LockManager:
             holder_id: Holder ID (must match lock's holder_id)
 
         Returns:
-            True on success, False on failure
+            True on success, False on failure. Returns False if lock not found.
         """
         memory_id, existing_lock = self._load_lock(user_id, app_id)
 
         if not existing_lock:
-            logger.warning(f"No lock found for user {user_id}")
+            # Lock not found - cannot release a lock that doesn't exist
+            logger.debug(
+                f"No lock found for user {user_id} when releasing (holder: {holder_id}). "
+                "Cannot release a lock that doesn't exist."
+            )
             return False
 
         if existing_lock.holder_id != holder_id:

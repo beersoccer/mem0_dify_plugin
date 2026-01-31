@@ -70,11 +70,13 @@ EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT: int = 50
 # - Multiple API calls to Dify (conversations + messages)
 # - Multiple Mem0 add operations (3 types per message segment)
 # - LLM inference for each memory extraction
-# Time budget: 30 minutes (suitable for large batch jobs processing up to 1000+ users)
-# With 5 concurrent users, can process ~150 users per 30 minutes (assuming 6s/user)
-EXTRACTION_TIME_BUDGET: int = 1800  # 30 minutes
-# Lock TTL: slightly longer than time budget for safety margin
-EXTRACTION_LOCK_TTL: int = 2400  # 40 minutes
+# Time budget: 60 minutes (suitable for large batch jobs processing 1000+ users)
+# With 5 concurrent users, can process ~300 users per hour (assuming 6s/user)
+EXTRACTION_TIME_BUDGET: int = 3600  # 60 minutes
+# Lock TTL: longer than time budget for safety margin (prevents deadlock if task crashes)
+# Safety margin: 15 minutes (25% of time budget) ensures lock expires even if task
+# completes slightly after time budget or if task crashes
+EXTRACTION_LOCK_TTL: int = 4500  # 75 minutes
 # Dify API timeout: per-request timeout for conversation/message listing
 EXTRACTION_DIFY_TIMEOUT: float = 30.0  # 30 seconds per API call
 # Max concurrent users for parallel processing

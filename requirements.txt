@@ -1,4 +1,4 @@
-mem0ai>1.0.0
+mem0ai>=1.0.2
 openai
 azure-identity
 langchain-neo4j
