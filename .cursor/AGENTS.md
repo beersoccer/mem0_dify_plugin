@@ -13,7 +13,7 @@ mem0_dify_plugin/
 │   ├── mem0ai.py             # Mem0Provider: credential validation, tool interface
 │   └── mem0ai.yaml           # Provider configuration schema
 │
-├── tools/                     # 9 Dify tools (each: .py implementation + .yaml definition)
+├── tools/                     # 10 Dify tools (each: .py implementation + .yaml definition)
 │   ├── add_memory.py/.yaml                  # Add/update memories
 │   ├── search_memory.py/.yaml               # Search with filters (AND/OR, top_k)
 │   ├── get_memory.py/.yaml                  # Get memory by ID
@@ -22,7 +22,8 @@ mem0_dify_plugin/
 │   ├── delete_memory.py/.yaml               # Delete specific memory
 │   ├── delete_all_memories.py/.yaml         # Batch delete with filters
 │   ├── get_memory_history.py/.yaml          # View change history
-│   └── consolidate_long_term_memory.py/.yaml # Extract semantic/episodic/procedural memories from Dify history
+│   ├── extract_long_term_memory.py/.yaml    # Extract semantic/episodic/procedural memories from Dify history (async task)
+│   └── check_extraction_status.py/.yaml     # Check status and progress of async extraction tasks
 │
 └── utils/                     # Shared utilities
     ├── mem0_client.py         # Mem0 client adapter (sync/async, connection pooling)

@@ -6,9 +6,25 @@ identity:
     zh_Hans: 提取长期记忆
 description:
   human:
-    en_US: Incrementally scan Dify conversation history for specified users and write extracted long-term memories into Mem0. This tool runs asynchronously and returns a task_id immediately; use the check_extraction_status tool to query task progress.
-    zh_Hans: 对指定用户增量扫描 Dify 历史对话，并将提取出的长期记忆写入 Mem0。此工具以异步方式运行，会立即返回 task_id，可使用 check_extraction_status 工具查询任务进度。
-  llm: Use this tool to scan Dify conversation history for specified users and extract long-term memories into Mem0 as an asynchronous task. It returns a task_id immediately; use the check_extraction_status tool to query task progress.
+    en_US: >
+      Incrementally scan Dify conversation history for specified users and write extracted long-term memories into Mem0.
+      This tool runs asynchronously and returns a task_id immediately; use the check_extraction_status tool to query task progress.
+      
+      **Mode Selection:**
+      - **Async Mode (async_mode=true, recommended)**: Uses AsyncMem0Client with automatic timeout protection, queue overload checking, and explicit resource management. Suitable for production environments and large-scale batch processing (10+ users).
+      - **Sync Mode (async_mode=false)**: Uses synchronous Memory instances wrapped in async for compatibility. **Only recommended for testing with <10 users.** Sync mode has no timeout protection and relies on garbage collection for resource cleanup. For production, use async_mode=true.
+    zh_Hans: >
+      对指定用户增量扫描 Dify 历史对话，并将提取出的长期记忆写入 Mem0。
+      此工具以异步方式运行，会立即返回 task_id，可使用 check_extraction_status 工具查询任务进度。
+      
+      **模式选择：**
+      - **异步模式 (async_mode=true，推荐)**：使用 AsyncMem0Client，提供自动超时保护、队列过载检查和显式资源管理。适用于生产环境和大规模批量处理（10+ 用户）。
+      - **同步模式 (async_mode=false)**：使用同步 Memory 实例（包装为异步以保持兼容性）。**仅推荐用于测试场景（<10 用户）**。同步模式无超时保护，依赖垃圾回收进行资源清理。生产环境请使用 async_mode=true。
+  llm: >
+    Use this tool to scan Dify conversation history for specified users and extract long-term memories into Mem0 as an asynchronous task.
+    It returns a task_id immediately; use the check_extraction_status tool to query task progress.
+    
+    Mode: Async mode (async_mode=true) is recommended for production. Sync mode (async_mode=false) is only for testing with <10 users.
 parameters:
   - name: user_ids
     type: string
@@ -78,6 +94,18 @@ parameters:
       en_US: "Optional. Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during data fetching to optimize network transfer. If a conversation exceeds this limit, pagination stops early and only the most recent messages are fetched. Adjust based on your LLM's context window (e.g., GPT-4: 128K, Claude 3.5: 200K)."
       zh_Hans: "可选。每个会话用于记忆抽取的最大Token数（单位：千，1-200，默认：64K，与 EXTRACTION_DEFAULT_MAX_TOKENS 相同）。Token限制在数据获取阶段应用以优化网络传输。如果会话超过此限制，分页提前停止，只获取最近的消息。根据您的LLM上下文窗口调整（例如 GPT-4：128K，Claude 3.5：200K）。"
     llm_description: "Optional. Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during Dify API pagination to avoid fetching unnecessary historical messages. Uses tiktoken (EXTRACTION_DEFAULT_ENCODING = cl100k_base) for accurate token counting. Adjust based on your LLM's context window."
+    form: form
+  - name: time_budget
+    type: number
+    required: false
+    default: 60
+    label:
+      en_US: Time Budget (minutes)
+      zh_Hans: 时间预算（分钟）
+    human_description:
+      en_US: "Optional. Maximum time budget in minutes for the extraction task (suggested: 5-120 minutes, default: 60 minutes, same as EXTRACTION_TIME_BUDGET). The lock TTL is automatically calculated as 1.2 times the time budget (rounded up). No upper limit enforced - adjust based on your batch size and processing requirements. For large batch jobs processing 1000+ users, consider increasing this value."
+      zh_Hans: "可选。提取任务的最大时间预算（单位：分钟，建议：5-120 分钟，默认：60 分钟，与 EXTRACTION_TIME_BUDGET 相同）。锁的 TTL 会自动计算为时间预算的 1.2 倍（向上取整）。不设上限，根据您的批次大小和处理需求调整。对于处理 1000+ 用户的大批量作业，考虑增加此值。"
+    llm_description: "Optional. Maximum time budget in minutes for the extraction task (suggested: 5-120 minutes, default: 60 minutes, same as EXTRACTION_TIME_BUDGET). The lock TTL is automatically calculated as 1.2 times the time budget (rounded up). No upper limit enforced - adjust based on your batch size and processing requirements."
     form: form
   - name: dify_base_url
     type: string

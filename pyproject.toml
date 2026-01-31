@@ -1,10 +1,10 @@
 [project]
 name = "mem0-dify-plugin"
-version = "0.1.9"
+version = "0.2.3"
 description = "Mem0 Dify plugin"
 requires-python = ">=3.12"
 dependencies = [
-  "mem0ai>1.0.0",
+  "mem0ai>=1.0.2",
   "openai",
   "azure-identity",
   "langchain-neo4j",

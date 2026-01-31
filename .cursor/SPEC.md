@@ -7,7 +7,7 @@
 - Plugin manifest: `./manifest.yaml`
 - Entry: `./main.py`
 - Key modules: `./provider`, `./tools`, `./utils`
-- 现状：已实现 9 个 Mem0 管理工具（8个基础工具 + 1个长期记忆巩固工具，见 `AGENTS.md`）。基础工具以单次 user/assistant 输入为主，`consolidate_long_term_memory` 工具提供批量/定期从历史会话巩固长期记忆的能力。
+- 现状：已实现 10 个 Mem0 管理工具（8个基础工具 + 2个长期记忆工具，见 `AGENTS.md`）。基础工具以单次 user/assistant 输入为主，`extract_long_term_memory` 工具提供批量/定期从历史会话巩固长期记忆的能力（异步任务模式），`check_extraction_status` 工具用于查询异步任务状态和进度。
 - Dify 会话/消息 API 能力边界（用于设计“等价增量”）：
   - 会话列表：支持 `sort_by=-updated_at` + `last_id` 分页；**不支持** `updated_at > t` 过滤。
   - 会话消息：支持 `first_id` + `limit` 倒序翻页；**不支持** `after_message_id` 或按时间区间过滤。
@@ -20,9 +20,12 @@
 
 ## Scope
 - In scope:
-  - 新增 Dify 插件工具：`consolidate_long_term_memory`
-    - 输入：`run_at`、`user_ids`，可选 `app_id / max_users_per_run / budget_tokens`
-    - 输出：结构化运行报告（SUCCESS/PARTIAL_SUCCESS/ERROR、统计、逐用户详情、checkpoint 更新结果）
+  - 新增 Dify 插件工具：`extract_long_term_memory`（异步任务模式）
+    - 输入：`user_ids`、`app_id`、`dify_base_url`、`dify_api_key`，可选 `days_back / conversations_limit / max_tokens_per_conversation / time_budget`
+    - 输出：立即返回 `task_id`，实际处理在后台异步执行
+  - 新增 Dify 插件工具：`check_extraction_status`（查询异步任务状态）
+    - 输入：`task_id`
+    - 输出：任务状态、进度、统计信息、最终报告（如果已完成）
   - “等价增量”扫描策略（适配 Dify API 不支持服务端增量过滤的现实）
     - conversations：倒序扫描 + `conversation.updated_at <= user_checkpoint.last_run_at` 停止条件
     - messages：倒序翻页 + 遇到 `last_processed_message_id` 停止条件；丢弃 `created_at > run_at`
@@ -162,9 +165,12 @@
 
 ## Acceptance criteria
 
-### 已实现（v0.1.9）
+### 已实现（v0.2.3）
 - ✅ **正确性**：
-  - ✅ 工具端到端可用：`consolidate_long_term_memory.py/.yaml` 已实现并注册到 `provider/mem0ai.yaml`
+  - ✅ 工具端到端可用：`extract_long_term_memory.py/.yaml` 和 `check_extraction_status.py/.yaml` 已实现并注册到 `provider/mem0ai.yaml`
+  - ✅ 异步任务模式：工具立即返回 task_id，后台异步处理，支持并发处理多个用户（最多5个并发）
+  - ✅ 智能记忆分类：每个会话只提取最相关的记忆类型，减少33%的LLM调用（从3次减少到2次：1次分类 + 1次提取）
+  - ✅ Token感知处理：使用tiktoken进行精确token计数，在API分页阶段应用token限制以优化网络传输
   - ✅ 幂等性：同一 `run_at` 重跑不重复写入（checkpoint `last_run_at >= run_at` 跳过逻辑已实现）
   - ✅ 未来消息过滤：`created_at > run_at` 的消息被丢弃（`scan_new_messages_for_conversation` 已实现）
   - ✅ 三类抽取：semantic/episodic/procedural 产出并带 `memory_subtype` metadata（`build_subtype_memories` + `build_memory_metadata` 已实现）
@@ -185,12 +191,12 @@
   - ✅ `get_memory`/`get_memory_history` 对 internal memory 返回 NOT_FOUND
 
 ### 待优化（可选）
-- ⚠️ **工具可见性**：`provider/mem0ai.yaml` 中 `consolidate_long_term_memory.yaml` 当前被注释（标注 Hidden），需取消注释以在 Dify UI 中可见
+- ✅ **工具可见性**：`extract_long_term_memory` 和 `check_extraction_status` 已在 Dify UI 中可见
 - ⚠️ **Prompt 质量**：`utils/prompts.py` 中三类抽取 prompt 字符串拼接存在多余引号字符，可能影响 LLM 抽取质量
 - ⚠️ **Async 模式兼容**：工具当前直接使用 `Memory.from_config`（同步），未复用 `utils/mem0_client.py` 的 async/sync 统一封装
 - ⚠️ **Procedural gating**：未实现关键词/规则 gating 以节省预算（SPEC 中标注为可选）
 - ⚠️ **并发优化**：当前按 user 串行处理，未实现小并发（2~5）以提升吞吐
-- ⚠️ **文档更新**：
-  - README.md/CONFIG.md 需更新工具列表（8→9）并补充 `consolidate_long_term_memory` 使用说明
-  - AGENTS.md 需同步工具清单（8→9）
-  - 如需发布新版本，需更新 CHANGELOG.md 和 manifest.yaml version
+- ✅ **文档更新**：
+  - README.md/CONFIG.md 已更新工具列表（10个工具）并补充 `extract_long_term_memory` 和 `check_extraction_status` 使用说明
+  - AGENTS.md 已同步工具清单（10个工具）
+  - CHANGELOG.md 和 manifest.yaml version 已更新到 v0.2.3

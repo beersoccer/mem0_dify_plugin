@@ -1,5 +1,63 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.3 (2026-01-31)
+
+### 📚 Documentation Updates
+
+This release focuses on comprehensive documentation updates to ensure all markdown documentation matches the current code implementation and improves overall documentation quality.
+
+#### Highlights
+
+- **📝 Documentation Synchronization**:
+  - Updated all markdown documentation files to match current code implementation
+  - Fixed tool name references (`consolidate_long_term_memory` → `extract_long_term_memory`)
+  - Updated tool count (9 → 10 tools, including `check_extraction_status`)
+  - Corrected parameter descriptions to match actual YAML definitions
+  - Updated feature descriptions to reflect latest optimizations (smart classification, token-aware processing)
+
+- **📋 Design Document Consolidation**:
+  - Merged scattered design documents from `.cursor/plans/` into unified `COMPLETE_DESIGN_HISTORY.md`
+  - Organized design history chronologically by version
+  - Preserved key design decisions and optimization history
+  - Improved maintainability with single source of truth
+
+- **🔧 Documentation Files Updated**:
+  - `README.md` - Updated version, tool descriptions, and feature list
+  - `CONFIG.md` - Corrected parameter descriptions, updated output format documentation
+  - `CHANGELOG.md` - Ensured version history accuracy
+  - `.cursor/SPEC.md` - Updated tool names, counts, and implementation status
+  - `.cursor/AGENTS.md` - Updated tool list and project structure
+  - `.cursor/COMPLETE_DESIGN_HISTORY.md` - New unified design history document
+
+#### 📝 Files Changed
+
+- **Modified Files**:
+  - `README.md` - Version update, tool name corrections, feature descriptions
+  - `CONFIG.md` - Parameter descriptions, output format updates
+  - `CHANGELOG.md` - Added v0.2.3 entry
+  - `.cursor/SPEC.md` - Updated implementation status and tool information
+  - `.cursor/AGENTS.md` - Updated tool count and list
+  - `manifest.yaml` - Version bump to 0.2.3
+  - `pyproject.toml` - Version bump to 0.2.3
+
+- **New Files**:
+  - `.cursor/COMPLETE_DESIGN_HISTORY.md` - Unified design history document
+
+#### ⚠️ Migration Notes
+
+- **No Code Changes**: This is a documentation-only release
+- **No Breaking Changes**: All functionality remains unchanged
+- **Documentation Improvements**: All documentation now accurately reflects current implementation
+
+#### 🎯 Benefits
+
+1. **Consistency**: All documentation now matches actual code implementation
+2. **Maintainability**: Unified design history makes it easier to track design decisions
+3. **Developer Experience**: Improved documentation quality and accuracy
+4. **Onboarding**: New developers can better understand the project's evolution
+
+---
+
 ## Version 0.2.2 (2026-01-30)
 
 ### ⚡ Performance Optimizations & Code Quality Improvements
@@ -215,7 +273,7 @@ This release introduces the **Consolidate Long-Term Memory** tool, enabling auto
   - `.cursor/plans/long_term_memory.plan.md`: Implementation plan
   - `.cursor/plans/robustness_enhancements.md`: Design specification
   - `.cursor/plans/robustness_implementation_summary.md`: Implementation details
-  - `.cursor/IMPLEMENTATION_COMPLETE.md`: Quick reference
+  - `.cursor/COMPLETE_DESIGN_HISTORY.md`: Complete design history (includes all implementation details)
 
 #### ⚠️ Notes
 

@@ -66,6 +66,17 @@ First, select the operation mode in plugin credentials:
   - All operations block until completion
   - You can see the actual results of each memory operation immediately
   - **Note**: Sync mode has no timeout protection. If timeout protection is needed, use `async_mode=true`
+  
+**Special Note for `extract_long_term_memory` Tool:**
+- **Async Mode (async_mode=true, recommended)**: 
+  - Uses `AsyncMem0Client` with automatic timeout protection, queue overload checking, and explicit resource management
+  - Suitable for production environments and large-scale batch processing (10+ users)
+  - Provides better resource management and error handling for long-running tasks
+- **Sync Mode (async_mode=false)**:
+  - Uses synchronous `Memory` instances wrapped in async for compatibility
+  - **Only recommended for testing with <10 users**
+  - Sync mode has no timeout protection and relies on garbage collection for resource cleanup
+  - **For production environments, always use async_mode=true**
 
 ### Step 2: Configure Models and Databases
 
@@ -586,6 +597,10 @@ In Dify workflow, add the `get_memory_history` tool and configure the following 
 
 In Dify workflow, add the `extract_long_term_memory` tool to automatically extract semantic, episodic, and procedural memories from your Dify conversation history.
 
+**Mode Selection:**
+- **Async Mode (async_mode=true, recommended)**: Uses `AsyncMem0Client` with automatic timeout protection, queue overload checking, and explicit resource management. Suitable for production environments and large-scale batch processing (10+ users).
+- **Sync Mode (async_mode=false)**: Uses synchronous `Memory` instances wrapped in async for compatibility. **Only recommended for testing with <10 users.** Sync mode has no timeout protection and relies on garbage collection for resource cleanup. **For production, always use async_mode=true.**
+
 **Required Parameters:**
 - `user_ids`: User IDs to process (JSON array string, e.g., `["user1", "user2"]`)
 - `app_id`: Dify App ID for memory isolation. Each app maintains separate memory space for the same user. This ensures memories are scoped to specific applications
@@ -597,8 +612,9 @@ In Dify workflow, add the `extract_long_term_memory` tool to automatically extra
 - `days_back`: Number of days to look back for extracting conversation history (1-7, default: 3). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as:
   - `start_time`: (today - days_back) at 00:00:00
   - `end_time`: today at 00:00:00
-- `conversations_limit`: Maximum conversations to fetch per user (1-100, default: 20)
-- `messages_limit`: Maximum messages to fetch per conversation (1-100, default: 20)
+- `conversations_limit`: Maximum conversations to process per user per execution (10-500, default: 50). This prevents malicious users from generating excessive conversations and consuming too much processing time. For 3-day cycle: light users ~15, normal users ~30-45, heavy users ~60-90. Adjust based on your execution cycle.
+- `max_tokens_per_conversation`: Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during data fetching to optimize network transfer. If a conversation exceeds this limit, pagination stops early and only the most recent messages are fetched. Adjust based on your LLM's context window (e.g., GPT-4: 128K, Claude 3.5: 200K).
+- `time_budget`: Maximum time budget in minutes for the extraction task (suggested: 5-120 minutes, default: 60 minutes, same as EXTRACTION_TIME_BUDGET). The lock TTL is automatically calculated as 1.2 times the time budget (rounded up). No upper limit enforced - adjust based on your batch size and processing requirements. For large batch jobs processing 1000+ users, consider increasing this value.
 
 **Example Configuration:**
 ```json
@@ -607,12 +623,18 @@ In Dify workflow, add the `extract_long_term_memory` tool to automatically extra
   "app_id": "my-chatbot-app",
   "run_id": "workflow_run_12345",
   "days_back": 3,
-  "conversations_limit": 20,
-  "messages_limit": 20,
+  "conversations_limit": 50,
+  "max_tokens_per_conversation": 64,
+  "time_budget": 60,
   "dify_base_url": "http://localhost:5001",
   "dify_api_key": "your-dify-api-key"
 }
 ```
+
+**Important Notes:**
+- The tool runs asynchronously and returns a `task_id` immediately. Use `check_extraction_status` to monitor task progress.
+- The tool uses smart memory classification to reduce LLM calls by 33% (from 3 per conversation to 2: 1 classification + 1 extraction).
+- Token-aware processing uses tiktoken for accurate token counting and applies limits during API pagination to optimize network transfer.
 
 **Memory Isolation with app_id:**
 
@@ -643,14 +665,25 @@ If today is January 25, 2026:
 - `days_back=7`: Extracts [Jan 18 00:00:00, Jan 25 00:00:00) - last week
 
 **Output:**
-The tool returns a structured JSON report with:
-- `status`: SUCCESS/PARTIAL_SUCCESS/ERROR
-- `run_id`: Unique execution identifier
-- `app_id`: App ID used for this consolidation run
-- `start_time` and `end_time`: Processed time range (automatically calculated from days_back)
-- `summary`: Processing statistics (users processed, memories written by type, etc.)
-- `per_user`: Detailed results for each user (scanned conversations/messages, written memories, errors)
-- `checkpoint_updates`: Checkpoint status for resumable processing
+The tool immediately returns a `task_id` for async task tracking:
+```json
+{
+  "status": "ACCEPTED",
+  "task_id": "extraction_task_12345",
+  "message": "Extraction task accepted and queued for processing"
+}
+```
+
+Use `check_extraction_status` with the returned `task_id` to query:
+- `status`: SUCCESS/NOT_FOUND/ERROR
+- `task_status`: running/completed/failed
+- `progress`: Progress percentage (0.0-1.0)
+- `user_count`: Total number of users to process
+- `processed_users`: Number of users already processed
+- `scanned_conversations`: Total conversations scanned
+- `scanned_messages`: Total messages scanned
+- `written_memories`: Total memories written (by type: semantic/episodic/procedural)
+- `final_report`: Final processing report (if task completed)
 
 **Memory Types:**
 - **Semantic**: Long-term facts, preferences, and constraints that remain valid over time
@@ -658,11 +691,15 @@ The tool returns a structured JSON report with:
 - **Procedural**: Reusable workflows, rules, and step-by-step procedures
 
 **Features:**
+- ✅ **Async Task Pattern**: Returns task_id immediately, processes in background (solves Dify 60s timeout limit)
+- ✅ **Smart Classification**: Intelligently classifies each conversation to determine the most relevant memory type, reduces LLM calls by 33%
+- ✅ **Token-Aware Processing**: Uses tiktoken for accurate token counting, applies limits during API pagination
 - ✅ **Idempotent**: Safe to run multiple times (checkpoint-based)
 - ✅ **Incremental**: Only processes new messages since last run
 - ✅ **Robust**: Automatic retry on transient failures (3 attempts with exponential backoff)
-- ✅ **Concurrent-safe**: Distributed lock prevents multiple tasks from processing the same user
+- ✅ **Concurrent-safe**: Distributed lock prevents multiple tasks from processing the same user (supports up to 5 concurrent users)
 - ✅ **Atomic checkpoint**: Saves progress atomically with automatic rollback on failure
+- ✅ **Time Range Aware**: Enhanced checkpoint prevents data loss when time range expands backward
 
 For detailed implementation and design, see the tool documentation in `tools/extract_long_term_memory.py`.
 

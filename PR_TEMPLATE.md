@@ -29,9 +29,13 @@ Please provide the following metadata of your plugin to make it easier for the r
 
 <!-- Please briefly describe the purpose of the new plugin or the updates made to the existing plugin -->
 
-This version update (v0.2.2) brings significant performance optimizations, including smart memory classification and token-aware processing, along with critical bug fixes for data loss prevention, new long-term memory extraction tools, and enhanced robustness features. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
+This version update (v0.2.3) focuses on comprehensive documentation updates to ensure all markdown documentation matches the current code implementation. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
 
-### What's New in v0.2.2:
+### What's New in v0.2.3:
+
+- **📝 Comprehensive Documentation Update (2026-01-31)**: Updated all markdown documentation to match current code implementation, merged scattered design documents into unified design history, ensured consistency across all documentation files
+
+### Previous Updates in v0.2.2:
 
 - **🚀 Smart Memory Classification (2026-01-24)**: Intelligently classifies each conversation to determine the most relevant memory type
   - Extracts only the classified type (semantic/episodic/procedural) instead of all three
@@ -309,9 +313,9 @@ Please confirm that your plugin README includes all necessary information:
 - **PRIVACY.md**: Complete privacy policy explaining self-hosted mode operation and data handling
 - **CHANGELOG.md**: Detailed version history and changes for all versions
 
-**Documentation Improvements in v0.2.2:**
+**Documentation Improvements in v0.2.3:**
 - Added comprehensive documentation for performance optimizations (smart memory classification, token-aware processing)
-- Updated version references to v0.2.2
+- Updated version references to v0.2.3
 - Documented code quality improvements and testability enhancements
 - Updated performance metrics and impact descriptions
 
@@ -377,7 +381,7 @@ The plugin only processes:
 
 **No personal identification information (PII) is required or collected beyond user-provided identifiers (user_id, agent_id, run_id).**
 
-**Security Enhancements in v0.2.2:**
+**Security Enhancements (Previous versions):**
 - Code refactoring improves testability and maintainability
 - Message conversion utilities isolated for better security boundaries
 - Enhanced test coverage ensures data integrity

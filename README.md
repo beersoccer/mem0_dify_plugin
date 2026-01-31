@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin v0.2.2
+# Mem0 Dify Plugin v0.2.3
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
@@ -31,7 +31,14 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - 中英双语 (Chinese/English)
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.2) - Performance Optimizations! ⚡
+### What's New (v0.2.3) - Documentation Updates! 📚
+- **📝 Comprehensive Documentation Update (2026-01-31)**
+  - Updated all markdown documentation to match current code implementation
+  - Merged scattered design documents into unified design history
+  - Ensured consistency across all documentation files
+  - **Impact**: Better documentation quality, easier maintenance, improved developer experience
+
+### Previous Updates (v0.2.2) - Performance Optimizations! ⚡
 - **🚀 Smart Memory Classification (2026-01-24)**
   - Intelligently classifies each conversation to determine the most relevant memory type
   - Extracts only the classified type (semantic/episodic/procedural) instead of all three
@@ -60,11 +67,12 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
   - Detailed documentation: See checkpoint implementation in `tools/extract_long_term_memory.py`
 
 ### Previous Updates (v0.2.0)
-- **🚀 New Tool: Consolidate Long-Term Memory**
+- **🚀 New Tool: Extract Long-Term Memory**
   - Automatically extract semantic/episodic/procedural memories from Dify conversation history
+  - Async task pattern: returns task_id immediately, use check_extraction_status to monitor progress
   - Time-range based processing with incremental scanning
   - Checkpoint-based progress tracking (no external DB required)
-  - Supports batch processing of multiple users
+  - Supports batch processing of multiple users (up to 5 concurrent users)
 - **🔧 Robustness Enhancements**
   - **Automatic Retry**: API calls retry 3 times with exponential backoff (success rate: 70% → 95%)
   - **Distributed Lock**: Prevents concurrent processing (100% concurrent-safe)
@@ -357,6 +365,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.3 | 2026-01-31 | Documentation updates: Comprehensive documentation synchronization, merged design documents, improved consistency |
 | v0.2.2 | 2026-01-30 | Performance optimizations: Smart memory classification (33% LLM call reduction), token-aware processing with tiktoken, code quality improvements |
 | v0.2.1 | 2026-01-29 | Critical bug fix: Data loss prevention when time range expands backward, enhanced checkpoint with time range awareness |
 | v0.2.0 | 2026-01-22 | New tool: Long-term memory consolidation, automatic retry mechanism, distributed lock, enhanced checkpoint, atomic save |

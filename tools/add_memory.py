@@ -65,10 +65,6 @@ class AddMemoryTool(Tool):
         if agent_id:
             payload["agent_id"] = agent_id
 
-        app_id = tool_parameters.get("app_id")
-        if app_id:
-            payload["app_id"] = app_id
-
         metadata = tool_parameters.get("metadata")
         if metadata:
             payload["metadata"] = metadata

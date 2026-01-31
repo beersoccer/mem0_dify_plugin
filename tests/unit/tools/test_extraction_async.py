@@ -16,7 +16,7 @@ import pytest
 from tools.extract_long_term_memory import (
     ExtractLongTermMemoryTool,
     _execute_extraction_async,
-    _process_single_user,
+    _process_single_user_async,
 )
 from utils.constants import EXTRACTION_MAX_CONCURRENT_USERS
 from utils.extraction import ScanStats, UserCheckpoint
@@ -33,13 +33,19 @@ def mock_memory():
 
 
 @pytest.fixture
-def mock_subtype_mems(mock_memory):
-    """Mock subtype memory instances."""
-    return {
+def mock_subtype_clients(mock_memory):
+    """Mock subtype client instances."""
+    async def mock_create():
+        return mock_memory
+    
+    clients = {
         "semantic": MagicMock(memory=mock_memory),
         "episodic": MagicMock(memory=mock_memory),
         "procedural": MagicMock(memory=mock_memory),
     }
+    for client in clients.values():
+        client.create = mock_create
+    return clients
 
 
 @pytest.fixture
@@ -79,13 +85,14 @@ def mock_lock_manager():
     return manager
 
 
-class TestProcessSingleUser:
-    """Tests for _process_single_user function."""
+class TestProcessSingleUserAsync:
+    """Tests for _process_single_user_async function."""
 
-    def test_successful_processing(
+    @pytest.mark.asyncio
+    async def test_successful_processing(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -110,9 +117,16 @@ class TestProcessSingleUser:
                 "success",
             )
 
-            result = _process_single_user(
-                base_mem=mock_memory,
-                subtype_mems=mock_subtype_mems,
+            # Create mock base_client with async create method
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+
+            result = await _process_single_user_async(
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
                 user_id="user1",
                 app_id="app1",
                 run_id="run1",
@@ -122,6 +136,7 @@ class TestProcessSingleUser:
                 lock_manager=mock_lock_manager,
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
+                lock_ttl_sec=3600,
             )
 
             assert result["user_id"] == "user1"
@@ -130,10 +145,11 @@ class TestProcessSingleUser:
             assert mock_lock_manager.acquire_lock.called
             assert mock_lock_manager.release_lock.called
 
-    def test_lock_not_acquired(
+    @pytest.mark.asyncio
+    async def test_lock_not_acquired(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -142,9 +158,14 @@ class TestProcessSingleUser:
         existing_lock = MagicMock(holder_id="other_run")
         mock_lock_manager.acquire_lock.return_value = (False, existing_lock)
 
-        result = _process_single_user(
-            base_mem=mock_memory,
-            subtype_mems=mock_subtype_mems,
+        # Create mock base_client
+        mock_base_client = MagicMock()
+        mock_base_client.memory = mock_memory
+        mock_base_client.create = MagicMock(return_value=mock_memory)
+
+        result = await _process_single_user_async(
+            base_client=mock_base_client,
+            subtype_clients=mock_subtype_clients,
             user_id="user1",
             app_id="app1",
             run_id="run1",
@@ -154,6 +175,7 @@ class TestProcessSingleUser:
             lock_manager=mock_lock_manager,
             max_conversations=20,
             max_tokens_per_conversation=64000,
+            lock_ttl_sec=3600,
         )
 
         assert result["status"] == "SKIPPED"
@@ -161,10 +183,11 @@ class TestProcessSingleUser:
         assert result["reason"] == "lock_held"
         assert result["lock_holder"] == "other_run"
 
-    def test_already_processed(
+    @pytest.mark.asyncio
+    async def test_already_processed(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -175,9 +198,16 @@ class TestProcessSingleUser:
             cp.last_run_at = "2026-01-25T00:00:00Z"  # After end_time
             mock_load.return_value = ("cp_123", cp)
 
-            result = _process_single_user(
-                base_mem=mock_memory,
-                subtype_mems=mock_subtype_mems,
+            # Create mock base_client with async create method
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+
+            result = await _process_single_user_async(
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
                 user_id="user1",
                 app_id="app1",
                 run_id="run1",
@@ -187,6 +217,7 @@ class TestProcessSingleUser:
                 lock_manager=mock_lock_manager,
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
+                lock_ttl_sec=3600,
             )
 
             assert result["status"] == "SKIPPED"
@@ -194,10 +225,11 @@ class TestProcessSingleUser:
             assert result["reason"] == "already_processed"
             assert mock_lock_manager.release_lock.called
 
-    def test_dify_api_error(
+    @pytest.mark.asyncio
+    async def test_dify_api_error(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -211,9 +243,16 @@ class TestProcessSingleUser:
             mock_load.return_value = (None, None)
             mock_scan.side_effect = Exception("Dify API error")
 
-            result = _process_single_user(
-                base_mem=mock_memory,
-                subtype_mems=mock_subtype_mems,
+            # Create mock base_client with async create method
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+
+            result = await _process_single_user_async(
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
                 user_id="user1",
                 app_id="app1",
                 run_id="run1",
@@ -223,6 +262,7 @@ class TestProcessSingleUser:
                 lock_manager=mock_lock_manager,
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
+                lock_ttl_sec=3600,
             )
 
             assert result["status"] == "ERROR"
@@ -237,7 +277,7 @@ class TestExecuteExtractionAsync:
     async def test_concurrent_processing(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -246,7 +286,7 @@ class TestExecuteExtractionAsync:
 
         # Mock _process_single_user to return success
         with (
-            patch("tools.extract_long_term_memory._process_single_user") as mock_process,
+            patch("tools.extract_long_term_memory._process_single_user_async") as mock_process,
             patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
             patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
             patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
@@ -275,9 +315,16 @@ class TestExecuteExtractionAsync:
 
             mock_process.side_effect = mock_process_user
 
+            # Create mock base_client
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+
             result = await _execute_extraction_async(
-                base_mem=mock_memory,
-                subtype_mems=mock_subtype_mems,
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
                 task_id="task1",
                 run_id="run1",
                 user_ids=user_ids,
@@ -288,6 +335,7 @@ class TestExecuteExtractionAsync:
                 dify_api_key="test_key",
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
+                time_budget_sec=30,
             )
 
             assert result["status"] == "SUCCESS"
@@ -300,7 +348,7 @@ class TestExecuteExtractionAsync:
     async def test_time_budget_exceeded(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -308,11 +356,10 @@ class TestExecuteExtractionAsync:
         user_ids = [f"user{i}" for i in range(100)]
 
         with (
-            patch("tools.extract_long_term_memory._process_single_user") as mock_process,
+            patch("tools.extract_long_term_memory._process_single_user_async") as mock_process,
             patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
             patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
             patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
-            patch("tools.extract_long_term_memory.EXTRACTION_TIME_BUDGET", 0.5),  # 0.5 sec
         ):
             mock_dify_cls.return_value = mock_dify_client
             mock_lock_cls.return_value = mock_lock_manager
@@ -331,9 +378,16 @@ class TestExecuteExtractionAsync:
 
             mock_process.side_effect = mock_process_user
 
+            # Create mock base_client
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+
             result = await _execute_extraction_async(
-                base_mem=mock_memory,
-                subtype_mems=mock_subtype_mems,
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
                 task_id="task1",
                 run_id="run1",
                 user_ids=user_ids,
@@ -344,6 +398,7 @@ class TestExecuteExtractionAsync:
                 dify_api_key="test_key",
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
+                time_budget_sec=1,  # Short time budget to trigger timeout
             )
 
             # Should not process all 100 users due to timeout
@@ -354,7 +409,7 @@ class TestExecuteExtractionAsync:
     async def test_error_handling(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
@@ -362,7 +417,7 @@ class TestExecuteExtractionAsync:
         user_ids = ["user1", "user2", "user3"]
 
         with (
-            patch("tools.extract_long_term_memory._process_single_user") as mock_process,
+            patch("tools.extract_long_term_memory._process_single_user_async") as mock_process,
             patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
             patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
             patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
@@ -386,9 +441,16 @@ class TestExecuteExtractionAsync:
 
             mock_process.side_effect = mock_process_user
 
+            # Create mock base_client
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+
             result = await _execute_extraction_async(
-                base_mem=mock_memory,
-                subtype_mems=mock_subtype_mems,
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
                 task_id="task1",
                 run_id="run1",
                 user_ids=user_ids,
@@ -399,6 +461,7 @@ class TestExecuteExtractionAsync:
                 dify_api_key="test_key",
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
+                time_budget_sec=30,
             )
 
             assert result["status"] == "PARTIAL_SUCCESS"
@@ -426,16 +489,20 @@ class TestExtractLongTermMemoryTool:
         tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
 
         with (
-            patch("tools.extract_long_term_memory.build_local_mem0_config") as mock_config,
-            patch("tools.extract_long_term_memory.Memory") as mock_memory_cls,
-            patch("tools.extract_long_term_memory.build_subtype_memories") as mock_subtypes,
+            patch("tools.extract_long_term_memory.get_async_client") as mock_get_client,
+            patch("tools.extract_long_term_memory.build_subtype_async_clients") as mock_subtypes,
             patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
             patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
             patch("tools.extract_long_term_memory.TaskTracker"),
         ):
-            mock_config.return_value = {}
+            # Setup mock async client
+            mock_base_client = MagicMock()
             mock_memory = MagicMock()
-            mock_memory_cls.from_config.return_value = mock_memory
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+            mock_get_client.return_value = mock_base_client
             mock_subtypes.return_value = {}
 
             mock_loop = MagicMock()
@@ -496,16 +563,20 @@ class TestExtractLongTermMemoryTool:
         tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
 
         with (
-            patch("tools.extract_long_term_memory.build_local_mem0_config") as mock_config,
-            patch("tools.extract_long_term_memory.Memory") as mock_memory_cls,
-            patch("tools.extract_long_term_memory.build_subtype_memories") as mock_subtypes,
+            patch("tools.extract_long_term_memory.get_async_client") as mock_get_client,
+            patch("tools.extract_long_term_memory.build_subtype_async_clients") as mock_subtypes,
             patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
             patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
             patch("tools.extract_long_term_memory.TaskTracker"),
         ):
-            mock_config.return_value = {}
+            # Setup mock async client
+            mock_base_client = MagicMock()
             mock_memory = MagicMock()
-            mock_memory_cls.from_config.return_value = mock_memory
+            mock_base_client.memory = mock_memory
+            async def mock_create():
+                return mock_memory
+            mock_base_client.create = mock_create
+            mock_get_client.return_value = mock_base_client
             mock_subtypes.return_value = {}
 
             mock_loop = MagicMock()
@@ -566,7 +637,7 @@ class TestIntegration:
     async def test_end_to_end_extraction(
         self,
         mock_memory,
-        mock_subtype_mems,
+        mock_subtype_clients,
     ):
         """Test end-to-end extraction with mocked dependencies."""
         # This would be a full integration test with real-ish data
