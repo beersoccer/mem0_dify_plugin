@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from utils.checkpoint import load_checkpoint, save_checkpoint
+from utils.checkpoint import SyncCheckpointManager
 from utils.dify_client import DifyAPIError, DifyClient
 from utils.extraction import (
     UserCheckpoint,
@@ -388,19 +388,20 @@ class TestCheckpointPersistence:
     def test_checkpoint_roundtrip(self) -> None:
         """Verify checkpoint can be saved and loaded."""
         mem = self.FakeMemory()
+        mgr = SyncCheckpointManager(mem)
 
         checkpoint = UserCheckpoint(
             last_run_at="2025-12-01T00:00:00Z", conversations={}
         )
 
-        ok, cp_id = save_checkpoint(
-            mem, checkpoint_id=None, user_id="u1", app_id=None, checkpoint=checkpoint
+        ok, cp_id = mgr.save(
+            checkpoint_id=None, user_id="u1", app_id=None, checkpoint=checkpoint
         )
 
         assert ok is True
         assert cp_id is not None
 
-        loaded_id, loaded_cp = load_checkpoint(mem, user_id="u1", app_id=None)
+        loaded_id, loaded_cp = mgr.load(user_id="u1", app_id=None)
 
         assert loaded_id == cp_id
         assert loaded_cp is not None
@@ -409,21 +410,22 @@ class TestCheckpointPersistence:
     def test_checkpoint_update_same_id(self) -> None:
         """Verify updating checkpoint reuses same ID."""
         mem = self.FakeMemory()
+        mgr = SyncCheckpointManager(mem)
 
         cp1 = UserCheckpoint(last_run_at="2025-12-01T00:00:00Z")
-        ok1, id1 = save_checkpoint(
-            mem, checkpoint_id=None, user_id="u1", app_id=None, checkpoint=cp1
+        ok1, id1 = mgr.save(
+            checkpoint_id=None, user_id="u1", app_id=None, checkpoint=cp1
         )
 
         cp2 = UserCheckpoint(last_run_at="2025-12-02T00:00:00Z")
-        ok2, id2 = save_checkpoint(
-            mem, checkpoint_id=id1, user_id="u1", app_id=None, checkpoint=cp2
+        ok2, id2 = mgr.save(
+            checkpoint_id=id1, user_id="u1", app_id=None, checkpoint=cp2
         )
 
         assert ok2 is True
         assert id2 == id1
 
-        _, loaded = load_checkpoint(mem, user_id="u1", app_id=None)
+        _, loaded = mgr.load(user_id="u1", app_id=None)
         assert loaded is not None
         assert loaded.last_run_at == "2025-12-02T00:00:00Z"
 

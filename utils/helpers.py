@@ -293,6 +293,25 @@ def _parse_user_ids(value: object) -> list[str]:
     return [str(value).strip()] if str(value).strip() else []
 
 
+def dedup_keep_order(items: list[str]) -> list[str]:
+    """Remove duplicates from a list while preserving order.
+    
+    Args:
+        items: List of strings (may contain duplicates)
+        
+    Returns:
+        List with duplicates removed, preserving first occurrence order
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in items:
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
+
+
 def _build_run_id(run_at: str, user_ids: list[str], app_id: str | None) -> str:
     base = {
         "run_at": run_at,

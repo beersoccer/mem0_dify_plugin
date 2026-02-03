@@ -60,19 +60,21 @@ from typing import Any
 import pytest
 
 # 现在可以安全地导入 tools 模块（使用 fork 模式）
-from tools.extract_long_term_memory import (
-    _count_message_tokens,
-    _get_time_range_from_days,
-)
+from utils.config_builder import build_local_mem0_config_without_pool
 from utils.constants import EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT
 from utils.dify_client import DifyClient
 from utils.extraction import scan_user_conversations_incremental
+from utils.extraction_helpers import (
+    count_message_tokens,
+    get_time_range_from_days,
+)
 from utils.helpers import parse_iso_timestamp
+from utils.mem0_client import SyncMem0Client
 from utils.mem0_extraction import (
+    SyncMemoryClassificationManager,
+    SyncMemoryWriter,
     build_memory_metadata,
     build_subtype_sync_clients,
-    classify_sync_conversation_memory_type,
-    mem0_sync_add_memory,
 )
 from utils.message_utils import (
     count_add_results,
@@ -222,7 +224,7 @@ def _get_test_time_range(
             return start_time, end_time
     
     # 如果环境变量不存在或格式无效，使用默认计算（默认1天）
-    return _get_time_range_from_days(default_days_back)
+    return get_time_range_from_days(default_days_back)
 
 
 @pytest.fixture
@@ -488,7 +490,7 @@ class TestE2ESessionMemory:
                 test_logger.write("\n会话详情:")
                 for idx, (conv_id, messages) in enumerate(conversations_data.items(), 1):
                     msg_count = len(messages)
-                    token_count = _count_message_tokens(messages)
+                    token_count = count_message_tokens(messages)
                     
                     # 获取时间范围（转换为本地时区显示）
                     if messages:
@@ -527,8 +529,15 @@ class TestE2ESessionMemory:
         # 优先使用环境变量中的时间范围，否则使用默认1天
         start_time, end_time = _get_test_time_range(env_config, default_days_back=1)
         
-        # 创建Mem0客户端实例
-        subtype_clients = build_subtype_sync_clients(mem0_credentials)
+        # 创建Mem0客户端实例（使用独立连接池，与业务代码保持一致）
+        from mem0 import Memory
+
+        config = build_local_mem0_config_without_pool(mem0_credentials)
+        base_client = SyncMem0Client(mem0_credentials, enable_keepalive=False)
+        base_client.memory = Memory.from_config(config)
+        subtype_clients = build_subtype_sync_clients(
+            mem0_credentials, base_client=base_client
+        )
         
         # 只测试第一个用户的第一个会话
         test_user_id = test_user_ids[0]
@@ -551,7 +560,7 @@ class TestE2ESessionMemory:
         # 获取第一个会话
         conv_id, messages = next(iter(conversations_data.items()))
         msg_count = len(messages)
-        token_count = _count_message_tokens(messages)
+        token_count = count_message_tokens(messages)
         
         test_logger.write("\n会话信息:")
         test_logger.write(f"  - 会话ID: {conv_id}")
@@ -569,10 +578,8 @@ class TestE2ESessionMemory:
         # 步骤1: 分类会话类型并评估提取价值
         test_logger.write("\n步骤1: 分类会话记忆类型并评估提取价值...")
         
-        classified_type, should_extract = classify_sync_conversation_memory_type(
-            mem=subtype_clients["semantic"].memory,
-            messages=mem0_msgs,
-        )
+        classification_mgr = SyncMemoryClassificationManager(subtype_clients["semantic"].memory)
+        classified_type, should_extract = classification_mgr.classify(messages=mem0_msgs)
         
         if classified_type is None or not should_extract:
             skip_reason = (
@@ -624,8 +631,8 @@ class TestE2ESessionMemory:
             message_id_range=message_id_range,
         )
         
-        result = mem0_sync_add_memory(
-            client=subtype_clients[classified_type],
+        writer = SyncMemoryWriter(subtype_clients[classified_type])
+        result = writer.add_memory(
             messages=mem0_msgs,
             user_id=test_user_id,
             metadata=metadata,
@@ -672,8 +679,15 @@ class TestE2ESessionMemory:
         
         test_logger.write(f"\n加载了 {len(conversations)} 个测试会话")
         
-        # 创建Mem0客户端实例
-        subtype_clients = build_subtype_sync_clients(mem0_credentials)
+        # 创建Mem0客户端实例（使用独立连接池，与业务代码保持一致）
+        from mem0 import Memory
+
+        config = build_local_mem0_config_without_pool(mem0_credentials)
+        base_client = SyncMem0Client(mem0_credentials, enable_keepalive=False)
+        base_client.memory = Memory.from_config(config)
+        subtype_clients = build_subtype_sync_clients(
+            mem0_credentials, base_client=base_client
+        )
         app_id = env_config.get("DIFY_APP_ID", "test_app")
         
         # 为每个测试运行生成唯一的用户ID后缀，避免记忆去重问题
@@ -729,9 +743,11 @@ class TestE2ESessionMemory:
             # 步骤1: 分类会话类型并评估提取价值（合并步骤）
             test_logger.write("\n  步骤1: 分类会话记忆类型并评估提取价值...")
             try:
-                classified_type, should_extract = classify_sync_conversation_memory_type(
-                    mem=subtype_clients["semantic"].memory,
-                    messages=mem0_msgs,
+                classification_mgr = SyncMemoryClassificationManager(
+                    subtype_clients["semantic"].memory
+                )
+                classified_type, should_extract = classification_mgr.classify(
+                    messages=mem0_msgs
                 )
                 
                 if classified_type is None:
@@ -783,8 +799,8 @@ class TestE2ESessionMemory:
                     message_id_range=message_id_range,
                 )
                 
-                result = mem0_sync_add_memory(
-                    client=subtype_clients[classified_type],
+                writer = SyncMemoryWriter(subtype_clients[classified_type])
+                result = writer.add_memory(
                     messages=mem0_msgs,
                     user_id=user_id,
                     metadata=metadata,

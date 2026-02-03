@@ -4,7 +4,12 @@ from typing import Any
 
 import pytest
 
-from utils.checkpoint import CHECKPOINT_KEY, checkpoint_filters, checkpoint_metadata
+from utils.checkpoint import (
+    CHECKPOINT_KEY,
+    SyncCheckpointManager,
+    checkpoint_filters,
+    checkpoint_metadata,
+)
 from utils.extraction import UserCheckpoint
 
 
@@ -91,17 +96,16 @@ def test_checkpoint_filters_shape() -> None:
 
 
 def test_save_checkpoint_add_and_update(monkeypatch: pytest.MonkeyPatch) -> None:
-    from utils.checkpoint import load_checkpoint, save_checkpoint
-
     mem = FakeMemory()
+    mgr = SyncCheckpointManager(mem)
+
     # no existing
-    cp_id, cp = load_checkpoint(mem, user_id="u1", app_id=None)
+    cp_id, cp = mgr.load(user_id="u1", app_id=None)
     assert cp_id is None
     assert cp is None
 
     # save new
-    ok, new_id = save_checkpoint(
-        mem,
+    ok, new_id = mgr.save(
         checkpoint_id=None,
         user_id="u1",
         app_id=None,
@@ -113,8 +117,7 @@ def test_save_checkpoint_add_and_update(monkeypatch: pytest.MonkeyPatch) -> None
     assert mem.added[0]["metadata"]["__internal"] is True
 
     # update existing (uses delete+add, not update)
-    ok2, same_id = save_checkpoint(
-        mem,
+    ok2, same_id = mgr.save(
         checkpoint_id=new_id,
         user_id="u1",
         app_id=None,
@@ -122,6 +125,6 @@ def test_save_checkpoint_add_and_update(monkeypatch: pytest.MonkeyPatch) -> None
     )
     assert ok2 is True
     assert same_id == new_id
-    # save_checkpoint uses delete+add instead of update to avoid embedding
+    # save uses delete+add instead of update to avoid embedding
     assert new_id in mem.deleted  # Old checkpoint deleted
     assert len(mem.added) == 2  # New checkpoint added

@@ -47,11 +47,11 @@ def test_run_id_different_for_different_inputs() -> None:
 
 
 def test_dedup_keep_order() -> None:
-    from tools.extract_long_term_memory import _dedup_keep_order
+    from utils.helpers import dedup_keep_order
 
-    assert _dedup_keep_order(["a", "b", "a", "c"]) == ["a", "b", "c"]
-    assert _dedup_keep_order(["x", "x", "x"]) == ["x"]
-    assert _dedup_keep_order([]) == []
+    assert dedup_keep_order(["a", "b", "a", "c"]) == ["a", "b", "c"]
+    assert dedup_keep_order(["x", "x", "x"]) == ["x"]
+    assert dedup_keep_order([]) == []
 
 
 def test_cmp_iso_timestamps() -> None:

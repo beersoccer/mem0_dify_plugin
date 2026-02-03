@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from tools.extract_long_term_memory import (
-    _count_message_tokens,
-    _truncate_to_recent_messages,
+from utils.extraction_helpers import (
+    count_message_tokens,
+    truncate_to_recent_messages,
 )
 
 
@@ -16,7 +16,7 @@ def test_count_message_tokens_basic() -> None:
     ]
     
     # Should count tokens for all content
-    token_count = _count_message_tokens(messages)
+    token_count = count_message_tokens(messages)
     assert token_count > 0
     assert isinstance(token_count, int)
 

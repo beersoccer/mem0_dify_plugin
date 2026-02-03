@@ -80,30 +80,36 @@ class QueueOverloadError(Exception):
 class SyncMem0Client:
     """Synchronous Mem0 client using configured providers."""
 
-    def __init__(self, credentials: dict[str, Any]) -> None:
+    def __init__(
+        self, credentials: dict[str, Any], enable_keepalive: bool = True
+    ) -> None:
         """Initialize the SyncMem0Client.
 
         Args:
             credentials (dict): Configuration for the SyncMem0Client.
+            enable_keepalive (bool): Whether to enable connection keep-alive.
+                                    Defaults to True.
 
         """
         config = build_local_mem0_config(credentials)
         self.memory = Memory.from_config(config)
 
         # Initialize connection keep-alive
-        # Minimum interval is 30 seconds to ensure reasonable heartbeat frequency
-        heartbeat_interval = parse_positive_int(
-            credentials.get("heartbeat_interval"),
-            HEARTBEAT_INTERVAL,
-            min_value=30,
-            logger=logger,
-            config_name="heartbeat_interval",
-        )
-        self._keepalive = ConnectionKeepAlive(
-            memory=self.memory,
-            interval=heartbeat_interval,
-        )
-        self._keepalive.start()
+        if enable_keepalive:
+            heartbeat_interval = parse_positive_int(
+                credentials.get("heartbeat_interval"),
+                HEARTBEAT_INTERVAL,
+                min_value=30,
+                logger=logger,
+                config_name="heartbeat_interval",
+            )
+            self._keepalive = ConnectionKeepAlive(
+                memory=self.memory,
+                interval=heartbeat_interval,
+            )
+            self._keepalive.start()
+        else:
+            self._keepalive = None
 
         logger.debug("SyncMem0Client initialized")
 
@@ -112,6 +118,69 @@ class SyncMem0Client:
         if hasattr(self, "_keepalive"):
             with contextlib.suppress(Exception):
                 self._keepalive.stop()
+
+    def close(self) -> None:
+        """Close and cleanup resources held by SyncMem0Client.
+        
+        This method explicitly closes critical resources (connection pools, database
+        connections) and stops connection keep-alive to prevent resource leaks.
+        
+        Note: This is primarily used by long-term memory extraction tool which
+        creates independent clients for each task execution.
+        """
+        # Stop connection keep-alive first
+        if hasattr(self, "_keepalive") and self._keepalive is not None:
+            try:
+                self._keepalive.stop()
+            except Exception:
+                logger.exception("Error stopping connection keep-alive")
+        
+        # Close vector store connection pool
+        # Skip if this client is sharing the pool (it will be closed by the owner)
+        if self.memory is not None:
+            try:
+                vs = getattr(self.memory, "vector_store", None)
+                if vs and hasattr(vs, "connection_pool") and vs.connection_pool is not None:
+                    # Check if this client is sharing the connection pool
+                    # If so, don't close it (it will be closed by the owner)
+                    if hasattr(self, "_is_sharing_pool") and getattr(
+                        self, "_is_sharing_pool", False
+                    ):
+                        logger.debug(
+                            "Skipping connection pool close (sharing pool from base_client)"
+                        )
+                    else:
+                        pool = vs.connection_pool
+                        if hasattr(pool, "close"):
+                            pool.close()
+                        elif hasattr(pool, "closeall"):
+                            pool.closeall()
+            except Exception:
+                logger.exception("Error closing vector store connection pool")
+            
+            # Close graph store if present
+            try:
+                graph = getattr(self.memory, "graph", None)
+                if graph:
+                    graph_close = getattr(graph, "close", None)
+                    if graph_close and not callable(
+                        getattr(graph_close, "__self__", None)
+                    ):
+                        graph.close()
+                    elif hasattr(graph, "driver") and hasattr(graph.driver, "close"):
+                        graph.driver.close()
+            except Exception:
+                logger.exception("Error closing graph store")
+            
+            # Close database connection if present
+            try:
+                db = getattr(self.memory, "db", None)
+                if db and hasattr(db, "close"):
+                    db.close()
+            except Exception:
+                logger.exception("Error closing database connection")
+        
+        logger.debug("SyncMem0Client resources closed")
 
     def search(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         """Search for memories based on a query.
@@ -308,6 +377,22 @@ class SyncMem0Client:
         """
         try:
             result = self.memory.update(memory_id, payload.get("text"))
+        except (AttributeError, ValueError) as e:
+            # Catch AttributeError from mem0 when existing_memory is None
+            # or ValueError when memory not found
+            # Convert to a consistent ValueError without logging stack trace
+            error_str = str(e)
+            if (
+                "'NoneType' object has no attribute 'payload'" in error_str
+                or "not found" in error_str.lower()
+            ):
+                error_msg = (
+                    f"Memory with ID {memory_id} not found. "
+                    "It may have already been deleted or never existed."
+                )
+                raise ValueError(error_msg) from e
+            # Re-raise other AttributeErrors/ValueErrors
+            raise
         except Exception:
             logger.exception("Error updating memory %s", memory_id)
             raise
@@ -386,11 +471,15 @@ class SyncMem0Client:
 class AsyncMem0Client:
     """Asynchronous Mem0 client using configured providers."""
 
-    def __init__(self, credentials: dict[str, Any]) -> None:
+    def __init__(
+        self, credentials: dict[str, Any], enable_keepalive: bool = True
+    ) -> None:
         """Initialize the AsyncMem0Client.
 
         Args:
             credentials (dict): Configuration for the AsyncMem0Client.
+            enable_keepalive (bool): Whether to enable connection keep-alive.
+                                    Defaults to True.
 
         """
         self.config = build_local_mem0_config(credentials)
@@ -409,16 +498,19 @@ class AsyncMem0Client:
         self._semaphore = asyncio.Semaphore(self.max_ops)
 
         # Initialize connection keep-alive
-        # Minimum interval is 30 seconds to ensure reasonable heartbeat frequency
-        heartbeat_interval = parse_positive_int(
-            credentials.get("heartbeat_interval"),
-            HEARTBEAT_INTERVAL,
-            min_value=30,
-            logger=logger,
-            config_name="heartbeat_interval",
-        )
+        self._enable_keepalive = enable_keepalive
+        if enable_keepalive:
+            heartbeat_interval = parse_positive_int(
+                credentials.get("heartbeat_interval"),
+                HEARTBEAT_INTERVAL,
+                min_value=30,
+                logger=logger,
+                config_name="heartbeat_interval",
+            )
+            self._keepalive_interval = heartbeat_interval
+        else:
+            self._keepalive_interval = None
         self._keepalive: ConnectionKeepAlive | None = None
-        self._keepalive_interval = heartbeat_interval
 
         logger.debug("AsyncMem0Client initialized")
 
@@ -495,7 +587,7 @@ class AsyncMem0Client:
                 logger.debug("AsyncMemory instance created")
 
                 # Start connection keep-alive after memory is created
-                if self._keepalive is None:
+                if self._enable_keepalive and self._keepalive is None:
                     # Note: ConnectionKeepAlive works with both Memory and AsyncMemory
                     # as it accesses the underlying clients directly
                     self._keepalive = ConnectionKeepAlive(
@@ -523,19 +615,20 @@ class AsyncMem0Client:
             return
 
         logger.debug("Closing AsyncMemory resources")
+        
+        # Stop connection keep-alive first to prevent accessing closed resources
+        if hasattr(self, "_keepalive") and self._keepalive is not None:
+            try:
+                self._keepalive.stop()
+            except Exception:
+                logger.exception("Error stopping connection keep-alive")
+        
         try:
-            await close_memory_resources(self.memory)
+            await close_memory_resources(self.memory, client=self)
         except Exception:
             logger.exception("Error during AsyncMemory resource cleanup")
         finally:
-            # Stop connection keep-alive
-            if hasattr(self, "_keepalive") and self._keepalive is not None:
-                try:
-                    self._keepalive.stop()
-                except Exception:
-                    logger.exception("Error stopping connection keep-alive")
-
-            # Clear reference - remaining resources will be cleaned up by __del__ methods
+            # Always clear reference to allow GC and __del__ methods to handle cleanup
             self.memory = None
             logger.debug("AsyncMemory resources closed")
 
@@ -1181,16 +1274,37 @@ def cleanup_async_client(
     if client is None:
         return
 
+    # Stop keepalive first (synchronous operation, doesn't require event loop)
+    # This prevents keepalive from accessing closed resources
+    if hasattr(client, "_keepalive") and client._keepalive is not None:
+        try:
+            client._keepalive.stop()
+            logger.debug("Stopped keepalive for AsyncMem0Client during %s", context)
+        except Exception:
+            logger.exception("Error stopping keepalive for AsyncMem0Client during %s", context)
+
     loop = BackgroundEventLoop._loop  # noqa: SLF001
     if loop is not None and loop.is_running():
         try:
             fut = asyncio.run_coroutine_threadsafe(client.aclose(), loop)
-            # Waiting for cleanup to complete
-            fut.result(timeout=2.0)
-        except Exception:
-            logger.exception(
-                "Failed to cleanup async client resources during %s",
+            try:
+                fut.result(timeout=2.0)
+            except TimeoutError:
+                logger.warning(
+                    "Async client cleanup timed out during %s",
+                    context,
+                )
+            except Exception as e:
+                logger.debug(
+                    "Async client cleanup failed during %s: %s",
+                    context,
+                    e,
+                )
+        except Exception as e:
+            logger.debug(
+                "Could not submit async cleanup during %s: %s",
                 context,
+                e,
             )
     else:
         logger.debug(
@@ -1274,12 +1388,29 @@ def get_sync_client(credentials: dict[str, Any]) -> SyncMem0Client:
             _cache["sync_client"] is None
             or _cache["sync_client_config_hash"] != config_hash
         ):
-            # SyncMem0Client resources (PGVector, SQLiteManager) have __del__ methods
-            # that will be called during GC when the old reference is overwritten.
-            # SyncMem0Client doesn't have a close() method, so we rely on __del__
-            # methods in mem0 resources for cleanup.
-            if _cache["sync_client"] is not None:
-                logger.debug("Replacing SyncMem0Client due to config change")
+            # Cleanup old client before creating new one to prevent resource leaks
+            old_client = _cache["sync_client"]
+            if old_client is not None:
+                logger.debug(
+                    "Replacing SyncMem0Client due to config change, cleaning up old instance"
+                )
+                # Stop keepalive first to prevent accessing closed resources
+                if hasattr(old_client, "_keepalive") and old_client._keepalive is not None:
+                    try:
+                        old_client._keepalive.stop()
+                        logger.debug("Stopped keepalive for old SyncMem0Client")
+                    except Exception:
+                        logger.exception(
+                            "Error stopping keepalive for old SyncMem0Client"
+                        )
+                # Close resources explicitly
+                try:
+                    old_client.close()
+                except Exception:
+                    logger.exception(
+                        "Error closing old SyncMem0Client, relying on __del__ for cleanup"
+                    )
+            
             _cache["sync_client"] = SyncMem0Client(credentials)
             _cache["sync_client_config_hash"] = config_hash
         return _cache["sync_client"]

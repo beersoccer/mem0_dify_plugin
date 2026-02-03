@@ -30,14 +30,16 @@ def _get_current_date() -> str:
 def _common_rules() -> str:
     return f"""
 General rules:
-- Extract facts that are useful for future personalization. Prefer concise, atomic items.
+- Extract facts as DISCRETE, ATOMIC memory units (not long narrative paragraphs).
+- Each fact should be a compact, self-contained unit (1-3 sentences, 50-200 characters).
+- Split related information into separate addressable units for flexible retrieval and updates.
 - Focus ONLY on user-related information (preferences, events, knowledge).
 - If there is nothing worth remembering, return an empty list.
 - Do not include system messages, meta instructions, or assistant's self-descriptions.
 - Do not include secrets (API keys, passwords, tokens, private URLs).
 - Today's date is {_get_current_date()}. Use this for temporal context when relevant.
 - Output MUST be valid JSON exactly in the following shape (compatible with Mem0):
-  {{"facts": ["...", "..."]}}
+  {{"facts": ["atomic fact 1", "atomic fact 2", "atomic fact 3"]}}
 - Detect the conversation language and record facts in the SAME language.
 - Do not return anything from the few-shot examples provided above.
 """

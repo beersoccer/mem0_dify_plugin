@@ -13,7 +13,7 @@ from dify_plugin import Tool
 from utils.config_builder import build_local_mem0_config
 from utils.logger import get_logger
 from utils.mem0_client import Memory
-from utils.task_status import load_task_status
+from utils.task_status import SyncTaskStatusManager
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -44,7 +44,8 @@ class CheckExtractionStatusTool(Tool):
             base_cfg = build_local_mem0_config(self.runtime.credentials)
             base_mem = Memory.from_config(base_cfg)
 
-            _, task_status = load_task_status(base_mem, task_id=task_id)
+            task_status_mgr = SyncTaskStatusManager(base_mem)
+            _, task_status = task_status_mgr.load(task_id=task_id)
 
             if not task_status:
                 yield self.create_json_message(
