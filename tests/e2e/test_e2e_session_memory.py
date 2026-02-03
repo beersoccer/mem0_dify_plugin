@@ -30,6 +30,8 @@ MEM0_VECTOR_DB_CONFIG={"provider":"pgvector","config":{"dbname":"mem0","user":"p
 运行方式：
 推荐手动激活虚拟环境后直接使用 pytest：
     source .venv/bin/activate
+    # macOS 上需要设置环境变量以避免 fork() 崩溃
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
 
 或者使用统一脚本（支持输出到文件）：

@@ -55,14 +55,14 @@ def test_dedup_keep_order() -> None:
 
 
 def test_cmp_iso_timestamps() -> None:
-    from tools.extract_long_term_memory import _cmp_iso
+    from utils.extraction_helpers import cmp_iso_timestamps
 
-    assert _cmp_iso("2025-12-01T00:00:00Z", "2025-12-02T00:00:00Z") == -1
-    assert _cmp_iso("2025-12-02T00:00:00Z", "2025-12-01T00:00:00Z") == 1
-    assert _cmp_iso("2025-12-01T00:00:00Z", "2025-12-01T00:00:00Z") == 0
-    assert _cmp_iso(None, "2025-12-01T00:00:00Z") == -1
-    assert _cmp_iso("2025-12-01T00:00:00Z", None) == 1
-    assert _cmp_iso(None, None) == 0
+    assert cmp_iso_timestamps("2025-12-01T00:00:00Z", "2025-12-02T00:00:00Z") == -1
+    assert cmp_iso_timestamps("2025-12-02T00:00:00Z", "2025-12-01T00:00:00Z") == 1
+    assert cmp_iso_timestamps("2025-12-01T00:00:00Z", "2025-12-01T00:00:00Z") == 0
+    assert cmp_iso_timestamps(None, "2025-12-01T00:00:00Z") == -1
+    assert cmp_iso_timestamps("2025-12-01T00:00:00Z", None) == 1
+    assert cmp_iso_timestamps(None, None) == 0
 
 
 class TestDifyMessageNormalization:

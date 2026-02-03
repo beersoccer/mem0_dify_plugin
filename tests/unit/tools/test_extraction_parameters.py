@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tools.extract_long_term_memory import _get_time_range_from_days
+from utils.extraction_helpers import get_time_range_from_days
 from utils.helpers import parse_iso_timestamp
 
 
@@ -22,7 +22,7 @@ class TestTimeRangeFromDays:
 
     def test_days_back_1(self) -> None:
         """Verify days_back=1 generates yesterday 00:00:00 to today 00:00:00."""
-        start_time, end_time = _get_time_range_from_days(1)
+        start_time, end_time = get_time_range_from_days(1)
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
@@ -48,7 +48,7 @@ class TestTimeRangeFromDays:
 
     def test_days_back_2(self) -> None:
         """Verify days_back=2 generates (today - 2 days) to today."""
-        start_time, end_time = _get_time_range_from_days(2)
+        start_time, end_time = get_time_range_from_days(2)
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
@@ -66,7 +66,7 @@ class TestTimeRangeFromDays:
 
     def test_days_back_7(self) -> None:
         """Verify days_back=7 generates last 7 days."""
-        start_time, end_time = _get_time_range_from_days(7)
+        start_time, end_time = get_time_range_from_days(7)
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
@@ -80,7 +80,7 @@ class TestTimeRangeFromDays:
 
     def test_days_back_clamping_below_minimum(self) -> None:
         """Verify days_back is clamped to minimum 1."""
-        start_time, end_time = _get_time_range_from_days(0)
+        start_time, end_time = get_time_range_from_days(0)
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
@@ -91,7 +91,7 @@ class TestTimeRangeFromDays:
 
     def test_days_back_clamping_above_maximum(self) -> None:
         """Verify days_back is clamped to maximum 7."""
-        start_time, end_time = _get_time_range_from_days(100)
+        start_time, end_time = get_time_range_from_days(100)
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
@@ -102,7 +102,7 @@ class TestTimeRangeFromDays:
 
     def test_iso_format(self) -> None:
         """Verify returned timestamps are valid ISO8601."""
-        start_time, end_time = _get_time_range_from_days(1)
+        start_time, end_time = get_time_range_from_days(1)
 
         # Should be parseable
         assert parse_iso_timestamp(start_time) is not None

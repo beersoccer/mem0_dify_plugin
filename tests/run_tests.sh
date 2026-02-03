@@ -201,6 +201,9 @@ PYTEST_CMD=("pytest")
 # 添加 fork 模式参数
 if [ "$USE_FORKED" = true ]; then
     PYTEST_CMD+=("--forked")
+    # macOS 上需要设置环境变量以避免 fork() 在多线程环境下的崩溃
+    # 这允许在 fork 子进程中使用 Objective-C 运行时
+    export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 fi
 
 # 添加用户提供的参数
