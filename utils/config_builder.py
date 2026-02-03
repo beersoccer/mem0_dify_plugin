@@ -340,6 +340,45 @@ def build_local_mem0_config(credentials: dict[str, Any]) -> dict[str, Any]:
         return config
 
 
+def build_local_mem0_config_without_pool(
+    credentials: dict[str, Any],
+) -> dict[str, Any]:
+    """Build Mem0 config without connection pool (for independent pool creation).
+
+    Returns a deep copy of the config without the cached connection pool.
+    The connection pool is removed before deep copying (pools contain locks
+    that cannot be deep copied), then recreated as a new independent pool.
+
+    Args:
+        credentials: Configuration dictionary for the Mem0 client.
+
+    Returns:
+        Configuration dictionary without connection pool (deep copy).
+    """
+    import copy
+
+    config = build_local_mem0_config(credentials)
+
+    # Remove connection_pool before deep copying (pools contain locks)
+    if "vector_store" in config and isinstance(config["vector_store"], dict):
+        vs_config = config["vector_store"].get("config", {})
+        if isinstance(vs_config, dict) and "connection_pool" in vs_config:
+            vs_config.pop("connection_pool")
+
+    config = copy.deepcopy(config)
+
+    # Re-normalize to create a new independent connection pool
+    if "vector_store" in config and isinstance(config["vector_store"], dict):
+        vs_config = config["vector_store"].get("config", {})
+        if isinstance(vs_config, dict):
+            from utils.pgvector_config import normalize_pgvector_config
+
+            normalized = normalize_pgvector_config(vs_config)
+            config["vector_store"]["config"] = normalized
+
+    return config
+
+
 def is_async_mode(credentials: dict[str, Any]) -> bool:
     """Read async_mode from credentials and coerce to boolean.
 

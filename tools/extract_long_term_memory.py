@@ -29,17 +29,16 @@ import math
 import threading
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
 
 from utils.background_loop import BackgroundEventLoop
-from utils.checkpoint import load_checkpoint, save_checkpoint_atomic
+from utils.checkpoint import AsyncCheckpointManager, SyncCheckpointManager
 from utils.config_builder import is_async_mode
 from utils.constants import (
     EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT,
-    EXTRACTION_DEFAULT_ENCODING,
     EXTRACTION_DEFAULT_MAX_TOKENS,
     EXTRACTION_DIFY_TIMEOUT,
     EXTRACTION_MAX_CONCURRENT_USERS,
@@ -47,35 +46,36 @@ from utils.constants import (
     WRITE_OPERATION_TIMEOUT,
 )
 from utils.dify_client import DifyAPIError, DifyClient
-from utils.distributed_lock import LockManager
+from utils.distributed_lock import AsyncLockManager, SyncLockManager
 from utils.extraction import UserCheckpoint, scan_user_conversations_incremental
-from utils.helpers import _parse_user_ids, parse_iso_timestamp
+from utils.extraction_helpers import (
+    cmp_iso_timestamps,
+    count_message_tokens,
+    get_time_range_from_days,
+)
+from utils.helpers import _parse_user_ids, dedup_keep_order
 from utils.logger import get_logger
 from utils.mem0_client import (
     AsyncMem0Client,
     SyncMem0Client,
-    get_async_client,
-    get_sync_client,
 )
 from utils.mem0_extraction import (
+    AsyncMemoryClassificationManager,
+    AsyncMemoryWriter,
+    SyncMemoryClassificationManager,
+    SyncMemoryWriter,
     build_memory_metadata,
     build_subtype_async_clients,
     build_subtype_sync_clients,
-    classify_async_conversation_memory_type,
-    classify_sync_conversation_memory_type,
-    mem0_async_add_memory,
-    mem0_sync_add_memory,
 )
 from utils.message_utils import (
     count_add_results,
     dify_msg_to_mem0_messages,
 )
 from utils.task_status import (
+    AsyncTaskStatusManager,
     ExtractionTaskStatus,
-    mark_task_completed,
-    mark_task_failed,
-    save_task_status,
-    update_task_progress,
+    SyncTaskStatusManager,
 )
 from utils.task_tracker import TaskTracker
 
@@ -87,213 +87,9 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _dedup_keep_order(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for x in items:
-        if x in seen:
-            continue
-        seen.add(x)
-        out.append(x)
-    return out
-
-
-def _get_time_range_from_days(days_back: int) -> tuple[str, str]:
-    """Calculate time range based on days_back parameter.
-    
-    Args:
-        days_back: Number of days to look back (1-7).
-                   For example, days_back=2 means yesterday and the day before.
-    
-    Returns:
-        tuple[str, str]: (start_time, end_time) in ISO8601 format
-                         start_time: (today - days_back) 00:00:00
-                         end_time: today 00:00:00
-    
-    Example:
-        If today is Jan 25, 2026:
-        - days_back=1: [Jan 24 00:00:00, Jan 25 00:00:00) (yesterday)
-        - days_back=2: [Jan 23 00:00:00, Jan 25 00:00:00) (yesterday + day before)
-        - days_back=3: [Jan 22 00:00:00, Jan 25 00:00:00) (last 3 days)
-    """
-    # Clamp days_back to 1-7
-    days_back = max(1, min(7, days_back))
-    
-    now = datetime.now(UTC)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # start_time: (today - days_back) at 00:00:00
-    start_time = today_start - timedelta(days=days_back)
-    
-    # end_time: today at 00:00:00
-    end_time = today_start
-    
-    return start_time.isoformat(), end_time.isoformat()
-
-
-def _cmp_iso(a: str | None, b: str | None) -> int:
-    """Compare two ISO timestamps; returns -1/0/1 where None is smallest."""
-    da = parse_iso_timestamp(a)
-    db = parse_iso_timestamp(b)
-    if da is None and db is None:
-        return 0
-    if da is None:
-        return -1
-    if db is None:
-        return 1
-    ta = da.timestamp()
-    tb = db.timestamp()
-    if ta < tb:
-        return -1
-    if ta > tb:
-        return 1
-    return 0
-
-
 # Message conversion functions moved to utils/message_utils.py for better testability
-
-
-def _count_message_tokens(
-    messages: list[dict[str, Any]],
-    encoding_name: str = EXTRACTION_DEFAULT_ENCODING,
-) -> int:
-    """Count total tokens for a list of Dify messages using tiktoken.
-    
-    Args:
-        messages: List of Dify message dicts
-        encoding_name: Tiktoken encoding name (default: cl100k_base for GPT-4/3.5)
-        
-    Returns:
-        Accurate token count
-    """
-    # Lazy import tiktoken to avoid gevent monkey-patching issues
-    try:
-        import tiktoken
-        encoding = tiktoken.get_encoding(encoding_name)
-    except Exception as e:
-        logger.warning(
-            f"Failed to load tiktoken encoding '{encoding_name}': {e}. "
-            f"Using fallback estimation."
-        )
-        # Fallback to character-based estimation (4 chars per token)
-        total = 0
-        for m in messages:
-            content = str(
-                m.get("content") or m.get("query") or m.get("answer") or m.get("text") or ""
-            )
-            total += max(1, len(content) // 4)
-        return total
-    
-    total = 0
-    for m in messages:
-        # Extract all text content from message
-        content_parts = []
-        for field in ("query", "answer", "content", "text"):
-            value = m.get(field)
-            if isinstance(value, str) and value.strip():
-                content_parts.append(value.strip())
-        
-        if content_parts:
-            combined = "\n".join(content_parts)
-            total += len(encoding.encode(combined))
-    
-    return total
-
-
-def _truncate_to_recent_messages(
-    messages: list[dict[str, Any]],
-    max_tokens: int,
-    encoding_name: str = EXTRACTION_DEFAULT_ENCODING,
-) -> list[dict[str, Any]]:
-    """Truncate messages to fit within token limit, keeping the most recent ones.
-    
-    This function processes messages in reverse chronological order (newest first),
-    accumulating tokens until the limit is reached. This ensures the most recent
-    and relevant conversation context is preserved.
-    
-    Args:
-        messages: List of Dify message dicts (chronological order)
-        max_tokens: Maximum token limit
-        encoding_name: Tiktoken encoding name
-        
-    Returns:
-        Truncated message list (chronological order) that fits within token limit
-    """
-    if not messages:
-        return []
-    
-    # Quick check: if total is under limit, return all
-    total_tokens = _count_message_tokens(messages, encoding_name)
-    if total_tokens <= max_tokens:
-        return messages
-    
-    # Lazy import tiktoken to avoid gevent monkey-patching issues
-    try:
-        import tiktoken
-        encoding = tiktoken.get_encoding(encoding_name)
-    except Exception as e:
-        logger.warning(
-            f"Failed to load tiktoken encoding '{encoding_name}': {e}. "
-            f"Using fallback truncation."
-        )
-        # Fallback: estimate 4 chars per token
-        accumulated_chars = 0
-        max_chars = max_tokens * 4
-        result = []
-        for m in reversed(messages):
-            content = str(
-                m.get("content") or m.get("query") or m.get("answer") or m.get("text") or ""
-            )
-            msg_chars = len(content)
-            if accumulated_chars + msg_chars > max_chars:
-                break
-            result.insert(0, m)
-            accumulated_chars += msg_chars
-        return result if result else messages[-1:]  # At least return the last message
-    
-    # Process messages in reverse chronological order (newest first)
-    accumulated_tokens = 0
-    result: list[dict[str, Any]] = []
-    
-    for m in reversed(messages):
-        # Count tokens for this message
-        content_parts = []
-        for field in ("query", "answer", "content", "text"):
-            value = m.get(field)
-            if isinstance(value, str) and value.strip():
-                content_parts.append(value.strip())
-        
-        msg_tokens = 0
-        if content_parts:
-            combined = "\n".join(content_parts)
-            msg_tokens = len(encoding.encode(combined))
-        
-        # Check if adding this message would exceed limit
-        if accumulated_tokens + msg_tokens > max_tokens and result:
-            # Already have some messages, stop here
-            break
-        
-        # Add message to result (will be reversed later)
-        result.insert(0, m)
-        accumulated_tokens += msg_tokens
-    
-    # Ensure we return at least the most recent message
-    if not result and messages:
-        result = [messages[-1]]
-    
-    # Log truncation details only if debug level is enabled
-    if logger.isEnabledFor(logging.DEBUG):
-        total_tokens = _count_message_tokens(messages, encoding_name)
-        accumulated_tokens = _count_message_tokens(result, encoding_name)
-        logger.debug(
-            "Truncated conversation from %d messages (%d tokens) to %d messages (%d tokens)",
-            len(messages),
-            total_tokens,
-            len(result),
-            accumulated_tokens,
-        )
-    
-    return result
+# Token counting and truncation functions moved to utils/extraction_helpers.py
+# Time range and timestamp comparison functions moved to utils/extraction_helpers.py
 
 
 def _process_single_user_sync(
@@ -305,7 +101,7 @@ def _process_single_user_sync(
     start_time: str,
     end_time: str,
     dify: DifyClient,
-    lock_manager: LockManager,
+    lock_manager: SyncLockManager,
     max_conversations: int,
     max_tokens_per_conversation: int,
     lock_ttl_sec: int,
@@ -370,13 +166,14 @@ def _process_single_user_sync(
         # Load checkpoint (use base_client.memory)
         base_mem = base_client.memory
         logger.info("[run:%s] Processing user %s: loading checkpoint", run_id, user_id)
-        cp_id, cp = load_checkpoint(base_mem, user_id=user_id, app_id=app_id)
+        checkpoint_mgr = SyncCheckpointManager(base_mem)
+        cp_id, cp = checkpoint_mgr.load(user_id=user_id, app_id=app_id)
         if cp is None:
             cp = UserCheckpoint()
             logger.debug("[run:%s] No existing checkpoint for user %s", run_id, user_id)
 
         # Idempotency check
-        if _cmp_iso(cp.last_run_at, end_time) > 0:
+        if cmp_iso_timestamps(cp.last_run_at, end_time) > 0:
             logger.info(
                 "[run:%s] Skip user %s: already processed beyond %s (last_run_at: %s)",
                 run_id,
@@ -390,7 +187,7 @@ def _process_single_user_sync(
             user_report["last_run_at"] = cp.last_run_at
             return user_report
 
-        if _cmp_iso(cp.last_run_at, end_time) == 0:
+        if cmp_iso_timestamps(cp.last_run_at, end_time) == 0:
             logger.info(
                 "[run:%s] Reprocess user %s with same end_time %s: "
                 "checking for new messages or time range expansion",
@@ -463,7 +260,7 @@ def _process_single_user_sync(
 
             # Log conversation processing details only if debug level is enabled
             if logger.isEnabledFor(logging.DEBUG):
-                total_tokens = _count_message_tokens(conversation_messages)
+                total_tokens = count_message_tokens(conversation_messages)
                 msg_count = len(conversation_messages)
                 logger.debug(
                     "[run:%s] Processing conversation %s: %d messages, %d tokens",
@@ -494,8 +291,8 @@ def _process_single_user_sync(
             # STEP 1: Classify conversation and evaluate extraction value (combined)
             # Use the first subtype's memory instance for classification (they share LLM config)
             semantic_client = subtype_clients["semantic"]
-            classified_type, should_extract = classify_sync_conversation_memory_type(
-                mem=semantic_client.memory,
+            classification_mgr = SyncMemoryClassificationManager(semantic_client.memory)
+            classified_type, should_extract = classification_mgr.classify(
                 messages=mem0_msgs,
                 context={
                     "user_id": user_id,
@@ -539,21 +336,36 @@ def _process_single_user_sync(
             
             try:
                 subtype_client = subtype_clients[classified_type]
-                res = mem0_sync_add_memory(
-                    client=subtype_client,
+                writer = SyncMemoryWriter(subtype_client)
+                res = writer.add_memory(
                     messages=mem0_msgs,
                     user_id=user_id,
                     metadata=md,
                 )
                 c = count_add_results(res)
-                user_report["written_memories"][classified_type] += c
-                logger.debug(
-                    "[run:%s] Successfully wrote %d %s memories for conversation %s",
-                    run_id,
-                    c,
-                    classified_type,
-                    conv_id,
-                )
+                if c == 0:
+                    logger.warning(
+                        "[run:%s] Memory classification approved but no memories created. "
+                        "Type: %s, Conversation: %s. "
+                        "This may indicate mem0's Invalid JSON response issue.",
+                        run_id,
+                        classified_type,
+                        conv_id,
+                    )
+                    user_report["errors"].append({
+                        "type": f"mem0_{classified_type}_empty_result",
+                        "conversation_id": conv_id,
+                        "message": "Classification approved but no memories created",
+                    })
+                else:
+                    user_report["written_memories"][classified_type] += c
+                    logger.debug(
+                        "[run:%s] Successfully wrote %d %s memories for conversation %s",
+                        run_id,
+                        c,
+                        classified_type,
+                        conv_id,
+                    )
             except Exception as e:
                 logger.warning(
                     "[run:%s] Failed to write %s memory for conversation %s: %s",
@@ -594,8 +406,8 @@ def _process_single_user_sync(
         # Finalize user checkpoint
         cp.mark_task_success(end_time)
         try:
-            ok, new_id = save_checkpoint_atomic(
-                base_mem,
+            checkpoint_mgr = SyncCheckpointManager(base_mem)
+            ok, new_id = checkpoint_mgr.save_atomic(
                 user_id=user_id,
                 app_id=app_id,
                 checkpoint=cp,
@@ -636,7 +448,7 @@ async def _process_single_user_async(
     start_time: str,
     end_time: str,
     dify: DifyClient,
-    lock_manager: LockManager,
+    lock_manager: AsyncLockManager,
     max_conversations: int,
     max_tokens_per_conversation: int,
     lock_ttl_sec: int,
@@ -677,7 +489,7 @@ async def _process_single_user_async(
     }
 
     # 1. Try to acquire lock
-    lock_acquired, existing_lock = lock_manager.acquire_lock(
+    lock_acquired, existing_lock = await lock_manager.acquire_lock(
         user_id=user_id,
         app_id=app_id,
         holder_id=run_id,
@@ -705,15 +517,16 @@ async def _process_single_user_async(
         await base_client.create()
         base_mem = base_client.memory
         
-        # Load checkpoint
+        # Load checkpoint (async version)
         logger.info("[run:%s] Processing user %s: loading checkpoint", run_id, user_id)
-        cp_id, cp = load_checkpoint(base_mem, user_id=user_id, app_id=app_id)
+        checkpoint_mgr = AsyncCheckpointManager(base_mem)
+        cp_id, cp = await checkpoint_mgr.load(user_id=user_id, app_id=app_id)
         if cp is None:
             cp = UserCheckpoint()
             logger.debug("[run:%s] No existing checkpoint for user %s", run_id, user_id)
 
         # Idempotency check
-        if _cmp_iso(cp.last_run_at, end_time) > 0:
+        if cmp_iso_timestamps(cp.last_run_at, end_time) > 0:
             logger.info(
                 "[run:%s] Skip user %s: already processed beyond %s (last_run_at: %s)",
                 run_id,
@@ -727,7 +540,7 @@ async def _process_single_user_async(
             user_report["last_run_at"] = cp.last_run_at
             return user_report
 
-        if _cmp_iso(cp.last_run_at, end_time) == 0:
+        if cmp_iso_timestamps(cp.last_run_at, end_time) == 0:
             logger.info(
                 "[run:%s] Reprocess user %s with same end_time %s: "
                 "checking for new messages or time range expansion",
@@ -800,10 +613,6 @@ async def _process_single_user_async(
         user_report["conversations_with_messages"] = conversations_with_messages
         user_report["messages_in_time_range"] = total_messages_in_range
 
-        # Ensure subtype clients are initialized
-        for subtype_client in subtype_clients.values():
-            await subtype_client.create()
-
         # Process each conversation's messages
         for conv_id, conversation_messages in conversations_data.items():
             conv_cp = cp.get_conv(conv_id)
@@ -816,7 +625,7 @@ async def _process_single_user_async(
 
             # Log conversation processing details only if debug level is enabled
             if logger.isEnabledFor(logging.DEBUG):
-                total_tokens = _count_message_tokens(conversation_messages)
+                total_tokens = count_message_tokens(conversation_messages)
                 msg_count = len(conversation_messages)
                 logger.debug(
                     "[run:%s] Processing conversation %s: %d messages, %d tokens",
@@ -847,8 +656,8 @@ async def _process_single_user_async(
             # STEP 1: Classify conversation (async)
             semantic_client = subtype_clients["semantic"]
             await semantic_client.create()
-            classified_type, should_extract = await classify_async_conversation_memory_type(
-                mem=semantic_client.memory,
+            classification_mgr = AsyncMemoryClassificationManager(semantic_client.memory)
+            classified_type, should_extract = await classification_mgr.classify(
                 messages=mem0_msgs,
                 context={
                     "user_id": user_id,
@@ -899,22 +708,37 @@ async def _process_single_user_async(
             
             try:
                 subtype_client = subtype_clients[classified_type]
-                res = await mem0_async_add_memory(
-                    client=subtype_client,
+                writer = AsyncMemoryWriter(subtype_client)
+                res = await writer.add_memory(
                     messages=mem0_msgs,
                     user_id=user_id,
                     metadata=md,
                     timeout_s=WRITE_OPERATION_TIMEOUT,
                 )
                 c = count_add_results(res)
-                user_report["written_memories"][classified_type] += c
-                logger.debug(
-                    "[run:%s] Successfully wrote %d %s memories for conversation %s",
-                    run_id,
-                    c,
-                    classified_type,
-                    conv_id,
-                )
+                if c == 0:
+                    logger.warning(
+                        "[run:%s] Memory classification approved but no memories created. "
+                        "Type: %s, Conversation: %s. "
+                        "This may indicate mem0's Invalid JSON response issue.",
+                        run_id,
+                        classified_type,
+                        conv_id,
+                    )
+                    user_report["errors"].append({
+                        "type": f"mem0_{classified_type}_empty_result",
+                        "conversation_id": conv_id,
+                        "message": "Classification approved but no memories created",
+                    })
+                else:
+                    user_report["written_memories"][classified_type] += c
+                    logger.debug(
+                        "[run:%s] Successfully wrote %d %s memories for conversation %s",
+                        run_id,
+                        c,
+                        classified_type,
+                        conv_id,
+                    )
             except Exception as e:
                 logger.warning(
                     "[run:%s] Failed to write %s memory for conversation %s: %s",
@@ -952,11 +776,11 @@ async def _process_single_user_async(
                 ):
                     conv_cp.processed_range_end = last_processed_created_at
 
-        # Finalize user checkpoint
+        # Finalize user checkpoint (async version)
         cp.mark_task_success(end_time)
         try:
-            ok, new_id = save_checkpoint_atomic(
-                base_mem,
+            checkpoint_mgr = AsyncCheckpointManager(base_mem)
+            ok, new_id = await checkpoint_mgr.save_atomic(
                 user_id=user_id,
                 app_id=app_id,
                 checkpoint=cp,
@@ -985,7 +809,7 @@ async def _process_single_user_async(
 
     finally:
         # Always release lock
-        lock_manager.release_lock(user_id, app_id, run_id)
+        await lock_manager.release_lock(user_id, app_id, run_id)
 
 
 async def _execute_extraction_async(
@@ -1036,7 +860,7 @@ async def _execute_extraction_async(
         
         # Create shared resources (thread-safe)
         dify = DifyClient(dify_base_url, dify_api_key, timeout=EXTRACTION_DIFY_TIMEOUT)
-        lock_manager = LockManager(base_mem)
+        lock_manager = AsyncLockManager(base_mem)
 
         started_at = time.monotonic()
         hard_time_budget_sec = float(time_budget_sec)
@@ -1114,15 +938,25 @@ async def _execute_extraction_async(
                             summary["written_memories"][mem_type] += result.get(
                                 "written_memories", {}
                             ).get(mem_type, 0)
+                    elif result["status"] == "PARTIAL_SUCCESS":
+                        # PARTIAL_SUCCESS also counts as processed
+                        # (user was processed but with some errors)
+                        summary["processed_users"] += 1
+                        summary["scanned_conversations"] += result.get("scanned_conversations", 0)
+                        summary["scanned_messages"] += result.get("scanned_messages", 0)
+                        for mem_type in ["semantic", "episodic", "procedural"]:
+                            summary["written_memories"][mem_type] += result.get(
+                                "written_memories", {}
+                            ).get(mem_type, 0)
+                        overall_status = "PARTIAL_SUCCESS"
                     elif result.get("skipped"):
                         summary["skipped_users"] += 1
                     else:
                         overall_status = "PARTIAL_SUCCESS"
             
             # Update progress after each batch
-            await asyncio.to_thread(
-                update_task_progress,
-                base_mem,
+            task_status_mgr = AsyncTaskStatusManager(base_mem)
+            await task_status_mgr.update_progress(
                 task_id=task_id,
                 processed_users=summary["processed_users"] + summary["skipped_users"],
                 total_users=len(user_ids),
@@ -1180,11 +1014,8 @@ async def _execute_extraction_async(
         logger.exception("[run:%s] Extraction task %s failed", run_id, task_id)
         raise
     finally:
-        # Explicit resource cleanup for async clients
-        # Note: base_client is shared and managed by get_async_client cache,
-        # so we don't close it here. Only close subtype clients if they were
-        # created specifically for this task.
-        # For now, subtype clients are also managed, so cleanup is handled by GC.
+        # Resource cleanup is now handled by the caller
+        # (clients are created specifically for this task and will be closed after execution)
         pass
 
 
@@ -1234,7 +1065,7 @@ def _execute_extraction_sync(
         
         # Create shared resources (thread-safe)
         dify = DifyClient(dify_base_url, dify_api_key, timeout=EXTRACTION_DIFY_TIMEOUT)
-        lock_manager = LockManager(base_mem)
+        lock_manager = SyncLockManager(base_mem)
 
         started_at = time.monotonic()
         hard_time_budget_sec = float(time_budget_sec)
@@ -1328,8 +1159,8 @@ def _execute_extraction_sync(
                 overall_status = "PARTIAL_SUCCESS"
             
             # Update progress after each user
-            update_task_progress(
-                base_mem,
+            task_status_mgr = SyncTaskStatusManager(base_mem)
+            task_status_mgr.update_progress(
                 task_id=task_id,
                 processed_users=summary["processed_users"] + summary["skipped_users"],
                 total_users=len(user_ids),
@@ -1411,7 +1242,7 @@ class ExtractLongTermMemoryTool(Tool):
             except (TypeError, ValueError):
                 days_back_int = 3
 
-            start_time, end_time = _get_time_range_from_days(days_back_int)
+            start_time, end_time = get_time_range_from_days(days_back_int)
 
             user_ids = _parse_user_ids(tool_parameters.get("user_ids"))
             if not user_ids:
@@ -1516,7 +1347,7 @@ class ExtractLongTermMemoryTool(Tool):
                     time_budget_sec,
                 )
 
-            user_ids = _dedup_keep_order(user_ids)
+            user_ids = dedup_keep_order(user_ids)
 
             # Check user count for sync mode warning
             async_mode = is_async_mode(self.runtime.credentials)
@@ -1540,7 +1371,6 @@ class ExtractLongTermMemoryTool(Tool):
                 len(user_ids),
             )
 
-            # Create initial task status (will be saved after client creation)
             task_status = ExtractionTaskStatus(
                 task_id=task_id,
                 run_id=run_id,
@@ -1556,20 +1386,32 @@ class ExtractLongTermMemoryTool(Tool):
                 written_memories={"semantic": 0, "episodic": 0, "procedural": 0},
             )
 
-            # Submit to background execution (async or sync based on mode)
             if async_mode:
-                # Async mode: use background event loop
                 async def _bg_task_async() -> None:
-                    """Background task execution in shared event loop (async mode)."""
+                    base_client = None
+                    subtype_clients = None
+                    task_status_mgr = None
+                    
                     try:
-                        
-                        # Async mode: use AsyncMem0Client
-                        base_client = get_async_client(self.runtime.credentials)
-                        subtype_clients = build_subtype_async_clients(self.runtime.credentials)
-                        
-                        # Ensure base client is initialized and save task status
+                        from utils.config_builder import (
+                            build_local_mem0_config_without_pool,
+                        )
+
+                        base_client = AsyncMem0Client(
+                            self.runtime.credentials, enable_keepalive=False
+                        )
+                        base_client.config = build_local_mem0_config_without_pool(
+                            self.runtime.credentials
+                        )
                         await base_client.create()
-                        save_task_status(base_client.memory, task_status=task_status)
+                        
+                        subtype_clients = await build_subtype_async_clients(
+                            self.runtime.credentials,
+                            base_client=base_client,
+                        )
+                        
+                        task_status_mgr = AsyncTaskStatusManager(base_client.memory)
+                        await task_status_mgr.save(task_status=task_status)
                         
                         report = await _execute_extraction_async(
                             base_client=base_client,
@@ -1586,10 +1428,8 @@ class ExtractLongTermMemoryTool(Tool):
                             max_tokens_per_conversation=max_tokens,
                             time_budget_sec=time_budget_sec,
                         )
-                        # Mark task as completed
-                        await asyncio.to_thread(
-                            mark_task_completed,
-                            base_client.memory,
+                        task_status_mgr = AsyncTaskStatusManager(base_client.memory)
+                        await task_status_mgr.mark_completed(
                             task_id=task_id,
                             final_report=report,
                         )
@@ -1599,18 +1439,45 @@ class ExtractLongTermMemoryTool(Tool):
                             task_id,
                             run_id,
                         )
-                        # Try to mark task as failed (best effort)
-                        try:
-                            base_client = get_async_client(self.runtime.credentials)
-                            await base_client.create()
-                            await asyncio.to_thread(
-                                mark_task_failed,
-                                base_client.memory,
-                                task_id=task_id,
-                                error=str(bg_error),
-                            )
-                        except Exception:
-                            logger.exception("Failed to mark task as failed")
+                        # Try to mark task as failed (best effort, only if clients are ready)
+                        if base_client is not None and base_client.memory is not None:
+                            try:
+                                if task_status_mgr is None:
+                                    task_status_mgr = AsyncTaskStatusManager(base_client.memory)
+                                await task_status_mgr.mark_failed(
+                                    task_id=task_id,
+                                    error=str(bg_error),
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to mark task as failed using existing client"
+                                )
+                    finally:
+                        # Clean up subtype clients first (they share base_client's connection pool)
+                        if subtype_clients is not None:
+                            for subtype_client in subtype_clients.values():
+                                try:
+                                    await subtype_client.aclose()
+                                except Exception:
+                                    logger.exception(
+                                        "Error closing subtype client for task %s",
+                                        task_id,
+                                    )
+                        
+                        # Clean up base client (closes shared connection pool)
+                        if base_client is not None:
+                            try:
+                                await base_client.aclose()
+                            except Exception:
+                                logger.exception(
+                                    "Error closing base client for task %s",
+                                    task_id,
+                                )
+                        
+                        logger.info(
+                            "Extraction task %s resources cleaned up (mode=async)",
+                            task_id,
+                        )
 
                 # Get shared background event loop
                 loop = BackgroundEventLoop.ensure_loop()
@@ -1622,17 +1489,40 @@ class ExtractLongTermMemoryTool(Tool):
                     f"extract_long_term_memory(task_id={task_id}, users={len(user_ids)})",
                 )
             else:
-                # Sync mode: use threading.Thread (fully synchronous execution)
                 def _bg_task_sync() -> None:
-                    """Background task execution in separate thread (sync mode)."""
+                    base_client = None
+                    subtype_clients = None
+                    task_status_mgr = None
+                    
                     try:
+                        # Create base_client with independent connection pool
+                        # Use build_local_mem0_config_without_pool() to ensure we get
+                        # a config without the cached connection pool, which will be
+                        # recreated as a new independent pool
+                        from mem0 import Memory
+
+                        from utils.config_builder import (
+                            build_local_mem0_config_without_pool,
+                        )
+
+                        config = build_local_mem0_config_without_pool(
+                            self.runtime.credentials
+                        )
+
+                        # SyncMem0Client.__init__ creates Memory immediately, so we
+                        # create it first, then replace with one using independent pool
+                        base_client = SyncMem0Client(
+                            self.runtime.credentials, enable_keepalive=False
+                        )
+                        base_client.memory = Memory.from_config(config)
+
+                        subtype_clients = build_subtype_sync_clients(
+                            self.runtime.credentials,
+                            base_client=base_client,
+                        )
                         
-                        # Sync mode: use SyncMem0Client
-                        base_client = get_sync_client(self.runtime.credentials)
-                        subtype_clients = build_subtype_sync_clients(self.runtime.credentials)
-                        
-                        # Save initial task status
-                        save_task_status(base_client.memory, task_status=task_status)
+                        task_status_mgr = SyncTaskStatusManager(base_client.memory)
+                        task_status_mgr.save(task_status=task_status)
                         
                         # Execute synchronously
                         report = _execute_extraction_sync(
@@ -1650,9 +1540,8 @@ class ExtractLongTermMemoryTool(Tool):
                             max_tokens_per_conversation=max_tokens,
                             time_budget_sec=time_budget_sec,
                         )
-                        # Mark task as completed
-                        mark_task_completed(
-                            base_client.memory,
+                        task_status_mgr = SyncTaskStatusManager(base_client.memory)
+                        task_status_mgr.mark_completed(
                             task_id=task_id,
                             final_report=report,
                         )
@@ -1662,16 +1551,45 @@ class ExtractLongTermMemoryTool(Tool):
                             task_id,
                             run_id,
                         )
-                        # Try to mark task as failed (best effort)
-                        try:
-                            base_client = get_sync_client(self.runtime.credentials)
-                            mark_task_failed(
-                                base_client.memory,
-                                task_id=task_id,
-                                error=str(bg_error),
-                            )
-                        except Exception:
-                            logger.exception("Failed to mark task as failed")
+                        # Try to mark task as failed (best effort, only if clients are ready)
+                        if base_client is not None and base_client.memory is not None:
+                            try:
+                                if task_status_mgr is None:
+                                    task_status_mgr = SyncTaskStatusManager(base_client.memory)
+                                task_status_mgr.mark_failed(
+                                    task_id=task_id,
+                                    error=str(bg_error),
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to mark task as failed using existing client"
+                                )
+                    finally:
+                        # Clean up subtype clients first (they share base_client's connection pool)
+                        if subtype_clients is not None:
+                            for subtype_client in subtype_clients.values():
+                                try:
+                                    subtype_client.close()
+                                except Exception:
+                                    logger.exception(
+                                        "Error closing subtype client for task %s",
+                                        task_id,
+                                    )
+                        
+                        # Clean up base client (closes shared connection pool)
+                        if base_client is not None:
+                            try:
+                                base_client.close()
+                            except Exception:
+                                logger.exception(
+                                    "Error closing base client for task %s",
+                                    task_id,
+                                )
+                        
+                        logger.info(
+                            "Extraction task %s resources cleaned up (mode=sync)",
+                            task_id,
+                        )
 
                 # Start background thread (daemon=True so it doesn't block shutdown)
                 thread = threading.Thread(
@@ -1690,7 +1608,6 @@ class ExtractLongTermMemoryTool(Tool):
                 run_id,
             )
 
-            # Build response message with mode information
             mode_note = ""
             if not async_mode:
                 mode_note = (
@@ -1698,7 +1615,6 @@ class ExtractLongTermMemoryTool(Tool):
                     "testing with <10 users. For production environments, use async_mode=true."
                 )
             
-            # Immediately return ACCEPTED status
             yield self.create_json_message(
                 {
                     "status": "ACCEPTED",

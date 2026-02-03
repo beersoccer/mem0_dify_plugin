@@ -2,15 +2,15 @@
 
 ## 概述
 
-本文档提供 mem0_dify_plugin 项目的完整测试指南，包括端到端测试、集成测试和单元测试的运行方法、环境配置和故障排除。
+本文档提供 mem0_dify_plugin 项目的完整测试指南，包括单元测试、集成测试和端到端测试的运行方法、环境配置和故障排除。
 
 ## 目录
 
 - [快速开始](#快速开始)
 - [环境配置](#环境配置)
-- [端到端测试](#端到端测试)
-- [集成测试](#集成测试)
 - [单元测试](#单元测试)
+- [集成测试](#集成测试)
+- [端到端测试](#端到端测试)
 - [测试数据集](#测试数据集)
 - [测试覆盖](#测试覆盖)
 - [故障排除](#故障排除)
@@ -29,11 +29,18 @@
 # 1. 激活虚拟环境
 source .venv/bin/activate
 
-# 2. 运行测试
-pytest tests/unit/ -v                                    # 所有单元测试
-pytest tests/integration/ -v                            # 集成测试
-pytest tests/e2e/test_e2e_session_memory.py -v -s       # 端到端测试
-pytest --forked -m dify_plugin -v -s                    # dify_plugin 相关测试（需要 fork 模式）
+# 2. 运行单元测试（不需要 --forked）
+pytest tests/unit/ -v
+
+# 3. 运行集成测试（不需要 --forked）
+pytest tests/integration/ -v
+
+# 4. 运行端到端测试（不使用 --forked 也能运行，但会有 gevent 警告）
+pytest tests/e2e/test_e2e_session_memory.py -v -s
+
+# 5. 如果需要避免 gevent 警告，使用 --forked（macOS 上需要设置环境变量）
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
 
 # 运行特定测试文件
 pytest tests/unit/tools/test_extract_long_term_memory.py -v
@@ -45,55 +52,33 @@ pytest tests/unit/tools/test_extract_long_term_memory.py::test_parse_user_ids_va
 pytest -m "not slow" -v
 ```
 
-**为什么推荐手动方式？**
-- ✅ 更灵活，可以使用所有 pytest 参数和选项
-- ✅ 更直观，直接使用标准 pytest 命令
-- ✅ 更高效，无需通过脚本包装
-- ✅ 更符合 Python 开发习惯
+**关于 `--forked` 参数：**
+- **单元测试和集成测试**：不需要 `--forked`，可以直接运行
+- **端到端测试**：不使用 `--forked` 也能运行，但会看到 gevent monkey patching 警告（不影响测试结果）
+- **如果需要避免警告**：使用 `--forked` 参数（macOS 上需要先设置 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`）
 
 ### 使用辅助脚本（可选）
 
-项目提供了统一的测试运行脚本 `run_tests.sh`，主要用于：
-- 验证虚拟环境配置
-- Cursor agent 自动执行测试
-- 快速运行常见测试场景
+项目提供了统一的测试运行脚本 `run_tests.sh`，主要用于 Cursor agent 自动执行测试：
 
 ```bash
 # 检查虚拟环境配置
 ./tests/run_tests.sh --check-env
 
-# 运行单元测试（自动激活虚拟环境）
+# 运行单元测试
 ./tests/run_tests.sh tests/unit/ -v
 
-# 使用 fork 模式运行测试（避免 gevent monkey patching 冲突）
-./tests/run_tests.sh --forked tests/e2e/ -v
-
-# 运行端到端测试（自动使用 fork 模式）
-./tests/run_tests.sh --e2e test_01_verify_dify_connectivity
-
-# 运行测试并保存输出到文件
-./tests/run_tests.sh --forked tests/e2e/ -v --output-file test_output.log
-
-# 查看帮助信息
-./tests/run_tests.sh --help
+# 运行端到端测试（脚本会自动使用 --forked 并设置环境变量）
+./tests/run_tests.sh --e2e test_01_verify_dify_connectivity -v -s
 ```
 
-**脚本功能：**
-- ✅ 自动检查虚拟环境是否存在
-- ✅ 自动激活虚拟环境（如果未激活）
-- ✅ 验证 pytest 和 pytest-forked 是否已安装
-- ✅ 支持 fork 模式、E2E 模式等常见场景
-- ✅ 支持输出重定向到文件
-
 ### 测试目录结构
-
-测试文件已按类型组织到子目录：
 
 ```
 tests/
 ├── unit/
 │   ├── tools/          # 工具单元测试（7个文件）
-│   └── utils/          # 工具类单元测试（9个文件）
+│   └── utils/          # 工具类单元测试（7个文件）
 ├── integration/        # 集成测试（1个文件）
 └── e2e/               # 端到端测试（1个文件）
 ```
@@ -127,26 +112,100 @@ TEST_END_TIME="2026-01-17T12:01:00Z"
 
 ### 环境要求
 
-1. **Dify开发环境**
+1. **Dify开发环境**（仅端到端测试需要）
    - Dify服务已启动（通常在 `http://localhost`）
    - 包含测试用户数据：`test_user` 和 `real_user`
    - 每个用户至少有若干条会话和消息
 
-2. **Mem0环境**
+2. **Mem0环境**（仅端到端测试需要）
    - PostgreSQL数据库（带pgvector扩展）
    - LLM服务（Azure OpenAI / OpenAI）
    - Embedding服务
 
 3. **Python依赖**
    - `pytest>=7.0.0`
-   - `pytest-forked`（用于隔离 gevent monkey patching）
+   - `pytest-forked`（可选，用于避免 gevent 警告）
    - `pytest-asyncio`（用于异步测试）
+
+## 单元测试
+
+### 核心测试文件
+
+#### 工具测试 (tests/unit/tools/)
+
+| 测试文件 | 测试内容 | 测试数量 |
+|---------|---------|---------|
+| `test_extract_long_term_memory.py` | 辅助函数、消息规范化 | 19 |
+| `test_extraction_async.py` | 异步抽取、并发处理 | 多组 |
+| `test_extraction_parameters.py` | 参数验证、时间范围 | 多组 |
+| `test_token_truncation.py` | Token截断逻辑 | 多组 |
+| `test_time_range_filtering.py` | 时间范围过滤 | 多组 |
+| `test_time_range_expansion.py` | 时间范围扩展 | 多组 |
+| `test_search_with_filters.py` | 搜索过滤器 | 3 |
+
+#### 工具类测试 (tests/unit/utils/)
+
+| 测试文件 | 测试内容 | 测试数量 |
+|---------|---------|---------|
+| `test_dify_incremental_scan.py` | 增量扫描逻辑、分页 | 8 |
+| `test_checkpoint.py` | Checkpoint持久化 | 5 |
+| `test_distributed_lock.py` | 分布式锁 | 多组 |
+| `test_retry.py` | 重试机制 | 多组 |
+| `test_bg_task_tracking.py` | 后台任务跟踪 | 多组 |
+| `test_async_local_client_read_timeout.py` | 异步客户端超时 | 多组 |
+| `test_idempotency.py` | 幂等性 | 多组 |
+
+### 运行单元测试
+
+```bash
+source .venv/bin/activate
+pytest tests/unit/ -v                    # 所有单元测试
+pytest tests/unit/tools/ -v              # 工具测试
+pytest tests/unit/utils/ -v              # 工具类测试
+
+# 运行特定测试文件
+pytest tests/unit/tools/test_extract_long_term_memory.py -v
+pytest tests/unit/utils/test_dify_incremental_scan.py -v
+pytest tests/unit/utils/test_checkpoint.py -v
+```
+
+## 集成测试
+
+### 测试文件
+
+- `tests/integration/test_dify_integration.py` - Dify API集成测试
+- `tests/unit/tools/test_extraction_async.py` - 异步抽取测试（工具测试，但包含集成逻辑）
+
+### 运行集成测试
+
+```bash
+source .venv/bin/activate
+pytest tests/integration/test_dify_integration.py -v
+
+# 异步抽取测试（不使用 --forked 也能运行，但会有 gevent 警告）
+pytest tests/unit/tools/test_extraction_async.py -v
+
+# 如果需要避免 gevent 警告，可以使用 --forked（macOS 上需要设置环境变量）
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/unit/tools/test_extraction_async.py -v
+```
+
+### 集成测试内容
+
+- ✅ Dify API连接和分页
+- ✅ 会话和消息增量扫描
+- ✅ Checkpoint持久化
+- ✅ 消息格式转换
+- ✅ 错误处理和重试
+- ✅ 并发处理
 
 ## 端到端测试
 
 ### 测试文件
 
-- `tests/e2e/test_e2e_session_memory.py` - 端到端会话级记忆测试（使用 fork 模式）
+- `tests/e2e/test_e2e_session_memory.py` - 端到端会话级记忆测试
+
+**注意：** 这些测试导入 `dify_plugin`，不使用 `--forked` 也能运行，但会看到 gevent monkey patching 警告。如果需要避免警告，可以使用 `--forked` 参数。
 
 ### 测试内容
 
@@ -155,12 +214,12 @@ TEST_END_TIME="2026-01-17T12:01:00Z"
 验证能否成功连接到Dify API并获取用户数据。
 
 ```bash
-# 手动方式（推荐）
 source .venv/bin/activate
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
+pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
 
-# 或使用脚本
-./tests/run_tests.sh --e2e test_01_verify_dify_connectivity -v -s
+# 如果需要避免 gevent 警告，可以使用 --forked（macOS 上需要设置环境变量）
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
 ```
 
 **预期输出:**
@@ -180,12 +239,12 @@ pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test
 扫描所有会话和消息，显示每个用户的统计信息。
 
 ```bash
-# 手动方式（推荐）
 source .venv/bin/activate
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_02_fetch_all_conversations_and_messages -v -s
+pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_02_fetch_all_conversations_and_messages -v -s
 
-# 或使用脚本
-./tests/run_tests.sh --e2e test_02_fetch_all_conversations_and_messages -v -s
+# 如果需要避免 gevent 警告
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_02_fetch_all_conversations_and_messages -v -s
 ```
 
 **预期输出:**
@@ -209,12 +268,12 @@ pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test
 测试单个会话的记忆抽取流程。
 
 ```bash
-# 手动方式（推荐）
 source .venv/bin/activate
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_03_extract_long_term_memory_simple -v -s
+pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_03_extract_long_term_memory_simple -v -s
 
-# 或使用脚本
-./tests/run_tests.sh --e2e test_03_extract_long_term_memory_simple -v -s
+# 如果需要避免 gevent 警告
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_03_extract_long_term_memory_simple -v -s
 ```
 
 **预期输出:**
@@ -246,12 +305,12 @@ pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test
 - 测试中英文会话的处理能力
 
 ```bash
-# 手动方式（推荐）
 source .venv/bin/activate
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_04_extract_memory_from_test_dataset -v -s
+pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_04_extract_memory_from_test_dataset -v -s
 
-# 或使用脚本
-./tests/run_tests.sh --e2e test_04_extract_memory_from_test_dataset -v -s
+# 如果需要避免 gevent 警告
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_04_extract_memory_from_test_dataset -v -s
 ```
 
 **预期输出:**
@@ -311,92 +370,12 @@ pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test
 ### 运行所有E2E测试
 
 ```bash
-# 手动方式（推荐）
 source .venv/bin/activate
+pytest tests/e2e/test_e2e_session_memory.py -v -s
+
+# 如果需要避免 gevent 警告
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-
-# 或使用脚本
-./tests/run_tests.sh --e2e -v -s
-```
-
-## 集成测试
-
-### 测试文件
-
-- `tests/integration/test_dify_integration.py` - Dify API集成测试
-- `tests/unit/tools/test_extraction_async.py` - 异步抽取测试（工具测试，但包含集成逻辑）
-
-### 运行集成测试
-
-```bash
-# 手动方式（推荐）
-source .venv/bin/activate
-pytest tests/integration/test_dify_integration.py -v
-
-# 异步抽取测试（需要 fork 模式）
-pytest --forked tests/unit/tools/test_extraction_async.py -v
-
-# 或使用脚本
-./tests/run_tests.sh tests/integration/test_dify_integration.py -v
-./tests/run_tests.sh --forked tests/unit/tools/test_extraction_async.py -v
-```
-
-### 集成测试内容
-
-- ✅ Dify API连接和分页
-- ✅ 会话和消息增量扫描
-- ✅ Checkpoint持久化
-- ✅ 消息格式转换
-- ✅ 错误处理和重试
-- ✅ 并发处理
-
-## 单元测试
-
-### 核心测试文件
-
-#### 工具测试 (tests/unit/tools/)
-
-| 测试文件 | 测试内容 | 测试数量 |
-|---------|---------|---------|
-| `test_extract_long_term_memory.py` | 辅助函数、消息规范化 | 19 |
-| `test_extraction_async.py` | 异步抽取、并发处理 | 多组 |
-| `test_extraction_parameters.py` | 参数验证、时间范围 | 多组 |
-| `test_token_truncation.py` | Token截断逻辑 | 多组 |
-| `test_time_range_filtering.py` | 时间范围过滤 | 多组 |
-| `test_time_range_expansion.py` | 时间范围扩展 | 多组 |
-| `test_search_with_filters.py` | 搜索过滤器 | 3 |
-
-#### 工具类测试 (tests/unit/utils/)
-
-| 测试文件 | 测试内容 | 测试数量 |
-|---------|---------|---------|
-| `test_dify_incremental_scan.py` | 增量扫描逻辑、分页 | 8 |
-| `test_checkpoint.py` | Checkpoint持久化 | 5 |
-| `test_distributed_lock.py` | 分布式锁 | 多组 |
-| `test_retry.py` | 重试机制 | 多组 |
-| `test_bg_task_tracking.py` | 后台任务跟踪 | 多组 |
-| `test_async_local_client_read_timeout.py` | 异步客户端超时 | 多组 |
-| `test_idempotency_fix.py` | 幂等性修复 | 多组 |
-| `test_report_rendering.py` | 报告渲染 | 多组 |
-| `test_log_analyzer.py` | 日志分析 | 多组 |
-
-### 运行单元测试
-
-```bash
-# 手动方式（推荐）
-source .venv/bin/activate
-pytest tests/unit/ -v                    # 所有单元测试
-pytest tests/unit/tools/ -v              # 工具测试
-pytest tests/unit/utils/ -v              # 工具类测试
-
-# 运行特定测试文件
-pytest tests/unit/tools/test_extract_long_term_memory.py -v
-pytest tests/unit/utils/test_dify_incremental_scan.py -v
-pytest tests/unit/utils/test_checkpoint.py -v
-
-# 或使用脚本
-./tests/run_tests.sh tests/unit/ -v
-./tests/run_tests.sh tests/unit/tools/test_extract_long_term_memory.py -v
 ```
 
 ## 测试数据集
@@ -407,7 +386,7 @@ pytest tests/unit/utils/test_checkpoint.py -v
 
 #### 数据格式
 
-- **文件位置**: `tests/test_conversation_data.json`
+- **文件位置**: `tests/e2e/test_conversation_data.json`
 - **格式**: JSON，符合Dify API消息格式
 - **编码**: UTF-8
 
@@ -499,48 +478,49 @@ for conv in conversations:
 
 ## 故障排除
 
-### 问题1: Gevent Monkey Patching 冲突
+### 问题1: Gevent Monkey Patching 警告
 
 **症状:**
 ```
 MonkeyPatchWarning: Monkey-patching ssl after ssl has already been imported...
-RuntimeError: cannot release un-acquired lock
 ```
 
 **解决方案:**
-使用 fork 模式运行测试：
+这些警告不影响测试结果，可以忽略。如果希望避免警告，可以使用 fork 模式：
+
 ```bash
-pytest --forked -m dify_plugin -v -s
+# macOS 上需要设置环境变量
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
 ```
 
-**详细说明:** 参见 [TESTING_TECHNICAL_GUIDE.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/tests/TESTING_TECHNICAL_GUIDE.md)
+**注意:** 
+- **默认情况下不需要使用 `--forked`**，测试可以正常运行，只是会有警告
+- 在 macOS 上，如果使用 `--forked` 时遇到 fork 崩溃，需要设置 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` 环境变量
 
-**⚠️ 输出捕获限制:**
-- Fork 模式下，所有输出都会被捕获，测试通过时不会显示
-- 这是 pytest-forked 的正常行为
+### 问题2: macOS 上 fork() 崩溃
 
-**✅ 解决方案：将输出保存到文件**
+**症状:**
+```
+DeprecationWarning: This process (pid=63712) is multi-threaded, use of fork() may lead to deadlocks in the child.
+objc[63716]: +[NSCharacterSet initialize] may have been in progress in another thread when fork() was called.
+Fatal Python error: Aborted
+```
 
-1. **手动方式（推荐）**：
-   ```bash
-   source .venv/bin/activate
-   pytest --forked tests/e2e/test_e2e_session_memory.py -v -s 2>&1 | tee test_output.log
-   ```
+**原因:**
+macOS 上，当进程是多线程的时，使用 `fork()` 是不安全的。`pytest-forked` 使用 `fork()` 来隔离测试，但在 macOS 上会导致崩溃。
 
-2. **使用脚本**：
-   ```bash
-   ./tests/run_tests.sh --e2e test_01_verify_dify_connectivity --output-file test_output.log
-   ```
+**解决方案:**
 
-**其他选项：**
-- **调试时**：临时去掉 `--forked` 查看输出（会有 gevent 警告但不影响测试）
-  ```bash
-  source .venv/bin/activate
-  pytest tests/e2e/test_e2e_session_memory.py -v -s
-  ```
-- **生产运行**：使用 `--forked` 确保完全隔离
+```bash
+# 设置环境变量后使用 --forked
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
+```
 
-### 问题2: "未找到 .env 文件"
+**注意:** 这个环境变量只影响 fork 子进程，不会影响主进程的安全性。
+
+### 问题3: "未找到 .env 文件"
 
 **解决方案:**
 ```bash
@@ -549,12 +529,12 @@ touch tests/.env
 # 编辑填写配置...
 ```
 
-### 问题3: "用户没有会话数据"
+### 问题4: "用户没有会话数据"
 
 **解决方案:**
 在Dify环境中为test_user和real_user创建测试会话和消息。
 
-### 问题4: "Mem0连接失败"
+### 问题5: "Mem0连接失败"
 
 **解决方案:**
 检查以下配置：
@@ -563,7 +543,7 @@ touch tests/.env
 - LLM和Embedding服务是否可访问
 - `tests/.env`中的配置是否正确
 
-### 问题5: 测试运行很慢
+### 问题6: 测试运行很慢
 
 **原因:**
 - LLM推理需要时间（每个会话约2-5秒）
@@ -576,7 +556,7 @@ touch tests/.env
 - 使用更快的LLM模型
 - 使用并行执行：`pytest -n auto -v`
 
-### 问题6: 导入错误 / No module named pytest
+### 问题7: 导入错误 / No module named pytest
 
 **症状:**
 ```
@@ -584,7 +564,6 @@ ModuleNotFoundError: No module named 'pytest'
 ```
 
 **解决方案:**
-手动激活虚拟环境（推荐）：
 ```bash
 source .venv/bin/activate
 pytest tests/unit/ -v
@@ -595,15 +574,9 @@ pytest tests/unit/ -v
 .venv/bin/pytest tests/unit/ -v
 ```
 
-或使用脚本自动激活虚拟环境：
-```bash
-./tests/run_tests.sh tests/unit/ -v
-```
-
-### 问题7: 虚拟环境不存在
+### 问题8: 虚拟环境不存在
 
 **解决方案:**
-创建虚拟环境：
 ```bash
 # 使用 uv（推荐）
 uv venv
@@ -684,12 +657,6 @@ uv sync  # 或 pip install -r requirements.txt -r requirements-dev.txt
 # 运行特定测试文件
 ./tests/run_tests.sh tests/unit/tools/test_extract_long_term_memory.py -v
 
-# 运行特定测试函数
-./tests/run_tests.sh tests/unit/tools/test_extract_long_term_memory.py::test_parse_user_ids_variants -v
-
-# 使用 fork 模式运行 e2e 测试
-./tests/run_tests.sh --forked tests/e2e/ -v
-
 # 运行端到端测试并保存输出
 ./tests/run_tests.sh --e2e test_01_verify_dify_connectivity --output-file test_output.log
 ```
@@ -700,12 +667,3 @@ uv sync  # 或 pip install -r requirements.txt -r requirements-dev.txt
 
 - [TESTING_TECHNICAL_GUIDE.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/tests/TESTING_TECHNICAL_GUIDE.md) - 技术问题分析和解决方案（Gevent Monkey Patching、Fork 模式等）
 - [TESTING_COVERAGE.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/tests/TESTING_COVERAGE.md) - 详细的测试覆盖分析
-
-## 下一步
-
-测试通过后，可以：
-1. 在生产环境中配置定时任务
-2. 监控记忆抽取质量
-3. 根据实际使用情况调整参数
-4. 补充更多的单元测试
-

@@ -26,8 +26,8 @@ class TestIdempotency:
         
         # last_run_at (Jan 20) > end_time (Jan 19)
         # Should skip: already processed beyond this end_time
-        from tools.extract_long_term_memory import _cmp_iso
-        assert _cmp_iso(cp.last_run_at, end_time) > 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        assert cmp_iso_timestamps(cp.last_run_at, end_time) > 0
 
     def test_should_process_when_last_run_equals_end_time(self) -> None:
         """Should process when last_run_at == end_time (may have new messages)."""
@@ -40,8 +40,8 @@ class TestIdempotency:
         
         # last_run_at (Jan 20) == end_time (Jan 20)
         # Should NOT skip: may have new messages or time range expansion
-        from tools.extract_long_term_memory import _cmp_iso
-        assert _cmp_iso(cp.last_run_at, end_time) == 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        assert cmp_iso_timestamps(cp.last_run_at, end_time) == 0
         # This should NOT trigger skip in the code
 
     def test_should_process_when_last_run_before_end_time(self) -> None:
@@ -55,8 +55,8 @@ class TestIdempotency:
         
         # last_run_at (Jan 19) < end_time (Jan 20)
         # Should process: new time range
-        from tools.extract_long_term_memory import _cmp_iso
-        assert _cmp_iso(cp.last_run_at, end_time) < 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        assert cmp_iso_timestamps(cp.last_run_at, end_time) < 0
 
     def test_time_range_expansion_scenario(self) -> None:
         """Test scenario: time range expansion (start_time moves backward)."""
@@ -77,8 +77,8 @@ class TestIdempotency:
         end_time = "2026-01-20T12:00:00Z"  # T3 (same)
         
         # Idempotency check
-        from tools.extract_long_term_memory import _cmp_iso
-        should_skip = _cmp_iso(cp.last_run_at, end_time) > 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        should_skip = cmp_iso_timestamps(cp.last_run_at, end_time) > 0
         
         # Should NOT skip (last_run_at == end_time, not >)
         assert not should_skip, "Should process to handle time range expansion"
@@ -113,8 +113,8 @@ class TestIdempotency:
         end_time = (base_time + timedelta(hours=3)).isoformat()  # T3
         
         # Idempotency check
-        from tools.extract_long_term_memory import _cmp_iso
-        should_skip = _cmp_iso(cp.last_run_at, end_time) > 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        should_skip = cmp_iso_timestamps(cp.last_run_at, end_time) > 0
         
         # Should NOT skip (last_run_at == end_time, not >)
         assert not should_skip, "Should process to catch new messages"
@@ -140,8 +140,8 @@ class TestIdempotency:
         end_time = "2026-01-20T12:00:00Z"
         
         # Idempotency check
-        from tools.extract_long_term_memory import _cmp_iso
-        should_skip = _cmp_iso(cp.last_run_at, end_time) > 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        should_skip = cmp_iso_timestamps(cp.last_run_at, end_time) > 0
         
         # Should NOT skip at user level (last_run_at == end_time)
         # But will be handled efficiently by conversation/message level checkpoints
@@ -160,8 +160,8 @@ class TestIdempotency:
         end_time = "2026-01-20T12:00:00Z"
         
         # Idempotency check
-        from tools.extract_long_term_memory import _cmp_iso
-        should_skip = _cmp_iso(cp.last_run_at, end_time) > 0
+        from utils.extraction_helpers import cmp_iso_timestamps
+        should_skip = cmp_iso_timestamps(cp.last_run_at, end_time) > 0
         
         # Should NOT skip (None < any time)
         assert not should_skip, "First run should always process"

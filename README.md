@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin v0.2.3
+# Mem0 Dify Plugin v0.2.4
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
@@ -31,7 +31,16 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - 中英双语 (Chinese/English)
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.3) - Documentation Updates! 📚
+### What's New (v0.2.4) - Resource Isolation Optimization! 🔒
+- **🔒 Connection Pool Sharing & Resource Isolation (2026-02-03)**
+  - **Critical Optimization**: Long-term memory extraction tool now uses intelligent connection pool sharing
+  - **Problem Solved**: Previously, each memory subtype client (semantic/episodic/procedural) created its own connection pool, wasting resources
+  - **Solution**: All subtype clients now share the base client's connection pool while maintaining independent Memory instances
+  - **Resource Efficiency**: **67% reduction** in database connections (from 3 pools to 1 shared pool per extraction task)
+  - **Smart Cleanup**: Automatic detection of shared pools prevents premature closure and resource leaks
+  - **Impact**: Significantly improved resource efficiency, prevents connection pool exhaustion, reduces infrastructure costs
+
+### Previous Updates (v0.2.3) - Documentation Updates! 📚
 - **📝 Comprehensive Documentation Update (2026-01-31)**
   - Updated all markdown documentation to match current code implementation
   - Merged scattered design documents into unified design history
@@ -365,6 +374,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.4 | 2026-02-03 | Resource isolation optimization: Connection pool sharing for long-term memory tool (67% reduction in database connections) |
 | v0.2.3 | 2026-01-31 | Documentation updates: Comprehensive documentation synchronization, merged design documents, improved consistency |
 | v0.2.2 | 2026-01-30 | Performance optimizations: Smart memory classification (33% LLM call reduction), token-aware processing with tiktoken, code quality improvements |
 | v0.2.1 | 2026-01-29 | Critical bug fix: Data loss prevention when time range expands backward, enhanced checkpoint with time range awareness |

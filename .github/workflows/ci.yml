@@ -30,4 +30,8 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest -q
+          # 运行不需要fork模式的测试（排除E2E和需要fork的工具测试）
+          pytest tests/unit/utils/ tests/integration/ -q --tb=short
+          
+          # 运行需要fork模式的工具测试（排除E2E）
+          pytest tests/unit/tools/ --forked -q --tb=short

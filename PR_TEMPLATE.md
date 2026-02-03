@@ -29,9 +29,13 @@ Please provide the following metadata of your plugin to make it easier for the r
 
 <!-- Please briefly describe the purpose of the new plugin or the updates made to the existing plugin -->
 
-This version update (v0.2.3) focuses on comprehensive documentation updates to ensure all markdown documentation matches the current code implementation. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
+This version update (v0.2.4) focuses on critical resource isolation optimization for the long-term memory extraction tool. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
 
-### What's New in v0.2.3:
+### What's New in v0.2.4:
+
+- **🔒 Connection Pool Sharing & Resource Isolation (2026-02-03)**: Implemented intelligent connection pool sharing mechanism for long-term memory extraction tool. All subtype clients (semantic/episodic/procedural) now share the base client's connection pool while maintaining independent Memory instances. **67% reduction** in database connections per extraction task, prevents connection pool exhaustion, eliminates resource leaks
+
+### Previous Updates in v0.2.3:
 
 - **📝 Comprehensive Documentation Update (2026-01-31)**: Updated all markdown documentation to match current code implementation, merged scattered design documents into unified design history, ensured consistency across all documentation files
 
@@ -312,6 +316,12 @@ Please confirm that your plugin README includes all necessary information:
 - **CONFIG.md**: Complete installation and configuration guide with detailed examples for all providers, troubleshooting, and operational notes
 - **PRIVACY.md**: Complete privacy policy explaining self-hosted mode operation and data handling
 - **CHANGELOG.md**: Detailed version history and changes for all versions
+
+**Documentation Improvements in v0.2.4:**
+- Added comprehensive documentation for resource isolation optimization
+- Updated version references to v0.2.4
+- Documented connection pool sharing mechanism and resource efficiency improvements
+- Updated resource management and cleanup enhancements with pool sharing details
 
 **Documentation Improvements in v0.2.3:**
 - Added comprehensive documentation for performance optimizations (smart memory classification, token-aware processing)

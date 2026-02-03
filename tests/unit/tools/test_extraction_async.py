@@ -9,7 +9,7 @@ This module tests the refactored extraction tool that uses:
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -80,8 +80,8 @@ def mock_dify_client():
 def mock_lock_manager():
     """Mock lock manager."""
     manager = MagicMock()
-    manager.acquire_lock.return_value = (True, None)
-    manager.release_lock.return_value = None
+    manager.acquire_lock = AsyncMock(return_value=(True, None))
+    manager.release_lock = AsyncMock(return_value=None)
     return manager
 
 
@@ -98,15 +98,20 @@ class TestProcessSingleUserAsync:
     ):
         """Test successful user processing."""
         with (
-            patch("tools.extract_long_term_memory.load_checkpoint") as mock_load,
-            patch("tools.extract_long_term_memory.save_checkpoint_atomic") as mock_save,
+            patch("tools.extract_long_term_memory.AsyncCheckpointManager") as mock_mgr_cls,
             patch(
                 "tools.extract_long_term_memory.scan_user_conversations_incremental"
             ) as mock_scan,
         ):
             # Setup mocks
-            mock_load.return_value = (None, None)
-            mock_save.return_value = (True, "cp_123")
+            mock_mgr = MagicMock()
+            async def mock_load(*args, **kwargs):
+                return (None, None)
+            async def mock_save_atomic(*args, **kwargs):
+                return (True, "cp_123")
+            mock_mgr.load = mock_load
+            mock_mgr.save_atomic = mock_save_atomic
+            mock_mgr_cls.return_value = mock_mgr
             mock_scan.return_value = (
                 {},  # segments_by_conv
                 ScanStats(
@@ -156,12 +161,14 @@ class TestProcessSingleUserAsync:
         """Test user skipped when lock cannot be acquired."""
         # Lock is held by another process
         existing_lock = MagicMock(holder_id="other_run")
-        mock_lock_manager.acquire_lock.return_value = (False, existing_lock)
+        mock_lock_manager.acquire_lock = AsyncMock(return_value=(False, existing_lock))
 
         # Create mock base_client
         mock_base_client = MagicMock()
         mock_base_client.memory = mock_memory
-        mock_base_client.create = MagicMock(return_value=mock_memory)
+        async def mock_create():
+            return mock_memory
+        mock_base_client.create = mock_create
 
         result = await _process_single_user_async(
             base_client=mock_base_client,
@@ -192,11 +199,15 @@ class TestProcessSingleUserAsync:
         mock_lock_manager,
     ):
         """Test user skipped when already processed."""
-        with patch("tools.extract_long_term_memory.load_checkpoint") as mock_load:
+        with patch("tools.extract_long_term_memory.AsyncCheckpointManager") as mock_mgr_cls:
             # Checkpoint shows already processed
             cp = UserCheckpoint()
             cp.last_run_at = "2026-01-25T00:00:00Z"  # After end_time
-            mock_load.return_value = ("cp_123", cp)
+            mock_mgr = MagicMock()
+            async def mock_load(*args, **kwargs):
+                return ("cp_123", cp)
+            mock_mgr.load = mock_load
+            mock_mgr_cls.return_value = mock_mgr
 
             # Create mock base_client with async create method
             mock_base_client = MagicMock()
@@ -235,12 +246,16 @@ class TestProcessSingleUserAsync:
     ):
         """Test error handling when Dify API fails."""
         with (
-            patch("tools.extract_long_term_memory.load_checkpoint") as mock_load,
+            patch("tools.extract_long_term_memory.AsyncCheckpointManager") as mock_mgr_cls,
             patch(
                 "tools.extract_long_term_memory.scan_user_conversations_incremental"
             ) as mock_scan,
         ):
-            mock_load.return_value = (None, None)
+            mock_mgr = MagicMock()
+            async def mock_load(*args, **kwargs):
+                return (None, None)
+            mock_mgr.load = mock_load
+            mock_mgr_cls.return_value = mock_mgr
             mock_scan.side_effect = Exception("Dify API error")
 
             # Create mock base_client with async create method
@@ -288,8 +303,7 @@ class TestExecuteExtractionAsync:
         with (
             patch("tools.extract_long_term_memory._process_single_user_async") as mock_process,
             patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
-            patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
-            patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
+            patch("tools.extract_long_term_memory.SyncLockManager") as mock_lock_cls,
         ):
             mock_dify_cls.return_value = mock_dify_client
             mock_lock_cls.return_value = mock_lock_manager
@@ -358,8 +372,7 @@ class TestExecuteExtractionAsync:
         with (
             patch("tools.extract_long_term_memory._process_single_user_async") as mock_process,
             patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
-            patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
-            patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
+            patch("tools.extract_long_term_memory.SyncLockManager") as mock_lock_cls,
         ):
             mock_dify_cls.return_value = mock_dify_client
             mock_lock_cls.return_value = mock_lock_manager
@@ -419,8 +432,7 @@ class TestExecuteExtractionAsync:
         with (
             patch("tools.extract_long_term_memory._process_single_user_async") as mock_process,
             patch("tools.extract_long_term_memory.DifyClient") as mock_dify_cls,
-            patch("tools.extract_long_term_memory.LockManager") as mock_lock_cls,
-            patch("tools.extract_long_term_memory.update_task_progress"),  # noqa: F401
+            patch("tools.extract_long_term_memory.SyncLockManager") as mock_lock_cls,
         ):
             mock_dify_cls.return_value = mock_dify_client
             mock_lock_cls.return_value = mock_lock_manager
@@ -489,9 +501,9 @@ class TestExtractLongTermMemoryTool:
         tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
 
         with (
-            patch("tools.extract_long_term_memory.get_async_client") as mock_get_client,
+            patch("utils.mem0_client.get_async_client") as mock_get_client,
             patch("tools.extract_long_term_memory.build_subtype_async_clients") as mock_subtypes,
-            patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
+            patch("tools.extract_long_term_memory.AsyncTaskStatusManager"),  # noqa: F401
             patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
             patch("tools.extract_long_term_memory.TaskTracker"),
         ):
@@ -563,9 +575,9 @@ class TestExtractLongTermMemoryTool:
         tool = ExtractLongTermMemoryTool(runtime=mock_runtime, session=mock_session)
 
         with (
-            patch("tools.extract_long_term_memory.get_async_client") as mock_get_client,
+            patch("utils.mem0_client.get_async_client") as mock_get_client,
             patch("tools.extract_long_term_memory.build_subtype_async_clients") as mock_subtypes,
-            patch("tools.extract_long_term_memory.save_task_status"),  # noqa: F401
+            patch("tools.extract_long_term_memory.AsyncTaskStatusManager"),  # noqa: F401
             patch("tools.extract_long_term_memory.BackgroundEventLoop") as mock_loop_cls,
             patch("tools.extract_long_term_memory.TaskTracker"),
         ):

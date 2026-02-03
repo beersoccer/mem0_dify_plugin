@@ -7,17 +7,31 @@ from .logger import get_logger
 logger = get_logger(__name__)
 
 
-async def close_vector_store(memory: object, loop: asyncio.AbstractEventLoop) -> None:
+async def close_vector_store(
+    memory: object, loop: asyncio.AbstractEventLoop, client: object | None = None
+) -> None:
     """Close vector store connection pool.
 
     Args:
         memory: Memory instance containing vector store.
         loop: Event loop for running executor tasks.
+        client: Optional client instance to check if sharing pool.
 
     """
     vs = getattr(memory, "vector_store", None)
     if not vs or not hasattr(vs, "connection_pool") or not vs.connection_pool:
         return
+
+    # Check if this client is sharing the connection pool
+    # If so, don't close it (it will be closed by the owner)
+    if client is not None:
+        if hasattr(client, "_is_sharing_pool") and getattr(
+            client, "_is_sharing_pool", False
+        ):
+            logger.debug(
+                "Skipping connection pool close (sharing pool from base_client)"
+            )
+            return
 
     try:
         pool = vs.connection_pool
@@ -70,7 +84,9 @@ async def close_database(memory: object, loop: asyncio.AbstractEventLoop) -> Non
         logger.exception("Error closing database connection")
 
 
-async def close_memory_resources(memory: object) -> None:
+async def close_memory_resources(
+    memory: object, client: object | None = None
+) -> None:
     """Close all critical resources held by AsyncMemory.
 
     This function explicitly closes critical resources (connection pools, database
@@ -78,12 +94,24 @@ async def close_memory_resources(memory: object) -> None:
 
     Args:
         memory: Memory instance to cleanup.
+        client: Optional client instance to check if sharing pool.
 
     """
     if memory is None:
         return
 
-    loop = asyncio.get_running_loop()
-    await close_vector_store(memory, loop)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running event loop - this can happen during cleanup in certain contexts
+        # In this case, we can't use run_in_executor, so we'll skip async cleanup
+        # and rely on __del__ methods for resource cleanup
+        logger.debug(
+            "No running event loop during resource cleanup, "
+            "relying on __del__ methods for cleanup"
+        )
+        return
+
+    await close_vector_store(memory, loop, client)
     await close_graph_store(memory, loop)
     await close_database(memory, loop)

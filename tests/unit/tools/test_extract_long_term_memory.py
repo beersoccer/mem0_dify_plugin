@@ -47,22 +47,22 @@ def test_run_id_different_for_different_inputs() -> None:
 
 
 def test_dedup_keep_order() -> None:
-    from tools.extract_long_term_memory import _dedup_keep_order
+    from utils.helpers import dedup_keep_order
 
-    assert _dedup_keep_order(["a", "b", "a", "c"]) == ["a", "b", "c"]
-    assert _dedup_keep_order(["x", "x", "x"]) == ["x"]
-    assert _dedup_keep_order([]) == []
+    assert dedup_keep_order(["a", "b", "a", "c"]) == ["a", "b", "c"]
+    assert dedup_keep_order(["x", "x", "x"]) == ["x"]
+    assert dedup_keep_order([]) == []
 
 
 def test_cmp_iso_timestamps() -> None:
-    from tools.extract_long_term_memory import _cmp_iso
+    from utils.extraction_helpers import cmp_iso_timestamps
 
-    assert _cmp_iso("2025-12-01T00:00:00Z", "2025-12-02T00:00:00Z") == -1
-    assert _cmp_iso("2025-12-02T00:00:00Z", "2025-12-01T00:00:00Z") == 1
-    assert _cmp_iso("2025-12-01T00:00:00Z", "2025-12-01T00:00:00Z") == 0
-    assert _cmp_iso(None, "2025-12-01T00:00:00Z") == -1
-    assert _cmp_iso("2025-12-01T00:00:00Z", None) == 1
-    assert _cmp_iso(None, None) == 0
+    assert cmp_iso_timestamps("2025-12-01T00:00:00Z", "2025-12-02T00:00:00Z") == -1
+    assert cmp_iso_timestamps("2025-12-02T00:00:00Z", "2025-12-01T00:00:00Z") == 1
+    assert cmp_iso_timestamps("2025-12-01T00:00:00Z", "2025-12-01T00:00:00Z") == 0
+    assert cmp_iso_timestamps(None, "2025-12-01T00:00:00Z") == -1
+    assert cmp_iso_timestamps("2025-12-01T00:00:00Z", None) == 1
+    assert cmp_iso_timestamps(None, None) == 0
 
 
 class TestDifyMessageNormalization:

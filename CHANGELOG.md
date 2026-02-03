@@ -1,5 +1,64 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.4 (2026-02-03)
+
+### 🔒 Resource Isolation Optimization for Long-Term Memory Tool
+
+This release introduces critical resource isolation improvements for the `extract_long_term_memory` tool, ensuring efficient connection pool management and preventing resource leaks when processing multiple memory subtypes.
+
+#### Highlights
+
+- **🔒 Connection Pool Sharing & Resource Isolation**:
+  - **Problem Solved**: The long-term memory extraction tool creates multiple subtype clients (semantic/episodic/procedural) for processing different memory types. Previously, each client would create its own connection pool, leading to resource waste and potential connection exhaustion.
+  - **Solution**: Implemented intelligent connection pool sharing mechanism where all subtype clients share the base client's connection pool
+  - **Resource Isolation**: Each subtype client maintains its own `Memory` instance with custom prompts for isolation, but shares the underlying connection pool for efficiency
+  - **Impact**: Reduces database connections from 3 pools (one per subtype) to 1 shared pool, significantly improving resource efficiency
+
+- **🛡️ Smart Resource Cleanup**:
+  - **Pool Ownership Detection**: Added `_is_sharing_pool` flag to track which clients are sharing connection pools
+  - **Prevent Premature Closure**: Resource cleanup logic now detects shared pools and only allows the owner (base client) to close them
+  - **Automatic Cleanup Order**: Subtype clients are cleaned up first, then base client closes the shared pool
+  - **Impact**: Prevents "connection pool already closed" errors and ensures proper resource lifecycle management
+
+- **🔧 Implementation Details**:
+  - `build_subtype_sync_clients()` and `build_subtype_async_clients()` now accept `base_client` parameter to share connection pool
+  - `SyncMem0Client.close()` and `AsyncMem0Client.aclose()` check `_is_sharing_pool` flag before closing pools
+  - `resource_cleanup.py` enhanced with pool sharing detection logic
+  - All cleanup operations respect pool ownership to prevent race conditions
+
+#### 📊 Resource Efficiency Improvements
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Connection Pools per Task | 3 (one per subtype) | 1 (shared) | **-67%** |
+| Database Connections | 3x pool size | 1x pool size | **-67%** |
+| Resource Leaks | Possible | Prevented | ✅ |
+| Cleanup Errors | Possible | Eliminated | ✅ |
+
+#### 📝 Files Changed
+
+- **Modified Files**:
+  - `utils/mem0_extraction.py` - Added connection pool sharing logic in `build_subtype_sync_clients()` and `build_subtype_async_clients()`
+  - `utils/mem0_client.py` - Enhanced `close()` and `aclose()` methods with pool sharing detection
+  - `utils/resource_cleanup.py` - Added pool sharing detection in `close_vector_store()` function
+  - `tools/extract_long_term_memory.py` - Updated to pass base_client for pool sharing, improved cleanup order
+
+#### ⚠️ Migration Notes
+
+- **No Breaking Changes**: All changes are internal resource management improvements
+- **No Configuration Changes**: No user-facing configuration changes required
+- **Automatic**: Resource isolation improvements are automatically applied to all extraction tasks
+- **Backward Compatible**: Works with existing checkpoints and task status storage
+
+#### 🎯 Benefits
+
+1. **Resource Efficiency**: 67% reduction in database connections per extraction task
+2. **Prevents Resource Leaks**: Proper cleanup order ensures no orphaned connection pools
+3. **Production Stability**: Eliminates connection pool exhaustion in high-concurrency scenarios
+4. **Cost Savings**: Fewer database connections reduce infrastructure costs for large-scale deployments
+
+---
+
 ## Version 0.2.3 (2026-01-31)
 
 ### 📚 Documentation Updates
@@ -152,40 +211,40 @@ This release introduces significant performance optimizations for the long-term 
 ### 🔥 Critical Bug Fix: Data Loss Prevention
 
 #### Fixed
-- **严重Bug修复**: 修复了时间范围向前扩展时导致的数据丢失问题
-  - **问题**: 当新的`start_time`早于上次处理的时间时，checkpoint会导致早期消息被永久跳过
-  - **示例**: 第1次处理 T2-T4，第2次处理 T1-T5，结果 T1-T2 的消息丢失
-  - **根本原因**: 倒序扫描 + ID-based checkpoint停止逻辑无法处理时间范围回溯
-  - **影响范围**: 补处理历史数据、时间范围调整等场景
-  - **修复方案**: 时间范围感知的Checkpoint机制
+- **Critical Bug Fix**: Fixed data loss issue when time range expands forward
+  - **Issue**: When new `start_time` is earlier than last processed time, checkpoint causes early messages to be permanently skipped
+  - **Example**: First run processes T2-T4, second run processes T1-T5, resulting in messages T1-T2 being lost
+  - **Root Cause**: Reverse-order scanning + ID-based checkpoint stop logic cannot handle time range rollback
+  - **Impact Scope**: Scenarios like backfilling historical data, time range adjustments, etc.
+  - **Fix Solution**: Time range-aware Checkpoint mechanism
 
 #### Enhanced
-- **ConversationCheckpoint 增强**:
-  - 新增 `processed_range_start`: 记录已处理的最早消息时间
-  - 新增 `processed_range_end`: 记录已处理的最晚消息时间
-  - 冗余度影响: 每个会话增加 ~40 字节（仍然很低）
+- **ConversationCheckpoint Enhancement**:
+  - Added `processed_range_start`: Records the earliest processed message time
+  - Added `processed_range_end`: Records the latest processed message time
+  - Redundancy Impact: Each session increases by ~40 bytes (still very low)
 
-- **扫描逻辑优化**:
-  - 自动检测时间范围向前扩展（`range_is_expanding`）
-  - 扩展时不在checkpoint处停止，继续扫描更早的消息
-  - 时间戳优先的停止逻辑（更可靠），ID-based作为备份
-  - 完全向后兼容旧checkpoint（无range字段）
+- **Scanning Logic Optimization**:
+  - Automatically detects time range forward expansion (`range_is_expanding`)
+  - When expanding, does not stop at checkpoint, continues scanning earlier messages
+  - Timestamp-priority stop logic (more reliable), ID-based as fallback
+  - Fully backward compatible with old checkpoints (no range fields)
 
 #### Testing
-- 新增测试文件: `tests/test_time_range_expansion.py`
-  - 验证时间范围向前扩展不丢失数据
-  - 验证无范围扩展时checkpoint正常停止
-  - 验证旧checkpoint向后兼容性
+- Added test file: `tests/test_time_range_expansion.py`
+  - Verifies time range forward expansion does not lose data
+  - Verifies checkpoint stops normally when no range expansion
+  - Verifies old checkpoint backward compatibility
 
 #### Documentation
-- 新增详细文档: `.cursor/plans/checkpoint_data_integrity_fix.md`
-  - 问题分析、修复方案、测试覆盖、使用建议
+- Added detailed documentation: `.cursor/plans/checkpoint_data_integrity_fix.md`
+  - Issue analysis, fix solution, test coverage, usage recommendations
 
 #### Impact
-- ✅ **消息不丢失**: 完全修复时间范围回溯的数据丢失问题
-- ✅ **消息不重复**: checkpoint仍然有效阻止重复处理
-- ✅ **向后兼容**: 旧checkpoint自动迁移，无需手动操作
-- ⭐ **强烈建议升级**: 修复了严重的数据完整性问题
+- ✅ **No Message Loss**: Completely fixes data loss issue from time range rollback
+- ✅ **No Message Duplication**: Checkpoint still effectively prevents duplicate processing
+- ✅ **Backward Compatible**: Old checkpoints automatically migrate, no manual operation required
+- ⭐ **Strongly Recommended Upgrade**: Fixes critical data integrity issue
 
 ---
 

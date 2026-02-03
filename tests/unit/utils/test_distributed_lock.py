@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from utils.distributed_lock import DistributedLock, LockManager
+from utils.distributed_lock import DistributedLock, SyncLockManager
 
 
 class FakeMemory:
@@ -103,13 +103,13 @@ class TestDistributedLock:
         assert lock.is_expired()
 
 
-class TestLockManager:
-    """Test LockManager."""
+class TestSyncLockManager:
+    """Test SyncLockManager."""
 
     def test_acquire_lock_first_time(self) -> None:
         """Test acquiring lock for the first time."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         success, lock = manager.acquire_lock(
             user_id="user1", app_id=None, holder_id="run1", ttl_seconds=60
@@ -123,7 +123,7 @@ class TestLockManager:
     def test_acquire_lock_already_held(self) -> None:
         """Test acquiring lock when already held by another."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         # First acquisition
         success1, lock1 = manager.acquire_lock(
@@ -142,7 +142,7 @@ class TestLockManager:
     def test_acquire_lock_after_expiry(self) -> None:
         """Test acquiring lock after previous lock expired."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         # First acquisition with expired time
         past = datetime.now(UTC) - timedelta(seconds=120)
@@ -168,7 +168,7 @@ class TestLockManager:
     def test_release_lock_success(self) -> None:
         """Test releasing lock by holder."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         # Acquire lock
         success, lock = manager.acquire_lock(
@@ -184,7 +184,7 @@ class TestLockManager:
     def test_release_lock_by_non_holder(self) -> None:
         """Test releasing lock by non-holder fails."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         # Acquire lock
         success, lock = manager.acquire_lock(
@@ -200,7 +200,7 @@ class TestLockManager:
     def test_release_lock_nonexistent(self) -> None:
         """Test releasing non-existent lock."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         released = manager.release_lock(user_id="user1", app_id=None, holder_id="run1")
         assert not released
@@ -208,7 +208,7 @@ class TestLockManager:
     def test_check_lock_held(self) -> None:
         """Test checking lock status when held."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         # Acquire lock
         manager.acquire_lock(
@@ -224,7 +224,7 @@ class TestLockManager:
     def test_check_lock_not_held(self) -> None:
         """Test checking lock status when not held."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         is_locked, lock = manager.check_lock(user_id="user1", app_id=None)
         assert not is_locked
@@ -233,7 +233,7 @@ class TestLockManager:
     def test_check_lock_expired(self) -> None:
         """Test checking lock status when expired."""
         mem = FakeMemory()
-        manager = LockManager(mem)
+        manager = SyncLockManager(mem)
 
         # Acquire lock with expired time
         past = datetime.now(UTC) - timedelta(seconds=120)

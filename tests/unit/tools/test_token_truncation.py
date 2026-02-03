@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from tools.extract_long_term_memory import (
-    _count_message_tokens,
-    _truncate_to_recent_messages,
+from utils.extraction_helpers import (
+    count_message_tokens,
+    truncate_to_recent_messages,
 )
 
 
@@ -16,7 +16,7 @@ def test_count_message_tokens_basic() -> None:
     ]
     
     # Should count tokens for all content
-    token_count = _count_message_tokens(messages)
+    token_count = count_message_tokens(messages)
     assert token_count > 0
     assert isinstance(token_count, int)
 
@@ -24,7 +24,7 @@ def test_count_message_tokens_basic() -> None:
 def test_count_message_tokens_empty() -> None:
     """Test token counting with empty messages."""
     messages: list[dict[str, str]] = []
-    token_count = _count_message_tokens(messages)
+    token_count = count_message_tokens(messages)
     assert token_count == 0
 
 
@@ -37,7 +37,7 @@ def test_truncate_to_recent_messages_under_limit() -> None:
     ]
 
     # Large limit - should return all messages
-    result = _truncate_to_recent_messages(messages, max_tokens=100000)
+    result = truncate_to_recent_messages(messages, max_tokens=100000)
     assert len(result) == 3
     assert result == messages
 
@@ -53,7 +53,7 @@ def test_truncate_to_recent_messages_over_limit() -> None:
     ]
 
     # Set limit to ~400 tokens - should keep only last 2 messages
-    result = _truncate_to_recent_messages(messages, max_tokens=400)
+    result = truncate_to_recent_messages(messages, max_tokens=400)
     
     # Should return most recent messages that fit within limit
     assert len(result) < len(messages)
@@ -76,7 +76,7 @@ def test_truncate_to_recent_messages_preserves_order() -> None:
         {"id": "4", "query": "Fourth"},
     ]
 
-    result = _truncate_to_recent_messages(messages, max_tokens=50)
+    result = truncate_to_recent_messages(messages, max_tokens=50)
 
     # Should be in chronological order (oldest to newest)
     for i in range(len(result) - 1):
@@ -90,7 +90,7 @@ def test_truncate_to_recent_messages_at_least_one() -> None:
     ]
 
     # Even with very small limit, should return at least the last message
-    result = _truncate_to_recent_messages(messages, max_tokens=10)
+    result = truncate_to_recent_messages(messages, max_tokens=10)
     assert len(result) == 1
     assert result[0]["id"] == "1"
 
@@ -105,7 +105,7 @@ def test_count_message_tokens_with_multiple_fields() -> None:
         }
     ]
 
-    token_count = _count_message_tokens(messages)
+    token_count = count_message_tokens(messages)
     # Should count tokens from query, answer (content field not counted in current impl)
     # With fallback estimation (4 chars/token), this should be at least 4 tokens
     assert token_count >= 4
@@ -120,7 +120,7 @@ def test_truncate_with_fallback_encoding() -> None:
     ]
 
     # Use invalid encoding to trigger fallback
-    result = _truncate_to_recent_messages(
+    result = truncate_to_recent_messages(
         messages, max_tokens=100, encoding_name="invalid_encoding"
     )
     
