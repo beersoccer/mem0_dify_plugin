@@ -16,7 +16,7 @@ class _DummyResponse:
     def read(self) -> bytes:
         return self._payload
 
-    def __enter__(self) -> "_DummyResponse":
+    def __enter__(self) -> _DummyResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
