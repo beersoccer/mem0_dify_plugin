@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin v0.2.4
+# Mem0 Dify Plugin v0.2.5
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
@@ -31,7 +31,18 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - 中英双语 (Chinese/English)
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.4) - Resource Isolation Optimization! 🔒
+### What's New (v0.2.5) - Reliability & Compatibility Improvements! 🛠️
+- **🧩 LLM Compatibility Shim (2026-02-04)**
+  - Added `_parse_response` compatibility patch for structured LLM providers to reduce parsing errors
+  - Keepalive now uses provider-agnostic `generate_response()` without strict args for better model compatibility
+- **🧠 Sync Subtype Client Reuse**
+  - Subtype clients accept config overrides to avoid manual Memory swapping
+  - Pool-sharing logic improves resource isolation while keeping prompts per subtype
+- **🧪 Test & Tooling Stability**
+  - `DifyClient` enforces `/v1` base URL format; integration tests normalize base URLs
+  - Cleanup script supports `DIFY_USER_IDS` and ensures client resources are closed
+
+### Previous Updates (v0.2.4) - Resource Isolation Optimization! 🔒
 - **🔒 Connection Pool Sharing & Resource Isolation (2026-02-03)**
   - **Critical Optimization**: Long-term memory extraction tool now uses intelligent connection pool sharing
   - **Problem Solved**: Previously, each memory subtype client (semantic/episodic/procedural) created its own connection pool, wasting resources
@@ -122,6 +133,11 @@ After installation, you need to configure:
    - **Note**: PGVector connection pool settings (`minconn`, `maxconn`) are configured in the vector store JSON config, not as separate credential fields
 5. **Connection Keep-Alive** (optional): `heartbeat_interval` (default: 120 seconds, minimum: 30 seconds) - configurable heartbeat interval for connection keep-alive mechanism
 6. **Log Level** (optional): `log_level` (INFO/DEBUG/WARNING/ERROR, default: INFO) - can be changed online without redeployment
+
+**Recommended configuration choices (brief)**:
+- **LLM**: Prefer `azure_openai_structured` for stricter schema handling and more reliable structured parsing
+- **Vector DB**: Prefer `pgvector` with `connection_string` + psycopg3 pool for stability (TCP keepalive + pool lifecycle)
+- **Details**: See [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#configuration-examples) for full examples and placeholders
 
 **Note**: All JSON configuration fields are displayed as password fields (hidden input) in the Dify UI to protect sensitive information. Legacy `*_json` fields are no longer shown in the UI.
 
@@ -374,6 +390,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.5 | 2026-02-04 | Documentation refresh: recommended config choices and placeholder-safe examples |
 | v0.2.4 | 2026-02-03 | Resource isolation optimization: Connection pool sharing for long-term memory tool (67% reduction in database connections) |
 | v0.2.3 | 2026-01-31 | Documentation updates: Comprehensive documentation synchronization, merged design documents, improved consistency |
 | v0.2.2 | 2026-01-30 | Performance optimizations: Smart memory classification (33% LLM call reduction), token-aware processing with tiktoken, code quality improvements |

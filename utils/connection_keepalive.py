@@ -48,10 +48,7 @@ class ConnectionKeepAlive:
             llm = self.memory.llm
             # Use the abstract generate_response() method which works for all providers
             # This is more reliable than accessing provider-specific client APIs
-            llm.generate_response(
-                messages=[{"role": "user", "content": "ping"}],
-                max_tokens=1,
-            )
+            llm.generate_response(messages=[{"role": "user", "content": "ping"}])
         except Exception:
             logger.exception("LLM heartbeat failed (non-critical)")
             # Don't raise - heartbeat failures shouldn't interrupt the service

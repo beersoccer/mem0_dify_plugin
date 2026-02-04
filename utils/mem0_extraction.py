@@ -118,9 +118,12 @@ def build_subtype_sync_clients(
         cfg["custom_fact_extraction_prompt"] = _subtype_extraction_prompt(subtype)  # type: ignore[index]
         cfg["custom_update_memory_prompt"] = build_update_memory_prompt(subtype=subtype)  # type: ignore[index]
         
-        client = SyncMem0Client(credentials, enable_keepalive=False)
-        memory_instance = Memory.from_config(cfg)
-        client.memory = memory_instance
+        client = SyncMem0Client(
+            credentials,
+            enable_keepalive=False,
+            config_override=cfg,
+        )
+        memory_instance = client.memory
         
         if connection_pool is not None and base_client is not None:
             client._is_sharing_pool = True  # type: ignore[attr-defined]
@@ -222,7 +225,7 @@ class SyncMemoryClassificationManager:
             if len(preview) > 160:
                 preview = preview[:157] + "..."
 
-            logger.info(
+            logger.debug(
                 "Memory classification result: type=%s, should_extract=%s, "
                 "reason=%s, preview=%s%s",
                 memory_type,
@@ -363,7 +366,7 @@ class AsyncMemoryClassificationManager:
             if len(preview) > 160:
                 preview = preview[:157] + "..."
 
-            logger.info(
+            logger.debug(
                 "Memory classification result: type=%s, should_extract=%s, "
                 "reason=%s, preview=%s%s",
                 memory_type,

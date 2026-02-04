@@ -6,9 +6,11 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable
+from types import MethodType
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from mem0 import AsyncMemory, Memory
@@ -30,6 +32,42 @@ from .resource_cleanup import close_memory_resources
 from .task_tracker import TaskTracker
 
 logger = get_logger(__name__)
+
+
+def _patch_llm_compat(llm: Any) -> None:
+    """Patch LLM instances that lack _parse_response (e.g., structured providers)."""
+    if llm is None or hasattr(llm, "_parse_response"):
+        return
+
+    try:
+        from mem0.memory.utils import extract_json
+    except Exception:  # pragma: no cover - defensive fallback
+        extract_json = None  # type: ignore[assignment]
+
+    def _parse_response(self, response, tools):  # noqa: ANN001
+        if tools:
+            processed_response = {
+                "content": response.choices[0].message.content,
+                "tool_calls": [],
+            }
+            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
+            if tool_calls:
+                for tool_call in tool_calls:
+                    raw_args = tool_call.function.arguments
+                    if extract_json is not None:
+                        try:
+                            parsed_args = json.loads(extract_json(raw_args))
+                        except Exception:
+                            parsed_args = raw_args
+                    else:
+                        parsed_args = raw_args
+                    processed_response["tool_calls"].append(
+                        {"name": tool_call.function.name, "arguments": parsed_args}
+                    )
+            return processed_response
+        return response.choices[0].message.content
+
+    llm._parse_response = MethodType(_parse_response, llm)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -73,6 +111,67 @@ def normalize_search_results(results: object) -> list[dict[str, Any]]:
     return normalized
 
 
+def _summarize_ids(kwargs: dict[str, Any]) -> dict[str, str]:
+    """Summarize ID scope for logging without leaking content."""
+    summary: dict[str, str] = {}
+    for key in ("user_id", "agent_id", "run_id"):
+        val = kwargs.get(key)
+        if isinstance(val, str) and val:
+            summary[key] = val
+    return summary
+
+
+def _summarize_messages(messages: object) -> dict[str, Any]:
+    """Summarize message payload for debug logging (no raw content)."""
+    if messages is None:
+        return {"type": "none"}
+    if isinstance(messages, str):
+        return {"type": "str", "length": len(messages)}
+    if isinstance(messages, list | tuple):
+        role_counts: dict[str, int] = {}
+        total_chars = 0
+        empty_count = 0
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "unknown").lower()
+            role_counts[role] = role_counts.get(role, 0) + 1
+            content = item.get("content")
+            if isinstance(content, str):
+                total_chars += len(content)
+                if not content.strip():
+                    empty_count += 1
+            elif content is None:
+                empty_count += 1
+        return {
+            "type": "list",
+            "count": len(messages),
+            "roles": role_counts,
+            "total_chars": total_chars,
+            "empty_contents": empty_count,
+        }
+    return {"type": type(messages).__name__}
+
+
+def _summarize_add_result(result: object) -> dict[str, Any]:
+    """Summarize mem0 add() response without leaking memory content."""
+    if not isinstance(result, dict):
+        return {"type": type(result).__name__}
+    results = result.get("results")
+    event_counts: dict[str, int] = {}
+    if isinstance(results, list):
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            event = str(item.get("event") or "unknown").upper()
+            event_counts[event] = event_counts.get(event, 0) + 1
+    return {
+        "keys": sorted(result.keys()),
+        "results_count": len(results) if isinstance(results, list) else 0,
+        "event_counts": event_counts,
+    }
+
+
 class QueueOverloadError(Exception):
     """Raised when the background task queue is overloaded."""
 
@@ -81,7 +180,11 @@ class SyncMem0Client:
     """Synchronous Mem0 client using configured providers."""
 
     def __init__(
-        self, credentials: dict[str, Any], enable_keepalive: bool = True
+        self,
+        credentials: dict[str, Any],
+        enable_keepalive: bool = True,
+        *,
+        config_override: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the SyncMem0Client.
 
@@ -89,10 +192,13 @@ class SyncMem0Client:
             credentials (dict): Configuration for the SyncMem0Client.
             enable_keepalive (bool): Whether to enable connection keep-alive.
                                     Defaults to True.
+            config_override (dict | None): Optional prebuilt Mem0 config. When set,
+                it bypasses build_local_mem0_config() and is used directly.
 
         """
-        config = build_local_mem0_config(credentials)
+        config = config_override or build_local_mem0_config(credentials)
         self.memory = Memory.from_config(config)
+        _patch_llm_compat(getattr(self.memory, "llm", None))
 
         # Initialize connection keep-alive
         if enable_keepalive:
@@ -292,12 +398,34 @@ class SyncMem0Client:
 
         # Use messages directly if provided; assume upstream has validated inputs
         messages = payload.get("messages")
+        if logger.isEnabledFor(logging.DEBUG):
+            metadata_keys = (
+                sorted(metadata.keys()) if isinstance(metadata, dict) else None
+            )
+            logger.debug(
+                "Mem0 add request summary (sync): ids=%s infer=%s metadata_keys=%s messages=%s",
+                _summarize_ids(kwargs),
+                infer,
+                metadata_keys,
+                _summarize_messages(messages),
+            )
         try:
             result = self.memory.add(messages, **kwargs)
         except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Mem0 add failed (sync) request summary: ids=%s infer=%s",
+                    _summarize_ids(kwargs),
+                    infer,
+                )
             logger.exception("Error during memory addition")
             raise
         else:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Mem0 add result summary (sync): %s",
+                    _summarize_add_result(result),
+                )
             return result
 
     def get_all(self, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -584,6 +712,7 @@ class AsyncMem0Client:
         async with self._create_lock:
             if self.memory is None:
                 self.memory = await AsyncMemory.from_config(self.config)
+                _patch_llm_compat(getattr(self.memory, "llm", None))
                 logger.debug("AsyncMemory instance created")
 
                 # Start connection keep-alive after memory is created
@@ -807,6 +936,12 @@ class AsyncMem0Client:
             or (isinstance(messages, str) and messages.strip() == "")
             or (isinstance(messages, list | tuple) and len(messages) == 0)
         ):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Mem0 add skipped (async): empty messages, ids=%s infer=%s",
+                    _summarize_ids(kwargs),
+                    infer,
+                )
             return ADD_SKIP_RESULT
 
         timeout = self._get_operation_timeout_s(
@@ -817,12 +952,31 @@ class AsyncMem0Client:
         async def _call() -> object:
             return await self.memory.add(messages, **kwargs)
 
-        return await self._run_with_semaphore(
+        if logger.isEnabledFor(logging.DEBUG):
+            metadata_keys = (
+                sorted(metadata.keys()) if isinstance(metadata, dict) else None
+            )
+            logger.debug(
+                "Mem0 add request summary (async): ids=%s infer=%s metadata_keys=%s "
+                "messages=%s timeout_s=%s",
+                _summarize_ids(kwargs),
+                infer,
+                metadata_keys,
+                _summarize_messages(messages),
+                timeout,
+            )
+        result = await self._run_with_semaphore(
             "add",
             _call,
             timeout_s=timeout,
             check_queue=True,  # Write operations check queue
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Mem0 add result summary (async): %s",
+                _summarize_add_result(result),
+            )
+        return result
 
     async def get_all(
         self,
@@ -1198,7 +1352,7 @@ class AsyncMem0Client:
                 exec_time = time.time() - exec_start
 
                 # Log timing breakdown
-                logger.info(
+                logger.debug(
                     "%s operation timing: wait=%.3fs, exec=%.3fs, total=%.3fs",
                     op_name.capitalize(),
                     wait_time,

@@ -15,7 +15,9 @@ Test scenarios:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -32,19 +34,31 @@ def load_env_dev() -> dict[str, str]:
     """Load credentials from .env file."""
     # .env 文件应该在 tests/.env，而不是 tests/unit/tools/.env
     env_file = Path(__file__).parent.parent.parent / ".env"
-    if not env_file.exists():
-        pytest.skip("No .env file found in tests/ directory")
+    env_vars: dict[str, str] = {
+        key: os.environ[key]
+        for key in (
+            "DIFY_API_KEY",
+            "DIFY_USER_ID",
+            "DIFY_USER_IDS",
+            "DIFY_BASE_URL",
+            "TEST_START_TIME",
+            "TEST_END_TIME",
+        )
+        if key in os.environ
+    }
 
-    env_vars: dict[str, str] = {}
-    with env_file.open() as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            env_vars[key.strip()] = value.strip().strip('"')
+    if env_file.exists():
+        with env_file.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key not in env_vars:
+                    env_vars[key] = value.strip().strip('"')
 
     # DIFY_USER_ID can be extracted from DIFY_USER_IDS if not explicitly set
     if "DIFY_USER_ID" not in env_vars and "DIFY_USER_IDS" in env_vars:
@@ -54,9 +68,9 @@ def load_env_dev() -> dict[str, str]:
             env_vars["DIFY_USER_ID"] = first_user
     
     required = ["DIFY_API_KEY", "DIFY_USER_ID"]
-    missing = [k for k in required if k not in env_vars]
+    missing = [k for k in required if not env_vars.get(k)]
     if missing:
-        pytest.skip(f"Missing required env vars in .env: {missing}")
+        pytest.skip(f"Missing required env vars: {missing}")
 
     return env_vars
 
@@ -73,6 +87,11 @@ def dify_client(env_config: dict[str, str]) -> DifyClient:
     base_url = env_config.get("DIFY_BASE_URL", "http://localhost/v1")
     if not base_url.startswith("http"):
         base_url = f"http://{base_url}"
+    if not base_url.endswith("/v1"):
+        base_url = f"{base_url.rstrip('/')}/v1"
+    hostname = urlparse(base_url).hostname or ""
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        pytest.skip("DIFY_BASE_URL points to localhost; no Dify server in CI")
     api_key = env_config["DIFY_API_KEY"]
     return DifyClient(base_url=base_url, api_key=api_key)
 
@@ -93,12 +112,12 @@ class TestTimeRangeFiltering:
         end_time = env_config.get("TEST_END_TIME")
 
         if not start_time or not end_time:
-            pytest.skip("TEST_START_TIME and TEST_END_TIME not set in .env")
+            pytest.fail("TEST_START_TIME and TEST_END_TIME not set in .env")
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
         if not start_dt or not end_dt:
-            pytest.skip("Invalid TEST_START_TIME or TEST_END_TIME format")
+            pytest.fail("Invalid TEST_START_TIME or TEST_END_TIME format")
 
         print(f"\n{'='*70}")
         print("TIME RANGE FILTERING TEST")

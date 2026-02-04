@@ -1,5 +1,29 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.5 (2026-02-04)
+
+### 🛠️ Reliability & Compatibility Improvements
+
+This release focuses on compatibility fixes for structured LLMs, safer client reuse for subtype extraction, and more robust Dify test tooling.
+
+#### Highlights
+
+- **LLM Compatibility Shim**:
+  - Added `_parse_response` patch for structured providers (e.g., Azure structured) to improve tool-call parsing
+  - Keepalive uses provider-agnostic `generate_response()` for broader model compatibility
+- **Sync Subtype Client Reuse**:
+  - Subtype clients accept config overrides to avoid manual Memory replacement
+  - Pool-sharing logic keeps prompts isolated while reusing the base connection pool
+- **Dify Tooling Stability**:
+  - `DifyClient` enforces `/v1` base URL format to avoid ambiguous API paths
+  - Cleanup script supports `DIFY_USER_IDS` and closes client resources after use
+
+#### ⚠️ Notes
+
+- **No breaking changes**: Existing configurations remain valid
+
+---
+
 ## Version 0.2.4 (2026-02-03)
 
 ### 🔒 Resource Isolation Optimization for Long-Term Memory Tool

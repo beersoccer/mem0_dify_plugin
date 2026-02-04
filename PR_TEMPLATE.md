@@ -438,4 +438,3 @@ All API keys and credentials are stored locally in the user's Dify instance conf
 - User's complete control over data
 - No third-party data sharing
 - User's responsibility for data security and compliance
-

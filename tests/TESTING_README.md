@@ -91,16 +91,20 @@ tests/
 
 ```bash
 # Dify配置
-DIFY_BASE_URL=http://localhost/v1
-DIFY_API_KEY=app-xxx
-DIFY_USER_IDS=test_user,real_user
-DIFY_APP_ID=xxx
+DIFY_BASE_URL=https://<your-dify-host>/v1
+DIFY_API_KEY=<your-dify-api-key>
+DIFY_USER_IDS=<user_a>,<user_b>
+DIFY_APP_ID=<your-app-id>
 
 # Mem0配置
-MEM0_LLM_CONFIG={"provider":"azure_openai","config":{"model":"gpt-4","api_key":"...","base_url":"..."}}
-MEM0_EMBEDDER_CONFIG={"provider":"azure_openai","config":{"model":"text-embedding-ada-002","api_key":"...","base_url":"..."}}
-MEM0_VECTOR_DB_CONFIG={"provider":"pgvector","config":{"dbname":"mem0","user":"postgres","password":"...","host":"localhost","port":5432}}
+MEM0_LLM_CONFIG={"provider":"azure_openai_structured","config":{"model":"<model>","api_key":"<api-key>","azure_endpoint":"https://<your-resource>.openai.azure.com/"}}
+MEM0_EMBEDDER_CONFIG={"provider":"azure_openai","config":{"model":"<embed-model>","api_key":"<api-key>","azure_endpoint":"https://<your-resource>.openai.azure.com/"}}
+MEM0_VECTOR_DB_CONFIG={"provider":"pgvector","config":{"connection_string":"postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable"}}
 ```
+
+**注意**：
+- `DIFY_BASE_URL` 必须以 `/v1` 结尾（例如 `https://<your-dify-host>/v1`）
+- `DIFY_USER_IDS` 会被 `tests/e2e/cleanup_test_memories.py` 用于批量清理测试用户记忆
 
 ### 可选配置
 
@@ -198,6 +202,7 @@ pytest --forked tests/unit/tools/test_extraction_async.py -v
 - ✅ 消息格式转换
 - ✅ 错误处理和重试
 - ✅ 并发处理
+- ✅ 端到端抽取（默认包含，需要完整 Dify + Mem0 环境）
 
 ## 端到端测试
 

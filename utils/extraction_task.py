@@ -11,7 +11,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from .logger import get_logger
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Task execution status."""
 
     PENDING = "pending"  # Task created, not started yet
