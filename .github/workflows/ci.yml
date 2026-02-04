@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    environment: mem0_ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +31,6 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
           DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
-          DIFY_USER_ID: ${{ vars.DIFY_USER_ID }}
           DIFY_USER_IDS: ${{ vars.DIFY_USER_IDS }}
           DIFY_BASE_URL: ${{ vars.DIFY_BASE_URL }}
           TEST_START_TIME: ${{ vars.TEST_START_TIME }}

@@ -67,7 +67,7 @@ def load_env_dev() -> dict[str, str]:
             env_vars["DIFY_USER_ID"] = first_user
     
     required = ["DIFY_API_KEY", "DIFY_USER_ID"]
-    missing = [k for k in required if k not in env_vars]
+    missing = [k for k in required if not env_vars.get(k)]
     if missing:
         pytest.skip(f"Missing required env vars: {missing}")
 
