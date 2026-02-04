@@ -33,7 +33,7 @@ def load_env_dev() -> dict[str, str]:
     # .env 文件应该在 tests/.env，而不是 tests/unit/tools/.env
     env_file = Path(__file__).parent.parent.parent / ".env"
     if not env_file.exists():
-        pytest.fail("No .env file found in tests/ directory")
+        pytest.skip("No .env file found in tests/ directory")
 
     env_vars: dict[str, str] = {}
     with env_file.open() as f:
@@ -56,7 +56,7 @@ def load_env_dev() -> dict[str, str]:
     required = ["DIFY_API_KEY", "DIFY_USER_ID"]
     missing = [k for k in required if k not in env_vars]
     if missing:
-        pytest.fail(f"Missing required env vars in .env: {missing}")
+        pytest.skip(f"Missing required env vars in .env: {missing}")
 
     return env_vars
 
