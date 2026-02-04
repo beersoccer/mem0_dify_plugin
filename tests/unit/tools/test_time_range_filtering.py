@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -88,6 +89,9 @@ def dify_client(env_config: dict[str, str]) -> DifyClient:
         base_url = f"http://{base_url}"
     if not base_url.endswith("/v1"):
         base_url = f"{base_url.rstrip('/')}/v1"
+    hostname = urlparse(base_url).hostname or ""
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        pytest.skip("DIFY_BASE_URL points to localhost; no Dify server in CI")
     api_key = env_config["DIFY_API_KEY"]
     return DifyClient(base_url=base_url, api_key=api_key)
 
