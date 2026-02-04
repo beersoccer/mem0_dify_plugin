@@ -5,19 +5,23 @@
 使用方法:
     cd tests/e2e
     python cleanup_test_memories.py
+
+可选配置:
+    在 tests/.env 中设置 DIFY_USER_IDS (逗号/空白/分号分隔)，
+    用于一次性删除多个用户的记忆。
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
-
-from utils.mem0_client import get_sync_client
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from utils.mem0_client import get_sync_client  # noqa: E402
 
 
 def load_env_config() -> dict[str, str]:
@@ -48,6 +52,15 @@ def load_env_config() -> dict[str, str]:
     return env_vars
 
 
+def parse_user_ids(env_config: dict[str, str]) -> list[str]:
+    """解析 DIFY_USER_IDS (支持逗号/分号/空白分隔)."""
+    raw_value = env_config.get("DIFY_USER_IDS", "").strip()
+    if not raw_value:
+        return []
+    tokens = re.split(r"[,\s;]+", raw_value)
+    return [token for token in (t.strip() for t in tokens) if token]
+
+
 def cleanup_test_memories():
     """删除测试用户的所有记忆"""
     print("\n" + "="*80)
@@ -74,48 +87,62 @@ def cleanup_test_memories():
         sys.exit(1)
     
     # Build mem0 client
+    client = None
     try:
-        client = get_sync_client(credentials)
-        print("✓ Mem0 客户端已初始化")
-    except Exception as e:
-        print(f"❌ 无法初始化 Mem0 客户端: {e}")
-        sys.exit(1)
-    
-    # Test user IDs
-    test_users = ["real_user", "test_user"]
-    
-    total_deleted = 0
-    for user_id in test_users:
-        print(f"\n清理用户: {user_id}")
         try:
-            # Use delete_all to delete all memories for this user
-            result = client.delete_all({"user_id": user_id})
-            
-            # Extract deleted count from result if available
-            deleted_count = 0
-            if isinstance(result, dict):
-                deleted_count = result.get("deleted_count", result.get("count", 0))
-                if deleted_count == 0 and "message" in result:
-                    # If no explicit count, check if operation succeeded
-                    print(f"  ✓ {result.get('message', '删除操作已完成')}")
-                else:
-                    print(f"  ✓ 成功删除 {deleted_count} 条记忆")
-            else:
-                print("  ✓ 删除操作已完成")
-            
-            total_deleted += deleted_count
-        
+            client = get_sync_client(credentials)
+            print("✓ Mem0 客户端已初始化")
         except Exception as e:
-            print(f"  ❌ 清理失败: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    print(f"\n{'='*80}")
-    if total_deleted > 0:
-        print(f"清理完成! 总共删除 {total_deleted} 条记忆")
-    else:
-        print("清理完成! (未统计删除数量)")
-    print(f"{'='*80}\n")
+            print(f"❌ 无法初始化 Mem0 客户端: {e}")
+            sys.exit(1)
+
+        # Test user IDs
+        test_users = parse_user_ids(env_config)
+        if not test_users:
+            test_users = ["real_user", "test_user"]
+            print("⚠️ 未设置 DIFY_USER_IDS, 使用默认测试用户: real_user, test_user")
+        else:
+            print(f"✓ 使用 DIFY_USER_IDS: {', '.join(test_users)}")
+
+        total_deleted = 0
+        for user_id in test_users:
+            print(f"\n清理用户: {user_id}")
+            try:
+                # Use delete_all to delete all memories for this user
+                result = client.delete_all({"user_id": user_id})
+
+                # Extract deleted count from result if available
+                deleted_count = 0
+                if isinstance(result, dict):
+                    deleted_count = result.get("deleted_count", result.get("count", 0))
+                    if deleted_count == 0 and "message" in result:
+                        # If no explicit count, check if operation succeeded
+                        print(f"  ✓ {result.get('message', '删除操作已完成')}")
+                    else:
+                        print(f"  ✓ 成功删除 {deleted_count} 条记忆")
+                else:
+                    print("  ✓ 删除操作已完成")
+
+                total_deleted += deleted_count
+
+            except Exception as e:
+                print(f"  ❌ 清理失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+        print(f"\n{'='*80}")
+        if total_deleted > 0:
+            print(f"清理完成! 总共删除 {total_deleted} 条记忆")
+        else:
+            print("清理完成! (未统计删除数量)")
+        print(f"{'='*80}\n")
+    finally:
+        if client is not None:
+            try:
+                client.close()
+                print("✓ Mem0 客户端资源已释放")
+            except Exception as e:
+                print(f"⚠️ Mem0 客户端资源释放失败: {e}")
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ def load_env_dev() -> dict[str, str]:
     # .env 文件应该在 tests/.env，而不是 tests/unit/tools/.env
     env_file = Path(__file__).parent.parent.parent / ".env"
     if not env_file.exists():
-        pytest.skip("No .env file found in tests/ directory")
+        pytest.fail("No .env file found in tests/ directory")
 
     env_vars: dict[str, str] = {}
     with env_file.open() as f:
@@ -56,7 +56,7 @@ def load_env_dev() -> dict[str, str]:
     required = ["DIFY_API_KEY", "DIFY_USER_ID"]
     missing = [k for k in required if k not in env_vars]
     if missing:
-        pytest.skip(f"Missing required env vars in .env: {missing}")
+        pytest.fail(f"Missing required env vars in .env: {missing}")
 
     return env_vars
 
@@ -73,6 +73,8 @@ def dify_client(env_config: dict[str, str]) -> DifyClient:
     base_url = env_config.get("DIFY_BASE_URL", "http://localhost/v1")
     if not base_url.startswith("http"):
         base_url = f"http://{base_url}"
+    if not base_url.endswith("/v1"):
+        pytest.fail("DIFY_BASE_URL must end with /v1")
     api_key = env_config["DIFY_API_KEY"]
     return DifyClient(base_url=base_url, api_key=api_key)
 
@@ -93,12 +95,12 @@ class TestTimeRangeFiltering:
         end_time = env_config.get("TEST_END_TIME")
 
         if not start_time or not end_time:
-            pytest.skip("TEST_START_TIME and TEST_END_TIME not set in .env")
+            pytest.fail("TEST_START_TIME and TEST_END_TIME not set in .env")
 
         start_dt = parse_iso_timestamp(start_time)
         end_dt = parse_iso_timestamp(end_time)
         if not start_dt or not end_dt:
-            pytest.skip("Invalid TEST_START_TIME or TEST_END_TIME format")
+            pytest.fail("Invalid TEST_START_TIME or TEST_END_TIME format")
 
         print(f"\n{'='*70}")
         print("TIME RANGE FILTERING TEST")

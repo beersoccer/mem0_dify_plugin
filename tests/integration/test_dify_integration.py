@@ -16,7 +16,6 @@ Prerequisites:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +65,19 @@ def load_env_dev() -> dict[str, str]:
     return env_vars
 
 
+def normalize_base_url(raw_base_url: str | None) -> str:
+    """Ensure base_url has scheme and ends with /v1."""
+    base_url = (raw_base_url or "").strip()
+    if not base_url:
+        return ""
+    if not base_url.startswith("http"):
+        base_url = f"http://{base_url}"
+    base_url = base_url.rstrip("/")
+    if not base_url.endswith("/v1"):
+        base_url = f"{base_url}/v1"
+    return base_url
+
+
 @pytest.fixture
 def env_config() -> dict[str, str]:
     """Fixture providing .env configuration."""
@@ -75,9 +87,7 @@ def env_config() -> dict[str, str]:
 @pytest.fixture
 def dify_client(env_config: dict[str, str]) -> DifyClient:
     """Fixture providing configured DifyClient."""
-    base_url = env_config.get("DIFY_BASE_URL", "http://localhost/v1")
-    if not base_url.startswith("http"):
-        base_url = f"http://{base_url}"
+    base_url = normalize_base_url(env_config.get("DIFY_BASE_URL", "http://localhost/v1"))
     api_key = env_config["DIFY_API_KEY"]
     return DifyClient(base_url=base_url, api_key=api_key)
 
@@ -146,9 +156,7 @@ class TestDifyClientConnectivity:
 
     def test_invalid_api_key_raises_error(self, env_config: dict[str, str]) -> None:
         """Verify invalid API key raises DifyAPIError."""
-        base_url = env_config.get("DIFY_BASE_URL", "http://localhost/v1")
-        if not base_url.startswith("http"):
-            base_url = f"http://{base_url}"
+        base_url = normalize_base_url(env_config.get("DIFY_BASE_URL", "http://localhost/v1"))
 
         bad_client = DifyClient(base_url=base_url, api_key="invalid-key-12345")
         user_id = env_config["DIFY_USER_ID"]
@@ -509,18 +517,13 @@ class TestBudgetControl:
         assert count_add_results(None) == 0
 
 
-@pytest.mark.skipif(
-    not os.getenv("RUN_INTEGRATION_TESTS"),
-    reason="Set RUN_INTEGRATION_TESTS=1 to run full integration tests",
-)
 class TestEndToEndExtraction:
     """End-to-end integration tests requiring full Dify + Mem0 setup.
 
-    These tests are skipped by default. Set RUN_INTEGRATION_TESTS=1 to run them.
+    These tests require full Dify + Mem0 setup.
     """
 
     def test_extract_with_real_dify_and_mem0(
         self, dify_client: DifyClient, env_config: dict[str, str]
     ) -> None:
         """Full end-to-end test with real Dify and Mem0 (requires setup)."""
-        pytest.skip("Requires full Mem0 setup - implement when needed")

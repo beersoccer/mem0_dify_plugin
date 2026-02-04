@@ -31,15 +31,20 @@ def _common_rules() -> str:
     return f"""
 General rules:
 - Extract facts as DISCRETE, ATOMIC memory units (not long narrative paragraphs).
-- Each fact should be a compact, self-contained unit (1-3 sentences, 50-200 characters).
+- Each fact should be a compact, self-contained unit (1-2 sentences, <= 160 characters).
 - Split related information into separate addressable units for flexible retrieval and updates.
 - Focus ONLY on user-related information (preferences, events, knowledge).
 - If there is nothing worth remembering, return an empty list.
 - Do not include system messages, meta instructions, or assistant's self-descriptions.
 - Do not include secrets (API keys, passwords, tokens, private URLs).
 - Today's date is {_get_current_date()}. Use this for temporal context when relevant.
-- Output MUST be valid JSON exactly in the following shape (compatible with Mem0):
+- Output MUST be valid JSON exactly in this shape (compatible with Mem0):
   {{"facts": ["atomic fact 1", "atomic fact 2", "atomic fact 3"]}}
+- Return ONLY the JSON object. No markdown, no code fences, no comments, no extra text.
+- Use double quotes for JSON keys and string values; no trailing commas.
+- Facts must be single-line strings (no raw newlines, tabs, or control characters).
+- If a fact would contain a newline, rewrite it into a single line.
+- Avoid double quotes inside facts; rephrase if needed to keep valid JSON.
 - Detect the conversation language and record facts in the SAME language.
 - Do not return anything from the few-shot examples provided above.
 """
@@ -535,8 +540,7 @@ You will be given:
 IMPORTANT Filtering Rules:
 - ONLY operate on memory items where metadata.memory_subtype == "{subtype}"
 - IGNORE any memory item where metadata.__internal == true
-- For memory items of other subtypes or internal memories, return event "NONE"
-  (do not modify them)
+- For memory items of other subtypes or internal memories, do not modify them.
 
 Compare newly retrieved facts with the existing memory. For each new fact, decide whether to:
 - ADD: Add it to the memory as a new element
@@ -693,7 +697,11 @@ Operation Guidelines:
 Output Format Requirements:
 - Return ONLY valid JSON in the exact format shown above
 - Do not include explanations or comments outside the JSON
-- Ensure all existing memory items are included in the output (even if event is "NONE")
+- Include ONLY items that require a change (event is ADD/UPDATE/DELETE)
+- If there are no changes, return {{ "memory": [] }}
 - For UPDATE events, always include "old_memory" field
 - For ADD events, generate a new unique ID (integer string)
+- Memory text must be a single line (no raw newlines, tabs, or control characters)
+- Avoid double quotes in memory text; rephrase if needed to keep valid JSON
+- Return ONLY the JSON object. No markdown, no code fences, no extra text.
 """

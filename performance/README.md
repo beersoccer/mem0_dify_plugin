@@ -14,7 +14,7 @@ pip install locust
 
 ```bash
 # Set your API key
-export DIFY_API_KEY='your-api-key'
+export DIFY_API_KEY='<your-dify-api-key>'
 
 # Run with web UI (opens http://localhost:8089)
 locust -f performance/locustfile.py --host=http://localhost
@@ -56,11 +56,11 @@ Create a `.env` file in the `performance/` directory with your configuration:
 
 ```bash
 # performance/.env
-DIFY_API_KEY="your-api-key"
-DIFY_BASE_URL="http://localhost"  # Base URL for remote testing (overrides --host if set)
+DIFY_API_KEY="<your-dify-api-key>"
+DIFY_BASE_URL="https://<your-dify-host>"  # Base URL for remote testing (overrides --host if set)
 DIFY_ENDPOINT="/v1/chat-messages"
-DIFY_QUERY="Your custom query"
-DIFY_USER_ID="test_user"  # Single user, or comma-separated list: "test_user,real_user"
+DIFY_QUERY="<your-custom-query>"
+DIFY_USER_ID="<user_a>"  # Single user, or comma-separated list: "<user_a>,<user_b>"
 DIFY_RESPONSE_MODE="streaming"
 DIFY_MIN_TURNS=3  # Minimum number of follow-up conversation turns (default: 3)
 DIFY_MAX_TURNS=5  # Maximum number of follow-up conversation turns (default: 5)
@@ -75,10 +75,10 @@ The script will automatically load variables from `performance/.env` if it exist
 **Option 2: Set environment variables directly**
 
 ```bash
-DIFY_API_KEY='your-key' \
+DIFY_API_KEY='<your-dify-api-key>' \
 DIFY_ENDPOINT='/v1/chat-messages' \
-DIFY_QUERY='Your custom query' \
-DIFY_USER_ID='test_user' \
+DIFY_QUERY='<your-custom-query>' \
+DIFY_USER_ID='<user_a>' \
 DIFY_RESPONSE_MODE='streaming' \
 DIFY_MIN_TURNS=3 \
 DIFY_MAX_TURNS=5 \

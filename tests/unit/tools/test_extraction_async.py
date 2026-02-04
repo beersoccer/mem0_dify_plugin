@@ -345,7 +345,7 @@ class TestExecuteExtractionAsync:
                 app_id="app1",
                 start_time="2026-01-23T00:00:00Z",
                 end_time="2026-01-24T00:00:00Z",
-                dify_base_url="http://localhost",
+                dify_base_url="http://localhost/v1",
                 dify_api_key="test_key",
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
@@ -407,7 +407,7 @@ class TestExecuteExtractionAsync:
                 app_id="app1",
                 start_time="2026-01-23T00:00:00Z",
                 end_time="2026-01-24T00:00:00Z",
-                dify_base_url="http://localhost",
+                dify_base_url="http://localhost/v1",
                 dify_api_key="test_key",
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
@@ -469,7 +469,7 @@ class TestExecuteExtractionAsync:
                 app_id="app1",
                 start_time="2026-01-23T00:00:00Z",
                 end_time="2026-01-24T00:00:00Z",
-                dify_base_url="http://localhost",
+                dify_base_url="http://localhost/v1",
                 dify_api_key="test_key",
                 max_conversations=50,
                 max_tokens_per_conversation=64000,
@@ -522,13 +522,19 @@ class TestExtractLongTermMemoryTool:
 
             # Mock asyncio.run_coroutine_threadsafe
             mock_future = MagicMock()
-            with patch("asyncio.run_coroutine_threadsafe", return_value=mock_future):
+            def _run_coroutine_threadsafe(coro, loop):
+                coro.close()  # Avoid "coroutine was never awaited" warning in tests
+                return mock_future
+            with patch(
+                "asyncio.run_coroutine_threadsafe",
+                side_effect=_run_coroutine_threadsafe,
+            ):
                 messages = list(
                     tool._invoke(
                         {
                             "user_ids": '["user1"]',
                             "app_id": "app1",
-                            "dify_base_url": "http://localhost",
+                            "dify_base_url": "http://localhost/v1",
                             "dify_api_key": "test_key",
                         }
                     )
@@ -552,7 +558,7 @@ class TestExtractLongTermMemoryTool:
             tool._invoke(
                 {
                     "app_id": "app1",
-                    "dify_base_url": "http://localhost",
+                    "dify_base_url": "http://localhost/v1",
                     "dify_api_key": "test_key",
                 }
             )
@@ -594,13 +600,19 @@ class TestExtractLongTermMemoryTool:
             mock_loop = MagicMock()
             mock_loop_cls.ensure_loop.return_value = mock_loop
 
-            with patch("asyncio.run_coroutine_threadsafe", return_value=MagicMock()):
+            def _run_coroutine_threadsafe(coro, loop):
+                coro.close()  # Avoid "coroutine was never awaited" warning in tests
+                return MagicMock()
+            with patch(
+                "asyncio.run_coroutine_threadsafe",
+                side_effect=_run_coroutine_threadsafe,
+            ):
                 messages = list(
                     tool._invoke(
                         {
                             "user_ids": '["user1"]',
                             "app_id": "app1",
-                            "dify_base_url": "http://localhost",
+                            "dify_base_url": "http://localhost/v1",
                             "dify_api_key": "test_key",
                             "conversations_limit": 50,
                             "max_tokens_per_conversation": 64,
@@ -653,6 +665,5 @@ class TestIntegration:
     ):
         """Test end-to-end extraction with mocked dependencies."""
         # This would be a full integration test with real-ish data
-        # Skip in CI, run manually for validation
-        pytest.skip("Integration test - run manually")
+        # Intentionally included in default unit test runs
 

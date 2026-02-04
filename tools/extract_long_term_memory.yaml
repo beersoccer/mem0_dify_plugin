@@ -114,8 +114,8 @@ parameters:
       en_US: Dify Base URL
       zh_Hans: Dify Base URL
     human_description:
-      en_US: "Required. Example: http://localhost:5001"
-      zh_Hans: "必填。例如：http://localhost:5001"
+      en_US: "Required. Standard format: http://dify.t3.test.noahgrouptest.com/v1"
+      zh_Hans: "必填。标准格式：http://dify.t3.test.noahgrouptest.com/v1"
     llm_description: Required Dify base URL for API calls.
     form: form
   - name: dify_api_key

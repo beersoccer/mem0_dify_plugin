@@ -69,6 +69,7 @@ from utils.mem0_extraction import (
     build_subtype_sync_clients,
 )
 from utils.message_utils import (
+    count_add_event_stats,
     count_add_results,
     dify_msg_to_mem0_messages,
 )
@@ -342,17 +343,24 @@ def _process_single_user_sync(
                     user_id=user_id,
                     metadata=md,
                 )
+                event_stats = count_add_event_stats(res)
+                logger.info(
+                    "[run:%s] Mem0 add events (sync): %s",
+                    run_id,
+                    event_stats,
+                )
                 c = count_add_results(res)
                 if c == 0:
                     logger.warning(
                         "[run:%s] Memory classification approved but no memories created. "
                         "Type: %s, Conversation: %s. "
-                        "This may indicate mem0's Invalid JSON response issue.",
+                        "Mem0 events: %s.",
                         run_id,
                         classified_type,
                         conv_id,
+                        event_stats,
                     )
-                    user_report["errors"].append({
+                    user_report.setdefault("warnings", []).append({
                         "type": f"mem0_{classified_type}_empty_result",
                         "conversation_id": conv_id,
                         "message": "Classification approved but no memories created",
@@ -428,6 +436,7 @@ def _process_single_user_sync(
         mem0_errors = [
             e for e in user_report["errors"]
             if e.get("type", "").startswith("mem0_")
+            and not e.get("type", "").endswith("_empty_result")
         ]
         if mem0_errors and user_report["status"] == "SUCCESS":
             user_report["status"] = "PARTIAL_SUCCESS"
@@ -715,17 +724,24 @@ async def _process_single_user_async(
                     metadata=md,
                     timeout_s=WRITE_OPERATION_TIMEOUT,
                 )
+                event_stats = count_add_event_stats(res)
+                logger.info(
+                    "[run:%s] Mem0 add events (async): %s",
+                    run_id,
+                    event_stats,
+                )
                 c = count_add_results(res)
                 if c == 0:
                     logger.warning(
                         "[run:%s] Memory classification approved but no memories created. "
                         "Type: %s, Conversation: %s. "
-                        "This may indicate mem0's Invalid JSON response issue.",
+                        "Mem0 events: %s.",
                         run_id,
                         classified_type,
                         conv_id,
+                        event_stats,
                     )
-                    user_report["errors"].append({
+                    user_report.setdefault("warnings", []).append({
                         "type": f"mem0_{classified_type}_empty_result",
                         "conversation_id": conv_id,
                         "message": "Classification approved but no memories created",
@@ -801,6 +817,7 @@ async def _process_single_user_async(
         mem0_errors = [
             e for e in user_report["errors"]
             if e.get("type", "").startswith("mem0_")
+            and not e.get("type", "").endswith("_empty_result")
         ]
         if mem0_errors and user_report["status"] == "SUCCESS":
             user_report["status"] = "PARTIAL_SUCCESS"
@@ -1140,6 +1157,15 @@ def _execute_extraction_sync(
                         summary["written_memories"][mem_type] += result.get(
                             "written_memories", {}
                         ).get(mem_type, 0)
+                elif result["status"] == "PARTIAL_SUCCESS":
+                    summary["processed_users"] += 1
+                    summary["scanned_conversations"] += result.get("scanned_conversations", 0)
+                    summary["scanned_messages"] += result.get("scanned_messages", 0)
+                    for mem_type in ["semantic", "episodic", "procedural"]:
+                        summary["written_memories"][mem_type] += result.get(
+                            "written_memories", {}
+                        ).get(mem_type, 0)
+                    overall_status = "PARTIAL_SUCCESS"
                 elif result.get("skipped"):
                     summary["skipped_users"] += 1
                 else:

@@ -134,7 +134,9 @@ You can configure the following performance parameters in plugin settings to opt
 
 **Notes:**
 - If performance parameters are not configured, default values will be used
-- PGVector connection pool settings (`min_connections`, `max_connections`) should be configured in the vector store JSON config (see Vector Store Configuration section below)
+- PGVector connection pool settings should be configured in the vector store JSON config (see Vector Store Configuration section below)
+  - For basic pool sizing: `minconn` / `maxconn`
+  - For advanced psycopg3 tuning: `min_connections` / `max_connections`
 - Invalid or unset values trigger warning logs for better observability
 
 ## Configuration Examples
@@ -143,7 +145,31 @@ You can configure the following performance parameters in plugin settings to opt
 
 ### LLM Configuration (`local_llm_json_secret`)
 
-**Azure OpenAI Example:**
+**Azure OpenAI Structured Example (Recommended):**
+
+> **Why recommended**: `azure_openai_structured` provides stricter schema handling and more reliable parsing for structured outputs. It aligns with the plugin's LLM compatibility improvements (reduced parsing errors and safer defaults for strict clients).
+
+```json
+{
+  "provider": "azure_openai_structured",
+  "config": {
+    "model": "gpt-4.1-mini",
+    "temperature": 0.1,
+    "max_tokens": 2048,
+    "azure_kwargs": {
+      "azure_deployment": "gpt-4.1-mini",
+      "api_version": "2024-12-01-preview",
+      "azure_endpoint": "https://<your-resource>.openai.azure.com/",
+      "api_key": "<your-azure-openai-api-key>",
+      "default_headers": {
+        "CustomHeader": "Mem0_Dify_Plugin"
+      }
+    }
+  }
+}
+```
+
+**Azure OpenAI Example (Standard / Legacy):**
 
 ```json
 {
@@ -155,8 +181,8 @@ You can configure the following performance parameters in plugin settings to opt
     "azure_kwargs": {
       "azure_deployment": "gpt-4o-mini",
       "api_version": "2024-10-21",
-      "azure_endpoint": "https://your-resource.openai.azure.com",
-      "api_key": "your-azure-openai-api-key",
+      "azure_endpoint": "https://<your-resource>.openai.azure.com/",
+      "api_key": "<your-azure-openai-api-key>",
       "default_headers": {
         "CustomHeader": "Mem0_Dify_Plugin"
       }
@@ -174,7 +200,7 @@ You can configure the following performance parameters in plugin settings to opt
     "model": "gpt-4o-mini",
     "temperature": 0.1,
     "max_tokens": 256,
-    "api_key": "your-openai-api-key"
+    "api_key": "<your-openai-api-key>"
   }
 }
 ```
@@ -205,8 +231,8 @@ You can configure the following performance parameters in plugin settings to opt
     "azure_kwargs": {
       "api_version": "2024-10-21",
       "azure_deployment": "text-embedding-3-small",
-      "azure_endpoint": "https://your-resource.openai.azure.com",
-      "api_key": "your-azure-openai-api-key",
+    "azure_endpoint": "https://<your-resource>.openai.azure.com/",
+    "api_key": "<your-azure-openai-api-key>",
       "default_headers": {
         "CustomHeader": "Mem0_Dify_Plugin"
       }
@@ -222,7 +248,7 @@ You can configure the following performance parameters in plugin settings to opt
   "provider": "openai",
   "config": {
     "model": "text-embedding-3-small",
-    "api_key": "your-openai-api-key"
+    "api_key": "<your-openai-api-key>"
   }
 }
 ```
@@ -242,9 +268,32 @@ You can configure the following performance parameters in plugin settings to opt
 
 ### Vector Store Configuration (`local_vector_db_json_secret`)
 
-> **📚 Important**: For production environments, we strongly recommend using one of the two recommended configuration methods below to prevent TCP connection silent timeouts and connection pool memory leaks. See [Connection Stability & Resource Management](#connection-stability--resource-management) section for details.
+> **📚 Important**: For production environments, we strongly recommend using the psycopg3 connection pool with a `connection_string` to prevent TCP connection silent timeouts and connection pool memory leaks. See [Connection Stability & Resource Management](#connection-stability--resource-management) section for details.
 
-**Recommended Configuration Method 1: Using Individual Parameters with TCP Keepalive (Recommended for beginners)**
+**Recommended Configuration Method 1: Using Connection String + psycopg3 Connection Pool (Recommended for production)**
+
+The plugin automatically creates a psycopg3 ConnectionPool when `connection_string` is provided. You can configure pool parameters to optimize connection management and prevent connection pool exhaustion:
+
+```json
+{
+  "provider": "pgvector",
+  "config": {
+    "connection_string": "postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
+    "collection_name": "mem0",
+    "embedding_model_dims": 1536,
+    "minconn": 2,
+    "maxconn": 4
+  }
+}
+```
+
+**Note**:
+- Replace `<user>`, `<password>`, `<host>`, `<port>`, `<db>` with your actual database credentials
+- TCP keepalive parameters are included in the connection string to prevent silent timeouts
+- The plugin automatically creates a psycopg3 ConnectionPool with best practice defaults
+- Individual parameters (user, password, host, etc.) are ignored when `connection_string` is provided
+
+**Recommended Configuration Method 2: Using Individual Parameters with TCP Keepalive (Recommended for beginners)**
 
 The plugin automatically adds TCP keepalive parameters to prevent connection silent timeouts:
 
@@ -252,11 +301,11 @@ The plugin automatically adds TCP keepalive parameters to prevent connection sil
 {
   "provider": "pgvector",
   "config": {
-    "dbname": "mem0_vectors",
-    "user": "postgres",
-    "password": "your-password",
-    "host": "localhost",
-    "port": "5432",
+    "dbname": "<db>",
+    "user": "<user>",
+    "password": "<password>",
+    "host": "<host>",
+    "port": "<port>",
     "sslmode": "disable",
     "minconn": 10,
     "maxconn": 40
@@ -265,13 +314,13 @@ The plugin automatically adds TCP keepalive parameters to prevent connection sil
 ```
 
 **Note**: 
-- Replace `mem0_vectors`, `postgres`, `your-password`, `localhost`, `5432` with your actual database credentials
+- Replace `<db>`, `<user>`, `<password>`, `<host>`, `<port>` with your actual database credentials
 - The plugin will automatically build a `connection_string` from these parameters
 - TCP keepalive parameters (`keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5`) are automatically added to the connection string
 - Connection pool settings (`minconn`, `maxconn`) can be specified in the config
 - If not specified, defaults to 10 (min) and 40 (max)
 
-**Recommended Configuration Method 2: Using Connection String with TCP Keepalive (Recommended for production)**
+**Alternative Method: Using Connection String with TCP Keepalive (No pool tuning)**
 
 If you already have a PostgreSQL connection string, you can use it directly with TCP keepalive parameters:
 
@@ -279,7 +328,7 @@ If you already have a PostgreSQL connection string, you can use it directly with
 {
   "provider": "pgvector",
   "config": {
-    "connection_string": "postgresql://postgres:your-password@localhost:5432/mem0_vectors?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
+    "connection_string": "postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
     "minconn": 10,
     "maxconn": 40
   }
@@ -287,21 +336,21 @@ If you already have a PostgreSQL connection string, you can use it directly with
 ```
 
 **Note**: 
-- Replace `postgres`, `your-password`, `localhost`, `5432`, `mem0_vectors` with your actual database credentials
+- Replace `<user>`, `<password>`, `<host>`, `<port>`, `<db>` with your actual database credentials
 - TCP keepalive parameters are included in the connection string to prevent silent timeouts
 - If TCP keepalive parameters are not present in the connection string, the plugin will automatically add them
 - The plugin automatically creates a psycopg3 ConnectionPool with best practice defaults
 - Individual parameters (user, password, host, etc.) are ignored when `connection_string` is provided
 
-**Option 3: Using Connection String with psycopg3 Connection Pool (Recommended for Production)**
+**Option 3: Advanced psycopg3 pool tuning (Optional)**
 
-The plugin automatically creates a psycopg3 ConnectionPool when `connection_string` is provided. You can configure pool parameters to optimize connection management and prevent connection pool exhaustion:
+If you need fine-grained control over pool sizing and lifecycle, you can add the optional psycopg3 pool parameters:
 
 ```json
 {
   "provider": "pgvector",
   "config": {
-    "connection_string": "postgresql://postgres:your-password@localhost:5432/mem0_vectors?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
+    "connection_string": "postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
     "collection_name": "mem0",
     "embedding_model_dims": 1536,
     "min_connections": 10,
@@ -331,7 +380,7 @@ The plugin automatically creates a psycopg3 ConnectionPool when `connection_stri
 - `pool_open` (bool, default: true): Whether to open the pool immediately
 - `pool_check` (callable/None, default: ConnectionPool.check_connection): Connection health check callback
 
-**Note**: 
+**Note**:
 - The plugin automatically creates a psycopg3 ConnectionPool when `connection_string` is provided
 - TCP keepalive parameters are automatically added to connection strings if not present (when using individual parameters)
 - If `psycopg[pool]` is not installed, the plugin falls back to using `connection_string` only
@@ -360,7 +409,7 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
   "config": {
     "url": "bolt://localhost:7687",
     "username": "neo4j",
-    "password": "your-neo4j-password",
+    "password": "<your-neo4j-password>",
     "database": "neo4j"
   }
 }
@@ -372,9 +421,9 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
 {
   "provider": "neo4j",
   "config": {
-    "url": "neo4j+s://your-instance-id.databases.neo4j.io",
+    "url": "neo4j+s://<your-instance-id>.databases.neo4j.io",
     "username": "neo4j",
-    "password": "your-neo4j-password"
+    "password": "<your-neo4j-password>"
   }
 }
 ```
@@ -390,7 +439,7 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
   "provider": "cohere",
   "config": {
     "model": "rerank-english-v3.0",
-    "api_key": "your-cohere-api-key",
+    "api_key": "<your-cohere-api-key>",
     "top_k": 5
   }
 }
@@ -604,7 +653,7 @@ In Dify workflow, add the `extract_long_term_memory` tool to automatically extra
 **Required Parameters:**
 - `user_ids`: User IDs to process (JSON array string, e.g., `["user1", "user2"]`)
 - `app_id`: Dify App ID for memory isolation. Each app maintains separate memory space for the same user. This ensures memories are scoped to specific applications
-- `dify_base_url`: Dify API base URL (e.g., `http://localhost:5001`)
+- `dify_base_url`: Dify API base URL (standard format: `https://<your-dify-host>/v1`)
 - `dify_api_key`: Dify API key with access to conversations/messages APIs
 
 **Optional Parameters:**
@@ -626,8 +675,8 @@ In Dify workflow, add the `extract_long_term_memory` tool to automatically extra
   "conversations_limit": 50,
   "max_tokens_per_conversation": 64,
   "time_budget": 60,
-  "dify_base_url": "http://localhost:5001",
-  "dify_api_key": "your-dify-api-key"
+  "dify_base_url": "https://<your-dify-host>/v1",
+  "dify_api_key": "<your-dify-api-key>"
 }
 ```
 
@@ -919,10 +968,10 @@ All read operations (Search/Get/Get_All/History) support user-configurable timeo
 
 ### Recommended PGVector Configuration
 
-For production environments, we strongly recommend using one of the two configuration methods described in the [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret) section:
+For production environments, we strongly recommend using one of the configuration methods described in the [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret) section:
 
-1. **Method 1 (Individual Parameters)**: Automatically adds TCP keepalive parameters
-2. **Method 2 (Connection String)**: Includes TCP keepalive parameters in connection string
+1. **Method 1 (Connection String + psycopg3 Pool)**: Recommended for production stability and pool lifecycle management
+2. **Method 2 (Individual Parameters)**: Automatically adds TCP keepalive parameters
 
 Both methods ensure:
 - TCP connections remain alive during idle periods

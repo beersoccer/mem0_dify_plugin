@@ -44,7 +44,7 @@ class DifyClient:
         """Initialize Dify API client.
         
         Args:
-            base_url: Dify API base URL
+            base_url: Dify API base URL (format: http://host/v1)
             api_key: Dify API key
             timeout: HTTP request timeout in seconds (default: 30s)
                      Increased from 20s to handle larger conversation/message lists
@@ -54,6 +54,9 @@ class DifyClient:
         self.timeout = float(timeout)
         if not self.base_url:
             msg = "base_url is required"
+            raise ValueError(msg)
+        if not self.base_url.endswith("/v1"):
+            msg = "base_url must end with /v1"
             raise ValueError(msg)
         if not self.api_key:
             msg = "api_key is required"
@@ -111,7 +114,7 @@ class DifyClient:
     ) -> DifyPage:
         """List conversations, newest first. Retries on transient failures."""
         data = self._get_json(
-            "/v1/conversations",
+            "/conversations",
             {
                 "user": user_id,
                 "last_id": last_id,
@@ -156,7 +159,7 @@ class DifyClient:
         Retries on transient failures.
         """
         data = self._get_json(
-            "/v1/messages",
+            "/messages",
             {
                 "user": user_id,
                 "conversation_id": conversation_id,

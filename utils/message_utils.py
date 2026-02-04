@@ -96,3 +96,26 @@ def count_add_results(res: object) -> int:
         return cnt
     return 0
 
+
+def count_add_event_stats(res: object) -> dict[str, int]:
+    """Count all events from Mem0 add() result (including NONE).
+
+    Args:
+        res: Mem0 add() result dictionary or None.
+
+    Returns:
+        Dict of event name -> count (uppercased).
+    """
+    if not isinstance(res, dict):
+        return {}
+    results = res.get("results")
+    if not isinstance(results, list):
+        return {}
+    counts: dict[str, int] = {}
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        event = str(r.get("event") or "UNKNOWN").upper()
+        counts[event] = counts.get(event, 0) + 1
+    return counts
+
