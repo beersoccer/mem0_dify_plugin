@@ -87,7 +87,7 @@ def dify_client(env_config: dict[str, str]) -> DifyClient:
     if not base_url.startswith("http"):
         base_url = f"http://{base_url}"
     if not base_url.endswith("/v1"):
-        pytest.fail("DIFY_BASE_URL must end with /v1")
+        base_url = f"{base_url.rstrip('/')}/v1"
     api_key = env_config["DIFY_API_KEY"]
     return DifyClient(base_url=base_url, api_key=api_key)
 
