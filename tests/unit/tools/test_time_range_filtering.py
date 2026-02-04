@@ -15,6 +15,7 @@ Test scenarios:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -32,19 +33,31 @@ def load_env_dev() -> dict[str, str]:
     """Load credentials from .env file."""
     # .env 文件应该在 tests/.env，而不是 tests/unit/tools/.env
     env_file = Path(__file__).parent.parent.parent / ".env"
-    if not env_file.exists():
-        pytest.skip("No .env file found in tests/ directory")
+    env_vars: dict[str, str] = {
+        key: os.environ[key]
+        for key in (
+            "DIFY_API_KEY",
+            "DIFY_USER_ID",
+            "DIFY_USER_IDS",
+            "DIFY_BASE_URL",
+            "TEST_START_TIME",
+            "TEST_END_TIME",
+        )
+        if key in os.environ
+    }
 
-    env_vars: dict[str, str] = {}
-    with env_file.open() as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            env_vars[key.strip()] = value.strip().strip('"')
+    if env_file.exists():
+        with env_file.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key not in env_vars:
+                    env_vars[key] = value.strip().strip('"')
 
     # DIFY_USER_ID can be extracted from DIFY_USER_IDS if not explicitly set
     if "DIFY_USER_ID" not in env_vars and "DIFY_USER_IDS" in env_vars:
@@ -56,7 +69,7 @@ def load_env_dev() -> dict[str, str]:
     required = ["DIFY_API_KEY", "DIFY_USER_ID"]
     missing = [k for k in required if k not in env_vars]
     if missing:
-        pytest.skip(f"Missing required env vars in .env: {missing}")
+        pytest.skip(f"Missing required env vars: {missing}")
 
     return env_vars
 

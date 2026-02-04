@@ -29,6 +29,12 @@ jobs:
       - name: Tests (pytest)
         env:
           PYTHONPATH: ${{ github.workspace }}
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          DIFY_USER_ID: ${{ vars.DIFY_USER_ID }}
+          DIFY_USER_IDS: ${{ vars.DIFY_USER_IDS }}
+          DIFY_BASE_URL: ${{ vars.DIFY_BASE_URL }}
+          TEST_START_TIME: ${{ vars.TEST_START_TIME }}
+          TEST_END_TIME: ${{ vars.TEST_END_TIME }}
         run: |
           # 运行不需要fork模式的测试（排除E2E和需要fork的工具测试）
           pytest tests/unit/utils/ tests/integration/ -q --tb=short
