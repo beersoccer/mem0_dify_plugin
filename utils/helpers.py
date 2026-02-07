@@ -6,7 +6,7 @@ import hashlib
 import json
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -80,10 +80,12 @@ def parse_iso_timestamp(value: object) -> datetime | None:
     if value is None:
         return None
 
+    local_tz = datetime.now().astimezone().tzinfo
+
     # Handle Unix timestamps (int or float)
     if isinstance(value, int | float):
         try:
-            return datetime.fromtimestamp(value, tz=UTC)
+            return datetime.fromtimestamp(value, tz=local_tz)
         except (OSError, OverflowError, ValueError):
             return None
 
@@ -110,9 +112,9 @@ def parse_iso_timestamp(value: object) -> datetime | None:
     except ValueError:
         return None
 
-    # Ensure timezone-aware (assume UTC if naive)
+    # Ensure timezone-aware (assume local timezone if naive)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        dt = dt.replace(tzinfo=local_tz)
     return dt
 
 
@@ -141,6 +143,86 @@ def format_recent_timestamp(created_at: object, updated_at: object) -> str:
 
     latest = max(candidates, key=lambda dt: dt.timestamp())
     return latest.astimezone().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def compute_duration_seconds(
+    started_at: object, updated_at: object | None
+) -> int | None:
+    """Compute duration in seconds from two timestamps.
+
+    Args:
+        started_at: Start timestamp (ISO8601 string or Unix timestamp).
+        updated_at: End timestamp (ISO8601 string or Unix timestamp).
+
+    Returns:
+        Duration in seconds (>=0) or None if start is invalid.
+    """
+    start_dt = parse_iso_timestamp(started_at)
+    if start_dt is None:
+        return None
+    end_dt = parse_iso_timestamp(updated_at) or datetime.now().astimezone()
+    return max(0, int((end_dt - start_dt).total_seconds()))
+
+
+def format_duration_mmss(total_seconds: int | None) -> str | None:
+    """Format duration in mm:ss or hh:mm:ss."""
+    if total_seconds is None:
+        return None
+    total_seconds = max(0, int(total_seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def format_task_time_range(
+    started_at: object, updated_at: object | None
+) -> tuple[str | None, str | None]:
+    """Format task start/end timestamps for display (local TZ, second precision)."""
+    start_dt = parse_iso_timestamp(started_at)
+    if start_dt is None:
+        return None, None
+    end_dt = parse_iso_timestamp(updated_at)
+    start_display = start_dt.astimezone().isoformat(timespec="seconds")
+    end_display = (
+        end_dt.astimezone().isoformat(timespec="seconds") if end_dt else None
+    )
+    return start_display, end_display
+
+
+def resolve_task_time_range(
+    range_start: object, range_end: object | None, final_report: object
+) -> tuple[object | None, object | None]:
+    """Resolve conversation time range from status fields or final report."""
+    if range_start:
+        return range_start, range_end
+    if isinstance(final_report, dict):
+        return final_report.get("start_time"), final_report.get("end_time")
+    return None, None
+
+
+def strip_tz_offset(timestamp: str | None) -> str | None:
+    """Strip timezone offset suffix from ISO8601 string for display."""
+    if not timestamp:
+        return timestamp
+    if timestamp.endswith("Z"):
+        return timestamp[:-1]
+    plus_index = timestamp.rfind("+")
+    minus_index = timestamp.rfind("-")
+    index = max(plus_index, minus_index)
+    if index > 10:
+        return timestamp[:index]
+    return timestamp
+
+
+def trim_midnight_timestamp(timestamp: str | None) -> str | None:
+    """Trim trailing 'T00:00:00' from ISO8601 timestamp for display."""
+    if not timestamp:
+        return timestamp
+    if timestamp.endswith("T00:00:00"):
+        return timestamp.replace("T00:00:00", "")
+    return timestamp
 
 
 def parse_positive_int(

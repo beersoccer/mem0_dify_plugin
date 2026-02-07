@@ -68,15 +68,7 @@ First, select the operation mode in plugin credentials:
   - **Note**: Sync mode has no timeout protection. If timeout protection is needed, use `async_mode=true`
   
 **Special Note for `extract_long_term_memory` Tool:**
-- **Async Mode (async_mode=true, recommended)**: 
-  - Uses `AsyncMem0Client` with automatic timeout protection, queue overload checking, and explicit resource management
-  - Suitable for production environments and large-scale batch processing (10+ users)
-  - Provides better resource management and error handling for long-running tasks
-- **Sync Mode (async_mode=false)**:
-  - Uses synchronous `Memory` instances wrapped in async for compatibility
-  - **Only recommended for testing with <10 users**
-  - Sync mode has no timeout protection and relies on garbage collection for resource cleanup
-  - **For production environments, always use async_mode=true**
+- See **Extract Long-Term Memory** → **Mode Selection** for use cases and batch processing behavior.
 
 ### Step 2: Configure Models and Databases
 
@@ -528,7 +520,7 @@ This section provides complete usage examples for all 10 tools. For a quick over
 
 In Dify workflow, add the `add_memory` tool and configure the following parameters:
 
-![Add Memory Tool Configuration](images/add_memory_example.png)
+![Add Memory Tool Configuration](images/add_memory.png)
 
 **Required Parameters:**
 - `user`: User message (e.g., "I love Italian food")
@@ -544,7 +536,7 @@ In Dify workflow, add the `add_memory` tool and configure the following paramete
 
 In Dify workflow, add the `search_memory` tool and configure the following parameters:
 
-![Search Memory Tool Configuration](images/search_memory_example.png)
+![Search Memory Tool Configuration](images/search_memory.png)
 
 **Required Parameters:**
 - `query`: Search query (e.g., "What food does alex like?")
@@ -558,7 +550,7 @@ In Dify workflow, add the `search_memory` tool and configure the following param
 
 **Search with Filters Example:**
 
-![Search Memory with Filters](images/search_memory_filters_example.png)
+![Search Memory with Filters](images/search_memory_filters.png)
 
 Configure the `filters` parameter with a JSON string for advanced filtering:
 - Example: `{"categories": {"contains": "diet"}}`
@@ -567,7 +559,7 @@ Configure the `filters` parameter with a JSON string for advanced filtering:
 
 In Dify workflow, add the `get_all_memories` tool and configure the following parameters:
 
-![Get All Memories Tool Configuration](images/get_all_memories_example.png)
+![Get All Memories Tool Configuration](images/get_all_memories.png)
 
 **Required Parameters:**
 - `user_id`: User identifier (e.g., "alex")
@@ -582,7 +574,7 @@ In Dify workflow, add the `get_all_memories` tool and configure the following pa
 
 In Dify workflow, add the `get_memory` tool and configure the following parameters:
 
-![Get Memory Tool Configuration](images/get_memory_example.png)
+![Get Memory Tool Configuration](images/get_memory.png)
 
 **Required Parameters:**
 - `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
@@ -594,7 +586,7 @@ In Dify workflow, add the `get_memory` tool and configure the following paramete
 
 In Dify workflow, add the `update_memory` tool and configure the following parameters:
 
-![Update Memory Tool Configuration](images/update_memory_example.png)
+![Update Memory Tool Configuration](images/update_memory.png)
 
 **Required Parameters:**
 - `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
@@ -607,7 +599,7 @@ In Dify workflow, add the `update_memory` tool and configure the following param
 
 In Dify workflow, add the `delete_memory` tool and configure the following parameters:
 
-![Delete Memory Tool Configuration](images/delete_memory_example.png)
+![Delete Memory Tool Configuration](images/delete_memory.png)
 
 **Required Parameters:**
 - `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
@@ -619,7 +611,7 @@ In Dify workflow, add the `delete_memory` tool and configure the following param
 
 In Dify workflow, add the `delete_all_memories` tool and configure the following parameters:
 
-![Delete All Memories Tool Configuration](images/delete_all_memories_example.png)
+![Delete All Memories Tool Configuration](images/delete_all_memories.png)
 
 **Required Parameters:**
 - `user_id`: User identifier (e.g., "alex")
@@ -634,7 +626,7 @@ In Dify workflow, add the `delete_all_memories` tool and configure the following
 
 In Dify workflow, add the `get_memory_history` tool and configure the following parameters:
 
-![Get Memory History Tool Configuration](images/get_memory_history_example.png)
+![Get Memory History Tool Configuration](images/get_memory_history.png)
 
 **Required Parameters:**
 - `memory_id`: Memory ID (UUID format, e.g., "memory-uuid-here")
@@ -646,9 +638,15 @@ In Dify workflow, add the `get_memory_history` tool and configure the following 
 
 In Dify workflow, add the `extract_long_term_memory` tool to automatically extract semantic, episodic, and procedural memories from your Dify conversation history.
 
+#### Tool Configuration
+
+![Extract Long-Term Memory Tool Configuration](images/extract_long_term_memory.png)
+
+Use the parameters below to configure the extraction scope, limits, and Dify API access for each run.
+
 **Mode Selection:**
-- **Async Mode (async_mode=true, recommended)**: Uses `AsyncMem0Client` with automatic timeout protection, queue overload checking, and explicit resource management. Suitable for production environments and large-scale batch processing (10+ users).
-- **Sync Mode (async_mode=false)**: Uses synchronous `Memory` instances wrapped in async for compatibility. **Only recommended for testing with <10 users.** Sync mode has no timeout protection and relies on garbage collection for resource cleanup. **For production, always use async_mode=true.**
+- **Async Mode (async_mode=true, recommended)**: Best for production and batch jobs (10+ users). `user_ids` are processed in batches of size `EXTRACTION_MAX_CONCURRENT_USERS` with concurrent execution per batch (semaphore-limited), then batches run sequentially.
+- **Sync Mode (async_mode=false)**: Best for testing, small batches, or debugging. Users are processed sequentially and block until completion. No timeout protection; **for production, use async_mode=true.**
 
 **Required Parameters:**
 - `user_ids`: User IDs to process (JSON array string, e.g., `["user1", "user2"]`)
@@ -658,10 +656,10 @@ In Dify workflow, add the `extract_long_term_memory` tool to automatically extra
 
 **Optional Parameters:**
 - `run_id`: Unique identifier for tracking the entire memory operation call chain. Recommended to use Dify's workflow_run_id to link multiple memory operations in the same workflow. **Note**: This parameter is **only for tracing the call chain** and is **NOT used as a condition for memory layering or filtering**
-- `days_back`: Number of days to look back for extracting conversation history (1-7, default: 3). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as:
+- `days_back`: Number of days to look back for extracting conversation history (1-7, default: 1). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as:
   - `start_time`: (today - days_back) at 00:00:00
   - `end_time`: today at 00:00:00
-- `conversations_limit`: Maximum conversations to process per user per execution (10-500, default: 50). This prevents malicious users from generating excessive conversations and consuming too much processing time. For 3-day cycle: light users ~15, normal users ~30-45, heavy users ~60-90. Adjust based on your execution cycle.
+- `conversations_limit`: Maximum conversations to process per user per execution (10-500, default: 20). This limit applies to the total conversations within the configured `days_back` time range. This prevents malicious users from generating excessive conversations and consuming too much processing time. For 1-day cycle: light users ~5, normal users ~10-15, heavy users ~20-30. Adjust based on your execution cycle.
 - `max_tokens_per_conversation`: Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during data fetching to optimize network transfer. If a conversation exceeds this limit, pagination stops early and only the most recent messages are fetched. Adjust based on your LLM's context window (e.g., GPT-4: 128K, Claude 3.5: 200K).
 - `time_budget`: Maximum time budget in minutes for the extraction task (suggested: 5-120 minutes, default: 60 minutes, same as EXTRACTION_TIME_BUDGET). The lock TTL is automatically calculated as 1.2 times the time budget (rounded up). No upper limit enforced - adjust based on your batch size and processing requirements. For large batch jobs processing 1000+ users, consider increasing this value.
 
@@ -671,8 +669,8 @@ In Dify workflow, add the `extract_long_term_memory` tool to automatically extra
   "user_ids": "[\"alice\", \"bob\"]",
   "app_id": "my-chatbot-app",
   "run_id": "workflow_run_12345",
-  "days_back": 3,
-  "conversations_limit": 50,
+  "days_back": 1,
+  "conversations_limit": 20,
   "max_tokens_per_conversation": 64,
   "time_budget": 60,
   "dify_base_url": "https://<your-dify-host>/v1",
@@ -709,8 +707,8 @@ The `app_id` parameter provides application-level memory isolation following Mem
 **Time Range Examples:**
 
 If today is January 25, 2026:
-- `days_back=1`: Extracts [Jan 24 00:00:00, Jan 25 00:00:00) - yesterday only
-- `days_back=3`: Extracts [Jan 22 00:00:00, Jan 25 00:00:00) - last 3 days (default)
+- `days_back=1`: Extracts [Jan 24 00:00:00, Jan 25 00:00:00) - yesterday only (default)
+- `days_back=3`: Extracts [Jan 22 00:00:00, Jan 25 00:00:00) - last 3 days
 - `days_back=7`: Extracts [Jan 18 00:00:00, Jan 25 00:00:00) - last week
 
 **Output:**
@@ -756,7 +754,13 @@ For detailed implementation and design, see the tool documentation in `tools/ext
 
 In Dify workflow, add the `check_extraction_status` tool to query the status and progress of an async extraction task. Use this tool after calling `extract_long_term_memory` to monitor task progress.
 
-![Check Extraction Status Tool Configuration](images/check_extraction_status_example.png)
+#### Tool Configuration
+
+![Check Extraction Status Tool Configuration](images/check_extraction_status.png)
+
+**Configuration Notes:**
+- Provide the `task_id` returned by `extract_long_term_memory`
+- No other parameters are required or supported for this tool
 
 **Required Parameters:**
 - `task_id`: The task ID returned by `extract_long_term_memory` tool when the task was accepted
@@ -777,11 +781,18 @@ The tool returns a structured JSON response with:
 - `progress`: Progress percentage (0.0-1.0, rounded to 2 decimal places)
 - `started_at`: Task start timestamp
 - `updated_at`: Last update timestamp
+- `range_start`: Conversation time range start (ISO8601)
+- `range_end`: Conversation time range end (ISO8601)
+- `time_range_display`: Human-readable time range (local time)
+- `duration_seconds`: Task duration in seconds
+- `duration_display`: Task duration display (mm:ss or hh:mm:ss)
 - `user_count`: Total number of users to process
 - `processed_users`: Number of users already processed
 - `skipped_users`: Number of users skipped
 - `scanned_conversations`: Total conversations scanned
 - `scanned_messages`: Total messages scanned
+- `processed_conversations`: Conversations that actually contained messages in range
+- `processed_messages`: Messages within the time range
 - `written_memories`: Total memories written
 - `error`: Error message (if task failed)
 - `final_report`: Final processing report (if task completed)
@@ -805,13 +816,20 @@ The tool returns a structured JSON response with:
   "run_id": "workflow_run_12345",
   "task_status": "running",
   "progress": 0.65,
-  "started_at": "2026-01-25T10:00:00Z",
-  "updated_at": "2026-01-25T10:05:00Z",
+  "started_at": "2026-01-25T10:00:00+08:00",
+  "updated_at": "2026-01-25T10:05:00+08:00",
+  "range_start": "2026-01-24T00:00:00+08:00",
+  "range_end": "2026-01-25T00:00:00+08:00",
+  "time_range_display": "2026-01-24 -> 2026-01-25",
+  "duration_seconds": 300,
+  "duration_display": "05:00",
   "user_count": 10,
   "processed_users": 6,
   "skipped_users": 1,
   "scanned_conversations": 45,
   "scanned_messages": 320,
+  "processed_conversations": 38,
+  "processed_messages": 285,
   "written_memories": 28
 }
 ```
@@ -824,13 +842,20 @@ The tool returns a structured JSON response with:
   "run_id": "workflow_run_12345",
   "task_status": "completed",
   "progress": 1.0,
-  "started_at": "2026-01-25T10:00:00Z",
-  "updated_at": "2026-01-25T10:10:00Z",
+  "started_at": "2026-01-25T10:00:00+08:00",
+  "updated_at": "2026-01-25T10:10:00+08:00",
+  "range_start": "2026-01-24T00:00:00+08:00",
+  "range_end": "2026-01-25T00:00:00+08:00",
+  "time_range_display": "2026-01-24 -> 2026-01-25",
+  "duration_seconds": 600,
+  "duration_display": "10:00",
   "user_count": 10,
   "processed_users": 10,
   "skipped_users": 0,
   "scanned_conversations": 78,
   "scanned_messages": 542,
+  "processed_conversations": 72,
+  "processed_messages": 510,
   "written_memories": 45,
   "final_report": {
     "status": "SUCCESS",
@@ -870,7 +895,7 @@ The tool returns a structured JSON response with:
 - **`run_id` Parameter** (optional): Recommended to use Dify's `workflow_run_id` to link multiple memory operations in the same workflow. **Important**: This parameter is only used for request tracing and logging; it is NOT used as a condition for memory layering or filtering
 - **`agent_id` Parameter**: When using `agent_id` in Dify workflows, you should use the **Dify application's `app_id`** (not `workflow_id`). This is because `workflow_id` changes every time you publish a workflow, while `app_id` remains stable and allows you to scope memories consistently across workflow versions
 - **`app_id` Parameter** (for `extract_long_term_memory`): Required for memory isolation. Each app maintains separate memory space for the same user. This ensures memories are scoped to specific applications
-- **`days_back` Parameter** (for `extract_long_term_memory`): Number of days to look back for extracting conversation history (1-7, default: 3). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as `start_time = (today - days_back) 00:00:00` and `end_time = today 00:00:00`
+- **`days_back` Parameter** (for `extract_long_term_memory`): Number of days to look back for extracting conversation history (1-7, default: 1). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as `start_time = (today - days_back) 00:00:00` and `end_time = today 00:00:00`
 - For runtime behavior details (async vs sync mode), see [Runtime Behavior](#runtime-behavior) section
 
 ## Runtime Behavior

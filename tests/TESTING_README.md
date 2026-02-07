@@ -79,7 +79,7 @@ tests/
 ├── unit/
 │   ├── tools/          # 工具单元测试（7个文件）
 │   └── utils/          # 工具类单元测试（7个文件）
-├── integration/        # 集成测试（1个文件）
+├── integration/        # 集成测试（2个文件）
 └── e2e/               # 端到端测试（1个文件）
 ```
 
@@ -139,11 +139,10 @@ TEST_END_TIME="2026-01-17T12:01:00Z"
 
 | 测试文件 | 测试内容 | 测试数量 |
 |---------|---------|---------|
-| `test_extract_long_term_memory.py` | 辅助函数、消息规范化 | 19 |
+| `test_extract_long_term_memory.py` | 辅助函数、去重与时间比较 | 19 |
 | `test_extraction_async.py` | 异步抽取、并发处理 | 多组 |
 | `test_extraction_parameters.py` | 参数验证、时间范围 | 多组 |
 | `test_token_truncation.py` | Token截断逻辑 | 多组 |
-| `test_time_range_filtering.py` | 时间范围过滤 | 多组 |
 | `test_time_range_expansion.py` | 时间范围扩展 | 多组 |
 | `test_search_with_filters.py` | 搜索过滤器 | 3 |
 
@@ -178,6 +177,7 @@ pytest tests/unit/utils/test_checkpoint.py -v
 ### 测试文件
 
 - `tests/integration/test_dify_integration.py` - Dify API集成测试
+- `tests/integration/test_time_range_filtering.py` - 真实 Dify 数据的时间范围过滤
 - `tests/unit/tools/test_extraction_async.py` - 异步抽取测试（工具测试，但包含集成逻辑）
 
 ### 运行集成测试
@@ -185,6 +185,7 @@ pytest tests/unit/utils/test_checkpoint.py -v
 ```bash
 source .venv/bin/activate
 pytest tests/integration/test_dify_integration.py -v
+pytest tests/integration/test_time_range_filtering.py -v
 
 # 异步抽取测试（不使用 --forked 也能运行，但会有 gevent 警告）
 pytest tests/unit/tools/test_extraction_async.py -v

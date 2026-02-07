@@ -58,12 +58,12 @@ DIFY_API_MAX_ITEMS_PER_REQUEST: int = 100
 # Default maximum conversations to process per user per execution
 # This prevents malicious users from generating excessive conversations
 # and consuming too much processing time.
-# Default: 50 conversations (suitable for 3-day execution cycle)
-# - Light users: ~15 conversations (3-5 per day × 3 days)
-# - Normal users: ~30-45 conversations (10-15 per day × 3 days)
-# - Heavy users: ~60-90 conversations (20-30 per day × 3 days)
-# Setting to 50 covers 90% of normal users while preventing abuse
-EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT: int = 50
+# Default: 20 conversations (suitable for 1-day execution cycle)
+# - Light users: ~5 conversations (3-5 per day)
+# - Normal users: ~10-15 conversations (10-15 per day)
+# - Heavy users: ~20-30 conversations (20-30 per day)
+# Setting to 20 balances coverage for typical users while preventing abuse
+EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT: int = 20
 
 # Extraction operation timeouts (for batch memory extraction)
 # These are significantly longer than standard operations due to:

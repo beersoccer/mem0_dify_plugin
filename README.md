@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin v0.2.5
+# Mem0 Dify Plugin v0.2.6
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
@@ -28,19 +28,20 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🎯 **Entity Scoping** - user_id (required for add), agent_id, run_id
 - 📊 **Metadata System** - Custom JSON metadata for rich context
 - 🔍 **Filters** - JSON filters supported by Mem0 self-hosted mode
-- 🌍 **Internationalized** - 中英双语 (Chinese/English)
+- 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.5) - Reliability & Compatibility Improvements! 🛠️
-- **🧩 LLM Compatibility Shim (2026-02-04)**
-  - Added `_parse_response` compatibility patch for structured LLM providers to reduce parsing errors
-  - Keepalive now uses provider-agnostic `generate_response()` without strict args for better model compatibility
-- **🧠 Sync Subtype Client Reuse**
-  - Subtype clients accept config overrides to avoid manual Memory swapping
-  - Pool-sharing logic improves resource isolation while keeping prompts per subtype
-- **🧪 Test & Tooling Stability**
-  - `DifyClient` enforces `/v1` base URL format; integration tests normalize base URLs
-  - Cleanup script supports `DIFY_USER_IDS` and ensures client resources are closed
+### What's New (v0.2.6) - Extraction Status & Resume Refinements ✅
+- **Resume-safe extraction at conversation limits**
+  - Checkpoints store resume cursors and avoid marking success when the per-user cap is reached
+- **Extraction defaults tuned for daily runs**
+  - `days_back` defaults to 1, `conversations_limit` defaults to 20
+- **Richer task status visibility**
+  - `check_extraction_status` now includes time range, duration, and processed vs scanned counters with local-time timestamps
+- **Cleaner extraction writes**
+  - Extraction writes now use `agent_id=app_id` for scoping and simplified metadata tagged by `memory_origin`
+
+### Previous Updates (v0.2.5) - Reliability & Compatibility Improvements! 🛠️
 
 ### Previous Updates (v0.2.4) - Resource Isolation Optimization! 🔒
 - **🔒 Connection Pool Sharing & Resource Isolation (2026-02-03)**
@@ -141,6 +142,13 @@ After installation, you need to configure:
 
 **Note**: All JSON configuration fields are displayed as password fields (hidden input) in the Dify UI to protect sensitive information. Legacy `*_json` fields are no longer shown in the UI.
 
+### Long-Term Memory Extraction Modes (Extract Tool)
+
+- **Async mode (`async_mode=true`)**: Recommended for production and batch jobs; returns `task_id` and runs in background.
+- **Sync mode (`async_mode=false`)**: Recommended for testing or small runs; sequential and blocking.
+
+Details (including batch processing behavior) are in `CONFIG.md` under **Extract Long-Term Memory**.
+
 ### Start Using
 
 Once configured, all 10 tools are available in your workflows!
@@ -155,7 +163,7 @@ Once configured, all 10 tools are available in your workflows!
 
 In Dify workflow, add the `add_memory` tool and configure the following parameters:
 
-![Add Memory Tool Configuration](images/add_memory_example.png)
+![Add Memory Tool Configuration](images/add_memory.png)
 
 **Required Parameters:**
 - `user`: User message (e.g., "I love Italian food")
@@ -171,7 +179,7 @@ In Dify workflow, add the `add_memory` tool and configure the following paramete
 
 In Dify workflow, add the `search_memory` tool and configure the following parameters:
 
-![Search Memory Tool Configuration](images/search_memory_example.png)
+![Search Memory Tool Configuration](images/search_memory.png)
 
 **Required Parameters:**
 - `query`: Search query (e.g., "What food does alex like?")
@@ -205,6 +213,8 @@ In Dify workflow, add the `search_memory` tool and configure the following param
 | `get_memory_history` | View change history |
 | `extract_long_term_memory` | Extract semantic/episodic/procedural memories from Dify conversation history |
 | `check_extraction_status` | Check the status and progress of async extraction tasks |
+
+Note: `extract_long_term_memory` uses `conversations_limit` as the per-user total conversation cap within the configured `days_back` time range.
 
 ---
 
@@ -390,6 +400,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.6 | 2026-02-07 | Extraction resume safeguards, richer status metrics, local-time task timestamps |
 | v0.2.5 | 2026-02-04 | Documentation refresh: recommended config choices and placeholder-safe examples |
 | v0.2.4 | 2026-02-03 | Resource isolation optimization: Connection pool sharing for long-term memory tool (67% reduction in database connections) |
 | v0.2.3 | 2026-01-31 | Documentation updates: Comprehensive documentation synchronization, merged design documents, improved consistency |

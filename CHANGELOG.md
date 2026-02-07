@@ -1,5 +1,32 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.6 (2026-02-07)
+
+### ⚡ Optimizations
+- **Extraction defaults tuned for daily runs**:
+  - `days_back` default is now 1 (aligned with daily extraction cycles)
+  - `conversations_limit` default is now 20 (aligned with 1-day extraction cycles)
+  - Task status timestamps now use local time for clearer operational tracing
+
+### ✨ Enhancements
+- **Richer extraction status visibility**:
+  - `check_extraction_status` now reports time range, duration, and processed vs scanned counts
+  - Task status persists `range_start`/`range_end`, plus processed conversations/messages for diagnostics
+- **Cleaner extraction writes**:
+  - Extraction writes now pass `agent_id=app_id` for scoping
+  - Metadata now tags `memory_origin` to distinguish implicit extraction
+- **Task status storage isolation**:
+  - Internal task status records use a dedicated user id (`memory_extractor`) and simplified filters
+- **Safety & logging polish**:
+  - Prompt guardrails prevent guessing IDs for update/delete actions
+  - Dify runtime logging avoids duplicate propagation
+
+### 🐛 Fixes
+- **Resume-safe extraction at conversation limits**:
+  - Checkpoints store resume cursors and defer task success when `max_conversations` is reached, preventing silent skips
+
+---
+
 ## Version 0.2.5 (2026-02-04)
 
 ### 🛠️ Reliability & Compatibility Improvements

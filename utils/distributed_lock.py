@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .helpers import parse_iso_timestamp
@@ -41,7 +41,7 @@ class DistributedLock:
         acquired_dt = parse_iso_timestamp(self.acquired_at)
         if acquired_dt is None:
             return True
-        now = datetime.now(UTC)
+        now = datetime.now().astimezone()
         elapsed = (now - acquired_dt).total_seconds()
         return elapsed >= self.ttl_seconds
 
@@ -163,7 +163,8 @@ class SyncLockManager:
         if existing_lock:
             if not existing_lock.is_expired():
                 time_since_acquired = (
-                    datetime.now(UTC) - parse_iso_timestamp(existing_lock.acquired_at)
+                    datetime.now().astimezone()
+                    - parse_iso_timestamp(existing_lock.acquired_at)
                 ).total_seconds()
                 expires_in = existing_lock.ttl_seconds - time_since_acquired
                 logger.warning(
@@ -185,7 +186,7 @@ class SyncLockManager:
         new_lock = DistributedLock(
             lock_id=lock_key,
             holder_id=holder_id,
-            acquired_at=datetime.now(UTC).isoformat(),
+            acquired_at=datetime.now().astimezone().isoformat(),
             ttl_seconds=ttl_seconds,
         )
 
@@ -377,7 +378,8 @@ class AsyncLockManager:
         if existing_lock:
             if not existing_lock.is_expired():
                 time_since_acquired = (
-                    datetime.now(UTC) - parse_iso_timestamp(existing_lock.acquired_at)
+                    datetime.now().astimezone()
+                    - parse_iso_timestamp(existing_lock.acquired_at)
                 ).total_seconds()
                 expires_in = existing_lock.ttl_seconds - time_since_acquired
                 logger.warning(
@@ -399,7 +401,7 @@ class AsyncLockManager:
         new_lock = DistributedLock(
             lock_id=lock_key,
             holder_id=holder_id,
-            acquired_at=datetime.now(UTC).isoformat(),
+            acquired_at=datetime.now().astimezone().isoformat(),
             ttl_seconds=ttl_seconds,
         )
 

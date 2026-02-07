@@ -31,6 +31,7 @@ ScanStopReason = Literal[
     "no_more_conversations",
     "conversation_failed",
     "completed",
+    "max_conversations_reached",
 ]
 
 
@@ -47,6 +48,9 @@ class ConversationCheckpoint:
 class UserCheckpoint:
     last_run_at: str | None = None
     conversations: dict[str, ConversationCheckpoint] | None = None
+    resume_conversation_cursor: str | None = None
+    resume_run_at: str | None = None
+    resume_start_time: str | None = None
 
     def get_conv(self, conversation_id: str) -> ConversationCheckpoint:
         if self.conversations is None:
@@ -66,6 +70,7 @@ class ScanStats:
     scanned_messages: int = 0
     dropped_future_messages: int = 0
     conversations_with_new_messages: int = 0
+    resume_conversation_cursor: str | None = None
 
 
 @dataclass
@@ -330,7 +335,7 @@ def scan_user_conversations_incremental(
         run_at: Upper bound (ISO8601).
             Messages with created_at > run_at are dropped.
         max_conversations: Maximum total conversations to process per user.
-            Defaults to EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT (50).
+            Defaults to EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT (20).
             This prevents malicious users from consuming excessive processing time.
         max_tokens_per_conversation: Optional token limit per conversation.
             If specified, stops fetching messages when limit is reached.
@@ -354,8 +359,19 @@ def scan_user_conversations_incremental(
         parse_iso_timestamp(user_checkpoint.last_run_at) if user_checkpoint else None
     )
 
+    resume_cursor: str | None = None
+    resume_active = False
+    if user_checkpoint and user_checkpoint.resume_conversation_cursor:
+        resume_matches_range = (
+            user_checkpoint.resume_run_at == run_at
+            and user_checkpoint.resume_start_time == start_time
+        )
+        if resume_matches_range:
+            resume_cursor = user_checkpoint.resume_conversation_cursor
+            resume_active = True
+
     results: dict[str, list[dict[str, Any]]] = {}
-    last_id: str | None = None
+    last_id: str | None = resume_cursor
     conversations_processed = 0
 
     while conversations_processed < max_conversations:
@@ -375,10 +391,6 @@ def scan_user_conversations_incremental(
             return results, stats, "no_more_conversations"
 
         for conv in page.items:
-            # Check if we've reached the conversation limit
-            if conversations_processed >= max_conversations:
-                return results, stats, "max_conversations_reached"
-            
             conversations_processed += 1
             stats.scanned_conversations += 1
             conv_id = _get_id(conv) or str(conv.get("id") or "").strip()
@@ -394,7 +406,8 @@ def scan_user_conversations_incremental(
             # Descending scan: stop when conversation updated_at <= last_run_at
             # (already processed, no updates)
             if (
-                last_run_at_dt
+                not resume_active
+                and last_run_at_dt
                 and updated_at_dt
                 and updated_at_dt.timestamp() <= last_run_at_dt.timestamp()
             ):
@@ -429,6 +442,10 @@ def scan_user_conversations_incremental(
                 # Return all messages as a simple list (no segmentation)
                 # Token-based truncation is handled by the caller
                 results[conv_id] = new_messages
+
+            if conversations_processed >= max_conversations:
+                stats.resume_conversation_cursor = conv_id
+                return results, stats, "max_conversations_reached"
 
         last_id = page.next_cursor
         if not page.has_more or not last_id:

@@ -8,7 +8,6 @@ This module tests the refactored extraction tool that uses:
 """
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -312,11 +311,13 @@ class TestExecuteExtractionAsync:
             concurrent_count = []
             max_concurrent = [0]
 
-            def mock_process_user(*args, **kwargs):
+            async def mock_process_user(*args, **kwargs):
                 concurrent_count.append(1)
                 max_concurrent[0] = max(max_concurrent[0], len(concurrent_count))
-                time.sleep(0.1)  # Simulate processing time
-                concurrent_count.pop()
+                try:
+                    await asyncio.sleep(0.1)  # Simulate processing time
+                finally:
+                    concurrent_count.pop()
                 return {
                     "user_id": kwargs.get("user_id", args[2] if len(args) > 2 else "unknown"),
                     "status": "SUCCESS",
@@ -377,8 +378,8 @@ class TestExecuteExtractionAsync:
             mock_dify_cls.return_value = mock_dify_client
             mock_lock_cls.return_value = mock_lock_manager
 
-            def mock_process_user(*args, **kwargs):
-                time.sleep(0.2)  # Each user takes 0.2 seconds
+            async def mock_process_user(*args, **kwargs):
+                await asyncio.sleep(0.2)  # Each user takes 0.2 seconds
                 return {
                     "user_id": kwargs.get("user_id", "unknown"),
                     "status": "SUCCESS",
@@ -437,7 +438,7 @@ class TestExecuteExtractionAsync:
             mock_dify_cls.return_value = mock_dify_client
             mock_lock_cls.return_value = mock_lock_manager
 
-            def mock_process_user(*args, **kwargs):
+            async def mock_process_user(*args, **kwargs):
                 user_id = kwargs.get("user_id", args[2] if len(args) > 2 else "unknown")
                 if user_id == "user2":
                     raise Exception("Processing error")

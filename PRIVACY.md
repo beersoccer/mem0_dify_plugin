@@ -23,6 +23,10 @@ The plugin processes the following types of information:
    - Agent IDs and Run IDs for scoping memories
    - No personal identification information (PII) is required beyond these identifiers
 
+3. **Internal Task Status Records**
+   - Extraction task progress is stored as internal memory records
+   - These records are isolated under a dedicated internal user id
+
 ### How Your Information is Used
 
 The processed information is used for:
@@ -83,4 +87,4 @@ We may update this privacy policy from time to time. Changes will be reflected i
 If you have questions about this privacy policy or the plugin, please contact:
 - Email: beersocccer@gmail.com
 
-Last updated: 2025-11-22
+Last updated: 2026-02-07

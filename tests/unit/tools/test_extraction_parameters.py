@@ -2,7 +2,7 @@
 
 Tests cover:
 1. Time range generation from days_back parameter
-2. conversations_limit parameter (10-500, default 50)
+2. conversations_limit parameter (10-500, default 20)
 3. max_tokens_per_conversation parameter in K units (1-200, default 64K -> 64000 tokens)
 4. DIFY_API_MAX_ITEMS_PER_REQUEST constant (100, Dify API constraint)
 5. Per-user conversation and message counts in report
@@ -11,6 +11,7 @@ Tests cover:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from utils.extraction_helpers import get_time_range_from_days
@@ -122,7 +123,7 @@ class TestConversationsAndTokenLimits:
         test_cases = [
             (5, 10),  # Below minimum
             (10, 10),  # At minimum
-            (50, 50),  # Default
+            (20, 20),  # Default
             (100, 100),  # Mid range
             (500, 500),  # At maximum
             (1000, 500),  # Above maximum
@@ -135,10 +136,10 @@ class TestConversationsAndTokenLimits:
             assert result == expected, f"Input {input_val} should clamp to {expected}, got {result}"
 
     def test_default_conversations_limit(self) -> None:
-        """Verify default conversations limit is 50."""
+        """Verify default conversations limit is 20."""
         from utils.constants import EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT
 
-        assert EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT == 50
+        assert EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT == 20
 
     def test_token_limit_clamp_to_range_in_k_units(self) -> None:
         """Verify token limit (in K units) is clamped to 1-200 range."""
@@ -322,6 +323,8 @@ class TestReportOutputFormat:
                 "skipped_users": 0,
                 "scanned_conversations": 40,
                 "scanned_messages": 250,
+                "processed_conversations": 30,
+                "processed_messages": 220,
                 "written_memories": {
                     "semantic": 80,
                     "episodic": 50,
@@ -435,6 +438,20 @@ class TestParameterValidation:
             dt = parse_iso_timestamp(ts)
             assert dt is None, f"Should reject invalid timestamp: {ts}"
 
+    def test_naive_timestamp_assumes_local_timezone(self) -> None:
+        """Verify naive timestamps are treated as local timezone."""
+        local_tz = datetime.now().astimezone().tzinfo
+        dt = parse_iso_timestamp("2026-01-17T12:00:00")
+        assert dt is not None
+        assert dt.tzinfo == local_tz
+
+    def test_unix_timestamp_uses_local_timezone(self) -> None:
+        """Verify Unix timestamps are parsed with local timezone."""
+        local_tz = datetime.now().astimezone().tzinfo
+        dt = parse_iso_timestamp(1768622401)
+        assert dt is not None
+        assert dt.tzinfo == local_tz
+
     def test_limits_must_be_positive(self) -> None:
         """Test that limits are always positive."""
         test_values = [-10, 0, 1, 20, 100, 200]
@@ -454,17 +471,17 @@ class TestIntegrationWithMockDify:
 
         # Scenario: Malicious user generates 300 conversations in 3 days
         malicious_user_conversations = 300
-        limit = EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT  # 50
+        limit = EXTRACTION_DEFAULT_CONVERSATIONS_LIMIT  # 20
 
-        # Only first 50 should be processed
+        # Only the configured limit should be processed
         processed = min(malicious_user_conversations, limit)
-        assert processed == 50
+        assert processed == limit
         assert processed < malicious_user_conversations
 
-        # Normal user with 30 conversations - all processed
-        normal_user_conversations = 30
+        # Normal user with 15 conversations - all processed
+        normal_user_conversations = 15
         processed_normal = min(normal_user_conversations, limit)
-        assert processed_normal == 30
+        assert processed_normal == 15
 
     def test_dify_api_pagination_uses_max_items_per_request(self) -> None:
         """Verify Dify API calls use max items per request for pagination."""

@@ -57,8 +57,8 @@ Create a `.env` file in the `performance/` directory with your configuration:
 ```bash
 # performance/.env
 DIFY_API_KEY="<your-dify-api-key>"
-DIFY_BASE_URL="https://<your-dify-host>"  # Base URL for remote testing (overrides --host if set)
-DIFY_ENDPOINT="/v1/chat-messages"
+DIFY_BASE_URL="http://<your-dify-host>/v1"  # Base URL for remote testing (overrides --host if set)
+DIFY_ENDPOINT="/chat-messages"
 DIFY_QUERY="<your-custom-query>"
 DIFY_USER_ID="<user_a>"  # Single user, or comma-separated list: "<user_a>,<user_b>"
 DIFY_RESPONSE_MODE="streaming"
@@ -71,12 +71,14 @@ The script will automatically load variables from `performance/.env` if it exist
 **Note**: 
 - The conversation will have 3-5 follow-up turns (randomly selected) after the initial message. This simulates multi-turn conversations that can trigger long-term memory extraction.
 - If `DIFY_USER_ID` contains multiple users (comma-separated), each request will randomly select one user from the list. This allows testing with different user contexts.
+- Use a base URL ending with `/v1` and endpoints starting with `/chat-messages` and `/messages/...` to match the Dify API structure.
 
 **Option 2: Set environment variables directly**
 
 ```bash
 DIFY_API_KEY='<your-dify-api-key>' \
-DIFY_ENDPOINT='/v1/chat-messages' \
+DIFY_BASE_URL='http://<your-dify-host>/v1' \
+DIFY_ENDPOINT='/chat-messages' \
 DIFY_QUERY='<your-custom-query>' \
 DIFY_USER_ID='<user_a>' \
 DIFY_RESPONSE_MODE='streaming' \

@@ -98,4 +98,8 @@ def get_logger(name: str) -> logging.Logger:
     if not logger.handlers:
         logger.addHandler(plugin_logger_handler)
 
+    # Avoid duplicate output via root logger in Dify runtime
+    if _is_dify_plugin_runtime():
+        logger.propagate = False
+
     return logger
