@@ -82,7 +82,18 @@ class CheckExtractionStatusTool(Tool):
                 task_status.range_end,
                 task_status.final_report,
             )
-            start_display, end_display = format_task_time_range(range_start, range_end)
+            def _format_range_value(value: object) -> str | None:
+                if not value or not isinstance(value, str):
+                    return None
+                value = strip_tz_offset(value)
+                return trim_midnight_timestamp(value)
+
+            start_display = _format_range_value(range_start)
+            end_display = _format_range_value(range_end)
+            if start_display is None:
+                start_display, end_display = format_task_time_range(
+                    range_start, range_end
+                )
             time_range_display = None
             if start_display is not None:
                 end_value = end_display or "N/A"
@@ -122,11 +133,7 @@ class CheckExtractionStatusTool(Tool):
             status_msg += f"\nStatus: {task_status.status.upper()}"
             if task_status.status == "running":
                 status_msg += f" ({task_status.progress * 100:.1f}% complete)"
-            if start_display is not None:
-                start_display = trim_midnight_timestamp(strip_tz_offset(start_display))
-                end_display = trim_midnight_timestamp(strip_tz_offset(end_display))
-                end_value = end_display or "N/A"
-                time_range_display = f"{start_display} -> {end_value}"
+            if time_range_display is not None:
                 status_msg += f"\nTime: {time_range_display}"
             if duration_display is not None:
                 status_msg += f"\nDuration: {duration_display}"
