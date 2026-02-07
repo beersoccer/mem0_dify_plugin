@@ -62,26 +62,26 @@ parameters:
   - name: days_back
     type: number
     required: false
-    default: 3
+    default: 1
     label:
       en_US: Days Back
       zh_Hans: 回溯天数
     human_description:
-      en_US: "Optional. Number of days to look back for extracting conversation history (1-7, default 3). For example, days_back=2 extracts yesterday and the day before yesterday."
-      zh_Hans: "可选。回溯天数，抽取前几天的用户会话历史（1-7，默认3天）。例如 days_back=2 表示抽取昨天和前天的数据。"
-    llm_description: Number of days to look back for extracting conversation history (1-7, default 3).
+      en_US: "Optional. Number of days to look back for extracting conversation history (1-7, default 1). For example, days_back=2 extracts yesterday and the day before yesterday."
+      zh_Hans: "可选。回溯天数，抽取前几天的用户会话历史（1-7，默认1天）。例如 days_back=2 表示抽取昨天和前天的数据。"
+    llm_description: Number of days to look back for extracting conversation history (1-7, default 1).
     form: form
   - name: conversations_limit
     type: number
     required: false
-    default: 50
+    default: 20
     label:
       en_US: Max Conversations Per User
       zh_Hans: 每个用户最大会话数
     human_description:
-      en_US: "Optional. Maximum conversations to process per user per execution (10-500, default: 50). This prevents malicious users from generating excessive conversations and consuming too much processing time. For 3-day cycle: light users ~15, normal users ~30-45, heavy users ~60-90. Adjust based on your execution cycle."
-      zh_Hans: "可选。每次执行每个用户最多处理的会话数（10-500，默认：50）。防止恶意用户生成过多会话占用处理时间。3天周期下：轻度用户约15个，正常用户约30-45个，重度用户约60-90个。根据执行周期调整。"
-    llm_description: "Optional. Maximum conversations to process per user per execution (10-500, default: 50). Prevents abuse by limiting total conversations processed. For 3-day cycle, 50 covers 90% of normal users."
+      en_US: "Optional. Maximum conversations to process per user per execution (10-500, default: 20). This limit applies to the total conversations within the configured days_back time range. This prevents malicious users from generating excessive conversations and consuming too much processing time. For 1-day cycle: light users ~5, normal users ~10-15, heavy users ~20-30. Adjust based on your execution cycle."
+      zh_Hans: "可选。每次执行每个用户最多处理的会话数（10-500，默认：20）。该上限适用于当前 days_back 回溯时间范围内的会话总数。防止恶意用户生成过多会话占用处理时间。1天周期下：轻度用户约5个，正常用户约10-15个，重度用户约20-30个。根据执行周期调整。"
+    llm_description: "Optional. Maximum conversations to process per user per execution (10-500, default: 20). This limit applies to the total conversations within the days_back time range."
     form: form
   - name: max_tokens_per_conversation
     type: number

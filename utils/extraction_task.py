@@ -10,7 +10,7 @@ import json
 import threading
 import time
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -80,20 +80,20 @@ class ExtractionTask:
     def mark_started(self) -> None:
         """Mark task as started."""
         self.status = TaskStatus.RUNNING
-        self.started_at = datetime.now(UTC).isoformat()
+        self.started_at = datetime.now().astimezone().isoformat()
         self.updated_at = self.started_at
 
     def mark_completed(self, overall_status: str) -> None:
         """Mark task as completed."""
         self.status = TaskStatus.COMPLETED
-        self.completed_at = datetime.now(UTC).isoformat()
+        self.completed_at = datetime.now().astimezone().isoformat()
         self.updated_at = self.completed_at
         self.overall_status = overall_status
 
     def mark_failed(self, error_message: str, error_details: dict[str, Any] | None = None) -> None:
         """Mark task as failed."""
         self.status = TaskStatus.FAILED
-        self.completed_at = datetime.now(UTC).isoformat()
+        self.completed_at = datetime.now().astimezone().isoformat()
         self.updated_at = self.completed_at
         self.error_message = error_message
         self.error_details = error_details or {}
@@ -117,7 +117,7 @@ class ExtractionTask:
             self.scanned_messages = scanned_messages
         if written_memories is not None:
             self.written_memories = written_memories
-        self.updated_at = datetime.now(UTC).isoformat()
+        self.updated_at = datetime.now().astimezone().isoformat()
 
 
 class TaskManager:

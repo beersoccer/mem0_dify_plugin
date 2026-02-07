@@ -29,7 +29,7 @@ import math
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
@@ -328,11 +328,7 @@ def _process_single_user_sync(
             # STEP 2: Extract memory using only the classified type
             md = build_memory_metadata(
                 subtype=classified_type,
-                app_id=app_id,
-                conversation_id=conv_id,
-                segment_id=message_id_range,
-                run_at=end_time,
-                message_id_range=message_id_range,
+                memory_origin="implicit",
             )
             
             try:
@@ -341,6 +337,7 @@ def _process_single_user_sync(
                 res = writer.add_memory(
                     messages=mem0_msgs,
                     user_id=user_id,
+                    agent_id=app_id,
                     metadata=md,
                 )
                 event_stats = count_add_event_stats(res)
@@ -411,8 +408,18 @@ def _process_single_user_sync(
                 ):
                     conv_cp.processed_range_end = last_processed_created_at
 
+        if stop_reason == "max_conversations_reached" and stats.resume_conversation_cursor:
+            cp.resume_conversation_cursor = stats.resume_conversation_cursor
+            cp.resume_run_at = end_time
+            cp.resume_start_time = start_time
+        else:
+            cp.resume_conversation_cursor = None
+            cp.resume_run_at = None
+            cp.resume_start_time = None
+
         # Finalize user checkpoint
-        cp.mark_task_success(end_time)
+        if stop_reason != "max_conversations_reached":
+            cp.mark_task_success(end_time)
         try:
             checkpoint_mgr = SyncCheckpointManager(base_mem)
             ok, new_id = checkpoint_mgr.save_atomic(
@@ -708,11 +715,7 @@ async def _process_single_user_async(
             # STEP 2: Extract memory using only the classified type (async)
             md = build_memory_metadata(
                 subtype=classified_type,
-                app_id=app_id,
-                conversation_id=conv_id,
-                segment_id=message_id_range,
-                run_at=end_time,
-                message_id_range=message_id_range,
+                memory_origin="implicit",
             )
             
             try:
@@ -721,6 +724,7 @@ async def _process_single_user_async(
                 res = await writer.add_memory(
                     messages=mem0_msgs,
                     user_id=user_id,
+                    agent_id=app_id,
                     metadata=md,
                     timeout_s=WRITE_OPERATION_TIMEOUT,
                 )
@@ -792,8 +796,18 @@ async def _process_single_user_async(
                 ):
                     conv_cp.processed_range_end = last_processed_created_at
 
+        if stop_reason == "max_conversations_reached" and stats.resume_conversation_cursor:
+            cp.resume_conversation_cursor = stats.resume_conversation_cursor
+            cp.resume_run_at = end_time
+            cp.resume_start_time = start_time
+        else:
+            cp.resume_conversation_cursor = None
+            cp.resume_run_at = None
+            cp.resume_start_time = None
+
         # Finalize user checkpoint (async version)
-        cp.mark_task_success(end_time)
+        if stop_reason != "max_conversations_reached":
+            cp.mark_task_success(end_time)
         try:
             checkpoint_mgr = AsyncCheckpointManager(base_mem)
             ok, new_id = await checkpoint_mgr.save_atomic(
@@ -891,6 +905,8 @@ async def _execute_extraction_async(
             "skipped_users": 0,
             "scanned_conversations": 0,
             "scanned_messages": 0,
+            "processed_conversations": 0,
+            "processed_messages": 0,
             "written_memories": {"semantic": 0, "episodic": 0, "procedural": 0},
         }
 
@@ -951,6 +967,12 @@ async def _execute_extraction_async(
                         summary["processed_users"] += 1
                         summary["scanned_conversations"] += result.get("scanned_conversations", 0)
                         summary["scanned_messages"] += result.get("scanned_messages", 0)
+                        summary["processed_conversations"] += result.get(
+                            "conversations_with_messages", 0
+                        )
+                        summary["processed_messages"] += result.get(
+                            "messages_in_time_range", 0
+                        )
                         for mem_type in ["semantic", "episodic", "procedural"]:
                             summary["written_memories"][mem_type] += result.get(
                                 "written_memories", {}
@@ -961,6 +983,12 @@ async def _execute_extraction_async(
                         summary["processed_users"] += 1
                         summary["scanned_conversations"] += result.get("scanned_conversations", 0)
                         summary["scanned_messages"] += result.get("scanned_messages", 0)
+                        summary["processed_conversations"] += result.get(
+                            "conversations_with_messages", 0
+                        )
+                        summary["processed_messages"] += result.get(
+                            "messages_in_time_range", 0
+                        )
                         for mem_type in ["semantic", "episodic", "procedural"]:
                             summary["written_memories"][mem_type] += result.get(
                                 "written_memories", {}
@@ -979,6 +1007,8 @@ async def _execute_extraction_async(
                 total_users=len(user_ids),
                 scanned_conversations=summary["scanned_conversations"],
                 scanned_messages=summary["scanned_messages"],
+                processed_conversations=summary["processed_conversations"],
+                processed_messages=summary["processed_messages"],
                 written_memories=summary["written_memories"],
             )
             logger.info(
@@ -1104,6 +1134,8 @@ def _execute_extraction_sync(
             "skipped_users": 0,
             "scanned_conversations": 0,
             "scanned_messages": 0,
+            "processed_conversations": 0,
+            "processed_messages": 0,
             "written_memories": {"semantic": 0, "episodic": 0, "procedural": 0},
         }
 
@@ -1153,6 +1185,12 @@ def _execute_extraction_sync(
                     summary["processed_users"] += 1
                     summary["scanned_conversations"] += result.get("scanned_conversations", 0)
                     summary["scanned_messages"] += result.get("scanned_messages", 0)
+                    summary["processed_conversations"] += result.get(
+                        "conversations_with_messages", 0
+                    )
+                    summary["processed_messages"] += result.get(
+                        "messages_in_time_range", 0
+                    )
                     for mem_type in ["semantic", "episodic", "procedural"]:
                         summary["written_memories"][mem_type] += result.get(
                             "written_memories", {}
@@ -1161,6 +1199,12 @@ def _execute_extraction_sync(
                     summary["processed_users"] += 1
                     summary["scanned_conversations"] += result.get("scanned_conversations", 0)
                     summary["scanned_messages"] += result.get("scanned_messages", 0)
+                    summary["processed_conversations"] += result.get(
+                        "conversations_with_messages", 0
+                    )
+                    summary["processed_messages"] += result.get(
+                        "messages_in_time_range", 0
+                    )
                     for mem_type in ["semantic", "episodic", "procedural"]:
                         summary["written_memories"][mem_type] += result.get(
                             "written_memories", {}
@@ -1192,6 +1236,8 @@ def _execute_extraction_sync(
                 total_users=len(user_ids),
                 scanned_conversations=summary["scanned_conversations"],
                 scanned_messages=summary["scanned_messages"],
+                processed_conversations=summary["processed_conversations"],
+                processed_messages=summary["processed_messages"],
                 written_memories=summary["written_memories"],
             )
             logger.info(
@@ -1263,10 +1309,10 @@ class ExtractLongTermMemoryTool(Tool):
             # Validate and parse parameters
             days_back = tool_parameters.get("days_back")
             try:
-                days_back_int = int(days_back) if days_back is not None else 3
+                days_back_int = int(days_back) if days_back is not None else 1
                 days_back_int = max(1, min(7, days_back_int))
             except (TypeError, ValueError):
-                days_back_int = 3
+                days_back_int = 1
 
             start_time, end_time = get_time_range_from_days(days_back_int)
 
@@ -1310,7 +1356,7 @@ class ExtractLongTermMemoryTool(Tool):
             max_tokens_per_conversation = tool_parameters.get("max_tokens_per_conversation")
 
             try:
-                # Parse and validate conversations_limit (10-500, default 50)
+                # Parse and validate conversations_limit (10-500, default 20)
                 # NOTE:
                 # - We intentionally use the already-imported constant from `utils.constants`
                 #   to avoid hard dependency on the top-level package name
@@ -1401,8 +1447,9 @@ class ExtractLongTermMemoryTool(Tool):
                 task_id=task_id,
                 run_id=run_id,
                 status="running",
-                started_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat(),
+
+                started_at=datetime.now().astimezone().isoformat(),
+                updated_at=datetime.now().astimezone().isoformat(),
                 progress=0.0,
                 user_count=len(user_ids),
                 processed_users=0,
@@ -1410,6 +1457,8 @@ class ExtractLongTermMemoryTool(Tool):
                 scanned_conversations=0,
                 scanned_messages=0,
                 written_memories={"semantic": 0, "episodic": 0, "procedural": 0},
+                range_start=start_time,
+                range_end=end_time,
             )
 
             if async_mode:

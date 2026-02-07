@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .logger import get_logger
@@ -21,6 +21,7 @@ else:
 
 logger = get_logger(__name__)
 TASK_STATUS_KEY = "extraction_task_v1"
+TASK_STATUS_USER_ID = "memory_extractor"
 
 
 @dataclass
@@ -39,8 +40,12 @@ class ExtractionTaskStatus:
     scanned_conversations: int
     scanned_messages: int
     written_memories: dict[str, int]  # {"semantic": 0, "episodic": 0, "procedural": 0}
+    processed_conversations: int = 0
+    processed_messages: int = 0
     error: str | None = None
     final_report: dict[str, Any] | None = None  # Full report when completed
+    range_start: str | None = None  # ISO8601, conversation time range start
+    range_end: str | None = None  # ISO8601, conversation time range end
 
 
 def task_status_metadata(*, task_id: str) -> dict[str, Any]:
@@ -57,12 +62,10 @@ def task_status_filters(*, task_id: str) -> dict[str, Any]:
     """Build filters for task status retrieval."""
     md = task_status_metadata(task_id=task_id)
     return {
-        "AND": [
-            {"__internal": {"eq": True}},
-            {"internal_type": {"eq": "extraction_task"}},
-            {"task_key": {"eq": md["task_key"]}},
-            {"task_id": {"eq": md["task_id"]}},
-        ],
+        "__internal": "true",
+        "internal_type": "extraction_task",
+        "task_key": md["task_key"],
+        "task_id": md["task_id"],
     }
 
 
@@ -97,7 +100,9 @@ class SyncTaskStatusManager:
         try:
             # Check if task status already exists
             filters = task_status_filters(task_id=task_status.task_id)
-            result = self.mem.get_all(user_id="__system__", limit=1, filters=filters)
+            result = self.mem.get_all(
+                user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
+            )
             items = result.get("results", []) if isinstance(result, dict) else []
 
             payload = asdict(task_status)
@@ -119,7 +124,9 @@ class SyncTaskStatusManager:
                         )
 
             # Create new internal memory; infer=False to avoid LLM calls and embedding
-            res = self.mem.add(text, user_id="__system__", metadata=md, infer=False)
+            res = self.mem.add(
+                text, user_id=TASK_STATUS_USER_ID, metadata=md, infer=False
+            )
             new_id: str | None = None
             if isinstance(res, dict):
                 results = res.get("results")
@@ -127,6 +134,13 @@ class SyncTaskStatusManager:
                     new_id = str(results[0].get("id") or "").strip() or None
                 elif isinstance(results, dict):
                     new_id = str(results.get("id") or "").strip() or None
+            logger.info(
+                "Task status save: task_id=%s, user_id=%s, memory_id=%s, result_keys=%s",
+                task_status.task_id,
+                TASK_STATUS_USER_ID,
+                new_id,
+                sorted(res.keys()) if isinstance(res, dict) else [],
+            )
             return True, new_id
         except Exception as e:
             logger.error(f"Failed to save task status: {e}")
@@ -147,7 +161,9 @@ class SyncTaskStatusManager:
         """
         try:
             filters = task_status_filters(task_id=task_id)
-            result = self.mem.get_all(user_id="__system__", limit=1, filters=filters)
+            result = self.mem.get_all(
+                user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
+            )
             items = result.get("results", []) if isinstance(result, dict) else []
 
             if not items or not isinstance(items, list) or not items:
@@ -179,6 +195,8 @@ class SyncTaskStatusManager:
         total_users: int,
         scanned_conversations: int = 0,
         scanned_messages: int = 0,
+        processed_conversations: int = 0,
+        processed_messages: int = 0,
         written_memories: dict[str, int] | None = None,
     ) -> bool:
         """Update task progress.
@@ -202,9 +220,11 @@ class SyncTaskStatusManager:
         status.progress = processed_users / total_users if total_users > 0 else 0.0
         status.scanned_conversations = scanned_conversations
         status.scanned_messages = scanned_messages
+        status.processed_conversations = processed_conversations
+        status.processed_messages = processed_messages
         if written_memories:
             status.written_memories = written_memories
-        status.updated_at = datetime.now(UTC).isoformat()
+        status.updated_at = datetime.now().astimezone().isoformat()
 
         ok, _ = self.save(task_status=status)
         return ok
@@ -231,7 +251,7 @@ class SyncTaskStatusManager:
         status.status = "completed"
         status.progress = 1.0
         status.final_report = final_report
-        status.updated_at = datetime.now(UTC).isoformat()
+        status.updated_at = datetime.now().astimezone().isoformat()
 
         # Update counts from final report
         if isinstance(final_report, dict):
@@ -241,6 +261,10 @@ class SyncTaskStatusManager:
                 status.skipped_users = summary.get("skipped_users", 0)
                 status.scanned_conversations = summary.get("scanned_conversations", 0)
                 status.scanned_messages = summary.get("scanned_messages", 0)
+                status.processed_conversations = summary.get(
+                    "processed_conversations", 0
+                )
+                status.processed_messages = summary.get("processed_messages", 0)
                 written = summary.get("written_memories")
                 if isinstance(written, dict):
                     status.written_memories = written
@@ -269,7 +293,7 @@ class SyncTaskStatusManager:
 
         status.status = "failed"
         status.error = error[:500] if error else None  # Limit error message length
-        status.updated_at = datetime.now(UTC).isoformat()
+        status.updated_at = datetime.now().astimezone().isoformat()
 
         ok, _ = self.save(task_status=status)
         return ok
@@ -306,7 +330,9 @@ class AsyncTaskStatusManager:
         try:
             # Check if task status already exists
             filters = task_status_filters(task_id=task_status.task_id)
-            result = await self.mem.get_all(user_id="__system__", limit=1, filters=filters)
+            result = await self.mem.get_all(
+                user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
+            )
             items = result.get("results", []) if isinstance(result, dict) else []
 
             payload = asdict(task_status)
@@ -328,7 +354,9 @@ class AsyncTaskStatusManager:
                         )
 
             # Create new internal memory; infer=False to avoid LLM calls and embedding
-            res = await self.mem.add(text, user_id="__system__", metadata=md, infer=False)
+            res = await self.mem.add(
+                text, user_id=TASK_STATUS_USER_ID, metadata=md, infer=False
+            )
             new_id: str | None = None
             if isinstance(res, dict):
                 results = res.get("results")
@@ -336,6 +364,13 @@ class AsyncTaskStatusManager:
                     new_id = str(results[0].get("id") or "").strip() or None
                 elif isinstance(results, dict):
                     new_id = str(results.get("id") or "").strip() or None
+            logger.info(
+                "Task status save (async): task_id=%s, user_id=%s, memory_id=%s, result_keys=%s",
+                task_status.task_id,
+                TASK_STATUS_USER_ID,
+                new_id,
+                sorted(res.keys()) if isinstance(res, dict) else [],
+            )
             return True, new_id
         except Exception as e:
             logger.error(f"Failed to save task status: {e}")
@@ -356,7 +391,9 @@ class AsyncTaskStatusManager:
         """
         try:
             filters = task_status_filters(task_id=task_id)
-            result = await self.mem.get_all(user_id="__system__", limit=1, filters=filters)
+            result = await self.mem.get_all(
+                user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
+            )
             items = result.get("results", []) if isinstance(result, dict) else []
 
             if not items or not isinstance(items, list) or not items:
@@ -388,6 +425,8 @@ class AsyncTaskStatusManager:
         total_users: int,
         scanned_conversations: int = 0,
         scanned_messages: int = 0,
+        processed_conversations: int = 0,
+        processed_messages: int = 0,
         written_memories: dict[str, int] | None = None,
     ) -> bool:
         """Update task progress.
@@ -411,9 +450,11 @@ class AsyncTaskStatusManager:
         status.progress = processed_users / total_users if total_users > 0 else 0.0
         status.scanned_conversations = scanned_conversations
         status.scanned_messages = scanned_messages
+        status.processed_conversations = processed_conversations
+        status.processed_messages = processed_messages
         if written_memories:
             status.written_memories = written_memories
-        status.updated_at = datetime.now(UTC).isoformat()
+        status.updated_at = datetime.now().astimezone().isoformat()
 
         ok, _ = await self.save(task_status=status)
         return ok
@@ -440,7 +481,7 @@ class AsyncTaskStatusManager:
         status.status = "completed"
         status.progress = 1.0
         status.final_report = final_report
-        status.updated_at = datetime.now(UTC).isoformat()
+        status.updated_at = datetime.now().astimezone().isoformat()
 
         # Update counts from final report
         if isinstance(final_report, dict):
@@ -450,6 +491,10 @@ class AsyncTaskStatusManager:
                 status.skipped_users = summary.get("skipped_users", 0)
                 status.scanned_conversations = summary.get("scanned_conversations", 0)
                 status.scanned_messages = summary.get("scanned_messages", 0)
+                status.processed_conversations = summary.get(
+                    "processed_conversations", 0
+                )
+                status.processed_messages = summary.get("processed_messages", 0)
                 written = summary.get("written_memories")
                 if isinstance(written, dict):
                     status.written_memories = written
@@ -478,7 +523,7 @@ class AsyncTaskStatusManager:
 
         status.status = "failed"
         status.error = error[:500] if error else None  # Limit error message length
-        status.updated_at = datetime.now(UTC).isoformat()
+        status.updated_at = datetime.now().astimezone().isoformat()
 
         ok, _ = await self.save(task_status=status)
         return ok

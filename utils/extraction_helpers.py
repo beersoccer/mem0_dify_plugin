@@ -7,7 +7,7 @@ time range calculation, and timestamp comparison used in extraction tasks.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from .constants import EXTRACTION_DEFAULT_ENCODING
@@ -169,19 +169,19 @@ def get_time_range_from_days(days_back: int) -> tuple[str, str]:
     
     Returns:
         tuple[str, str]: (start_time, end_time) in ISO8601 format
-                         start_time: (today - days_back) 00:00:00
-                         end_time: today 00:00:00
+                        start_time: (today - days_back) 00:00:00 (local time)
+                        end_time: today 00:00:00 (local time)
     
     Example:
         If today is Jan 25, 2026:
-        - days_back=1: [Jan 24 00:00:00, Jan 25 00:00:00) (yesterday)
-        - days_back=2: [Jan 23 00:00:00, Jan 25 00:00:00) (yesterday + day before)
-        - days_back=3: [Jan 22 00:00:00, Jan 25 00:00:00) (last 3 days)
+        - days_back=1: [Jan 24 00:00:00, Jan 25 00:00:00)
+        - days_back=2: [Jan 23 00:00:00, Jan 25 00:00:00)
+        - days_back=3: [Jan 22 00:00:00, Jan 25 00:00:00)
     """
     # Clamp days_back to 1-7
     days_back = max(1, min(7, days_back))
     
-    now = datetime.now(UTC)
+    now = datetime.now().astimezone()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # start_time: (today - days_back) at 00:00:00

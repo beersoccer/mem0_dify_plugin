@@ -29,9 +29,23 @@ Please provide the following metadata of your plugin to make it easier for the r
 
 <!-- Please briefly describe the purpose of the new plugin or the updates made to the existing plugin -->
 
-This version update (v0.2.4) focuses on critical resource isolation optimization for the long-term memory extraction tool. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
+This version update (v0.2.6) focuses on extraction resume safety, richer task status visibility, and clearer scoping for extraction writes. The plugin integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer into Dify, providing comprehensive memory management capabilities for AI applications. The plugin operates exclusively in **self-hosted mode**, allowing users to configure and manage their own LLM, embedding models, vector databases, graph databases, and rerankers.
 
-### What's New in v0.2.4:
+### What's New in v0.2.6:
+
+- **Resume-safe extraction at conversation caps**: Checkpoints store resume cursors and defer task success to prevent silent skips on capped runs
+- **Richer task status visibility**: `check_extraction_status` reports time range, duration, and processed vs scanned counters with local-time timestamps
+- **Cleaner extraction writes**: Extraction writes pass `agent_id=app_id` and tag `memory_origin` for implicit memories
+- **Task status storage isolation**: Internal status records use a dedicated user id for reliable retrieval
+- **Safety & logging polish**: Prompt guardrails prevent guessing IDs; Dify runtime logging avoids duplicate propagation
+
+### Previous Updates in v0.2.5:
+
+- **🧩 LLM Compatibility Shim (2026-02-04)**: Added `_parse_response` compatibility patch for structured LLM providers to reduce parsing errors; keepalive now uses provider-agnostic `generate_response()` without strict args for broader model compatibility
+- **🧠 Sync Subtype Client Reuse**: Subtype clients accept config overrides to avoid manual Memory swapping; pool-sharing logic improves resource isolation while keeping prompts per subtype
+- **🧪 Test & Tooling Stability**: `DifyClient` enforces `/v1` base URL format; integration tests normalize base URLs; cleanup script supports `DIFY_USER_IDS` and ensures client resources are closed
+
+### Previous Updates in v0.2.4:
 
 - **🔒 Connection Pool Sharing & Resource Isolation (2026-02-03)**: Implemented intelligent connection pool sharing mechanism for long-term memory extraction tool. All subtype clients (semantic/episodic/procedural) now share the base client's connection pool while maintaining independent Memory instances. **67% reduction** in database connections per extraction task, prevents connection pool exhaustion, eliminates resource leaks
 
@@ -316,6 +330,12 @@ Please confirm that your plugin README includes all necessary information:
 - **CONFIG.md**: Complete installation and configuration guide with detailed examples for all providers, troubleshooting, and operational notes
 - **PRIVACY.md**: Complete privacy policy explaining self-hosted mode operation and data handling
 - **CHANGELOG.md**: Detailed version history and changes for all versions
+
+**Documentation Improvements in v0.2.5:**
+- Added documentation for LLM compatibility shim and structured-provider parsing fixes
+- Updated version references to v0.2.5
+- Documented subtype client reuse and connection pool sharing improvements
+- Updated Dify tooling notes (`/v1` base URL normalization, cleanup script resource handling)
 
 **Documentation Improvements in v0.2.4:**
 - Added comprehensive documentation for resource isolation optimization

@@ -76,6 +76,70 @@ def test_incremental_stop_on_updated_at() -> None:
     assert stats.scanned_conversations >= 2
 
 
+def test_max_conversations_sets_resume_cursor() -> None:
+    dify = FakeDify()
+    dify.conv_pages = [
+        _Page(
+            items=[
+                {"id": "c3", "updated_at": "2025-12-05T00:00:00Z"},
+                {"id": "c2", "updated_at": "2025-12-04T00:00:00Z"},
+                {"id": "c1", "updated_at": "2025-12-03T00:00:00Z"},
+            ],
+            next_cursor=None,
+            has_more=False,
+        ),
+    ]
+    cp = UserCheckpoint(last_run_at=None, conversations={})
+
+    _, stats, stop_reason = scan_user_conversations_incremental(
+        dify,  # type: ignore[arg-type]
+        user_id="u1",
+        run_at="2025-12-10T00:00:00Z",
+        user_checkpoint=cp,
+        app_id=None,
+        max_conversations=2,
+    )
+
+    assert stop_reason == "max_conversations_reached"
+    assert stats.resume_conversation_cursor == "c2"
+
+
+def test_resume_ignores_updated_at_checkpoint() -> None:
+    dify = FakeDify()
+    dify.conv_pages = [
+        _Page(
+            items=[{"id": "c_old", "updated_at": "2025-12-01T00:00:00Z"}],
+            next_cursor=None,
+            has_more=False,
+        ),
+    ]
+    dify.msg_pages["c_old"] = [
+        _Page(
+            items=[{"id": "m1", "created_at": "2025-12-01T00:00:00Z", "query": "hi"}],
+            next_cursor=None,
+            has_more=False,
+        ),
+    ]
+    cp = UserCheckpoint(
+        last_run_at="2025-12-02T00:00:00Z",
+        conversations={},
+        resume_conversation_cursor="c_resume",
+        resume_run_at="2025-12-10T00:00:00Z",
+        resume_start_time=None,
+    )
+
+    segs, _, stop_reason = scan_user_conversations_incremental(
+        dify,  # type: ignore[arg-type]
+        user_id="u1",
+        run_at="2025-12-10T00:00:00Z",
+        user_checkpoint=cp,
+        app_id=None,
+    )
+
+    assert stop_reason != "checkpoint_updated_at"
+    assert "c_old" in segs
+
+
 def test_drop_future_messages_and_stop_on_last_processed_message_id() -> None:
     dify = FakeDify()
     dify.conv_pages = [

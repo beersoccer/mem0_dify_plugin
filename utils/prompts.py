@@ -542,6 +542,11 @@ IMPORTANT Filtering Rules:
 - IGNORE any memory item where metadata.__internal == true
 - For memory items of other subtypes or internal memories, do not modify them.
 
+CRITICAL ID RULES:
+- The ONLY valid IDs for UPDATE/DELETE/NONE are the IDs shown in the "Current memory" list above.
+- Never invent or guess IDs. If an ID is not in the current list, do NOT use it.
+- If unsure which ID to use, choose event "NONE" instead of guessing.
+
 Compare newly retrieved facts with the existing memory. For each new fact, decide whether to:
 - ADD: Add it to the memory as a new element
 - UPDATE: Update an existing memory element

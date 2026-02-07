@@ -132,29 +132,42 @@
 
 ### 单元测试
 
-1. ✅ `test_extract_long_term_memory.py` - 基础功能测试（19个测试）
-2. ✅ `test_dify_incremental_scan.py` - 增量扫描逻辑（8个测试）
-3. ✅ `test_checkpoint.py` - Checkpoint管理（5个测试）
-4. ✅ `test_distributed_lock.py` - 分布式锁
-5. ✅ `test_time_range_filtering.py` - 时间范围过滤
+#### 工具类单元测试（tests/unit/tools）
+
+1. ✅ `test_check_extraction_status.py` - 任务状态展示与格式化
+2. ✅ `test_extract_long_term_memory.py` - 辅助函数与去重逻辑
+3. ✅ `test_extraction_async.py` - 异步抽取核心逻辑
+4. ✅ `test_extraction_parameters.py` - 参数验证与报告结构
+5. ✅ `test_search_with_filters.py` - 搜索过滤器回归
 6. ✅ `test_time_range_expansion.py` - 时间范围扩展
-7. ✅ `test_idempotency_fix.py` - 幂等性验证
-8. ✅ `test_token_truncation.py` - Token截断逻辑
-9. ✅ `test_extraction_parameters.py` - 参数验证
+7. ✅ `test_token_truncation.py` - Token 截断
+
+#### 工具支撑单元测试（tests/unit/utils）
+
+8. ✅ `test_async_local_client_read_timeout.py` - 异步客户端超时
+9. ✅ `test_bg_task_tracking.py` - 后台任务跟踪
+10. ✅ `test_checkpoint.py` - Checkpoint 持久化
+11. ✅ `test_dify_client.py` - Dify 客户端基础行为
+12. ✅ `test_dify_incremental_scan.py` - 增量扫描与分页
+13. ✅ `test_distributed_lock.py` - 分布式锁
+14. ✅ `test_idempotency.py` - 幂等性验证
+15. ✅ `test_mem0_client_config_override.py` - Mem0 配置覆盖
+16. ✅ `test_mem0_client_llm_compat.py` - LLM 兼容补丁
+17. ✅ `test_mem0_extraction_logging.py` - 分类日志等级
+18. ✅ `test_message_utils.py` - 消息规范化与统计
+19. ✅ `test_prompts.py` - Prompt 约束
+20. ✅ `test_retry.py` - 重试机制
+21. ✅ `test_task_status_async.py` - 任务状态异步更新
+22. ✅ `test_task_status_filters.py` - 任务状态过滤器
 
 ### 集成测试
 
-1. ✅ `test_dify_integration.py` - Dify API集成（20+个测试）
-2. ✅ `test_extraction_async.py` - 异步执行
-3. ✅ `test_e2e_session_memory.py` - 端到端验证（使用 fork 模式）
+1. ✅ `test_dify_integration.py` - Dify API 集成（20+个测试）
+2. ✅ `test_time_range_filtering.py` - 时间范围过滤（真实 Dify 数据）
 
-### 异步测试
+### 端到端测试
 
-1. ✅ `test_extraction_async.py` - 异步抽取测试
-   - 单用户处理逻辑
-   - 并发处理验证
-   - 超时控制
-   - 错误处理
+1. ✅ `test_e2e_session_memory.py` - 端到端验证（使用 fork 模式）
 
 ## 测试覆盖度评估
 
@@ -357,7 +370,7 @@ pytest --forked tests/test_extraction_async.py -v
 
 `extract_long_term_memory` 工具使用简化的 `days_back` 参数：
 
-- **days_back**: 回看天数（1-7，默认: 3）
+- **days_back**: 回看天数（1-7，默认: 1）
 - **start_time**: 自动计算为 `(today - days_back) 00:00:00`
 - **end_time**: 自动计算为 `today 00:00:00`
 
@@ -370,7 +383,7 @@ pytest --forked tests/test_extraction_async.py -v
 # 时间范围: [Jan 24 00:00:00, Jan 25 00:00:00)
 start_time, end_time = _get_time_range_from_days(1)
 
-# days_back=3: 提取最近3天（默认）
+# days_back=3: 提取最近3天
 # 时间范围: [Jan 22 00:00:00, Jan 25 00:00:00)
 start_time, end_time = _get_time_range_from_days(3)
 
@@ -383,7 +396,7 @@ start_time, end_time = _get_time_range_from_days(7)
 
 - 最小值: 1天（如果 days_back < 1，限制为 1）
 - 最大值: 7天（如果 days_back > 7，限制为 7）
-- 默认值: 3天（如果未指定）
+- 默认值: 1天（如果未指定）
 
 ## 下一步行动
 

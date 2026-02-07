@@ -116,6 +116,9 @@ class SyncCheckpointManager:
         cp = UserCheckpoint(
             last_run_at=data.get("last_run_at"),
             conversations={},
+            resume_conversation_cursor=data.get("resume_conversation_cursor"),
+            resume_run_at=data.get("resume_run_at"),
+            resume_start_time=data.get("resume_start_time"),
         )
         conversations = data.get("conversations") or {}
         if isinstance(conversations, dict):

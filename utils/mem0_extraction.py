@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -28,10 +27,7 @@ from .prompts import (
 logger = get_logger(__name__)
 
 MemorySubtype = Literal["semantic", "episodic", "procedural"]
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+MemoryOrigin = Literal["explicit", "implicit"]
 
 
 def _subtype_extraction_prompt(subtype: MemorySubtype) -> str:
@@ -423,6 +419,7 @@ class SyncMemoryWriter:
         *,
         messages: list[dict[str, str]],
         user_id: str,
+        agent_id: str | None = None,
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
         """Call mem0 add(infer=True) using SyncMem0Client.
@@ -443,6 +440,8 @@ class SyncMemoryWriter:
             "metadata": metadata,
             "infer": True,
         }
+        if agent_id:
+            payload["agent_id"] = agent_id
         return self.client.add(payload)
 
 
@@ -462,6 +461,7 @@ class AsyncMemoryWriter:
         *,
         messages: list[dict[str, str]],
         user_id: str,
+        agent_id: str | None = None,
         metadata: dict[str, Any],
         timeout_s: int | None = None,
     ) -> dict[str, Any]:
@@ -488,84 +488,29 @@ class AsyncMemoryWriter:
             "metadata": metadata,
             "infer": True,
         }
+        if agent_id:
+            payload["agent_id"] = agent_id
         return await self.client.add(payload, timeout_s=timeout_s)
 
 
 
 
-def _infer_memory_categories(subtype: MemorySubtype) -> list[str]:
-    """Infer likely categories based on memory subtype.
-    
-    Categories reference: openmemory categorization system.
-    Multiple categories can apply to a single memory.
-    """
-    # Base categories by subtype
-    category_mapping = {
-        "semantic": [
-            "Personal",  # Profile facts, demographics
-            "Preferences",  # Likes, dislikes, habits
-        ],
-        "episodic": [
-            "Personal",  # Life events
-            "Relationships",  # Interactions with others
-        ],
-        "procedural": [
-            "Work",  # Professional workflows
-            "Projects",  # Task execution procedures
-        ],
-    }
-    return category_mapping.get(subtype, ["Personal"])
-
-
 def build_memory_metadata(
     *,
     subtype: MemorySubtype,
-    app_id: str | None,
-    conversation_id: str,
-    segment_id: str,
-    run_at: str,
-    message_id_range: str,
+    memory_origin: MemoryOrigin,
 ) -> dict[str, Any]:
     """Build metadata for extracted memory.
     
     Metadata includes:
-    1. Extraction tracking: source, subtype, timestamps, IDs
-    2. Memory categories: inferred categories for filtering/retrieval
-    3. Schema version: for future compatibility
-    
-    Categories are based on openmemory's categorization system:
-    - Personal: family, friends, home, hobbies, lifestyle
-    - Relationships: social network, significant others, colleagues
-    - Preferences: likes, dislikes, habits, favorite media
-    - Health: physical fitness, mental health, diet, sleep
-    - Travel: trips, commutes, favorite places, itineraries
-    - Work: job roles, companies, projects, promotions
-    - Education: courses, degrees, certifications, skills development
-    - Projects: tasks, milestones, deadlines, status updates
-    - Entertainment: movies, music, games, books, events
-    - Organization: meetings, appointments, calendars
-    - Goals: ambitions, KPIs, long-term objectives
+    1. Memory classification: subtype
+    2. Memory origin: explicit vs implicit
     """
     md: dict[str, Any] = {
         # Memory classification
         "memory_subtype": subtype,
-        "categories": _infer_memory_categories(subtype),
-        
-        # Extraction tracking
-        "source": "dify_extraction",
-        "conversation_id": conversation_id,
-        "segment_id": segment_id,
-        "message_id_range": message_id_range,
-        
-        # Timestamps
-        "run_at": run_at,
-        "extracted_at": _utc_now_iso(),
-        
-        # Schema
-        "schema_version": "v1",
+        "memory_origin": memory_origin,
     }
-    if app_id:
-        md["app_id"] = app_id
     return md
 
 

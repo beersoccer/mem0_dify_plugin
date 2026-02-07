@@ -295,7 +295,11 @@ class TestIncrementalScanRealData:
 
         assert isinstance(segments, dict)
         assert stats.scanned_conversations >= 0
-        assert stop_reason in {"no_more_conversations", "completed"}
+        assert stop_reason in {
+            "no_more_conversations",
+            "completed",
+            "max_conversations_reached",
+        }
 
 
 class TestMessageSegmentation:

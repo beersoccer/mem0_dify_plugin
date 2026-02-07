@@ -33,7 +33,7 @@ Usage:
 
     # Customize via environment variables
     DIFY_API_KEY='key' \
-    DIFY_ENDPOINT='/v1/chat-messages' \
+    DIFY_ENDPOINT='/chat-messages' \
     DIFY_QUERY='Your custom query' \
     DIFY_USER_ID='test_user' \
     DIFY_RESPONSE_MODE='streaming' \
@@ -76,8 +76,8 @@ class DifyChatflowTasks(TaskSet):
         if not self.api_key:
             raise ValueError(api_key_error_msg)
 
-        # Configurable endpoint (default: /v1/chat-messages)
-        self.endpoint = os.getenv("DIFY_ENDPOINT", "/v1/chat-messages")
+        # Configurable endpoint (default: /chat-messages)
+        self.endpoint = os.getenv("DIFY_ENDPOINT", "/chat-messages")
 
         # Parse questions from DIFY_QUERY (pipe-delimited)
         query_str = os.getenv(
@@ -101,7 +101,7 @@ class DifyChatflowTasks(TaskSet):
         # min_turns and max_turns define the range for follow-up conversation rounds
         self.min_turns = int(os.getenv("DIFY_MIN_TURNS", "3"))
         self.max_turns = int(os.getenv("DIFY_MAX_TURNS", "5"))
-        self.suggested_endpoint = "/v1/messages/{message_id}/suggested"
+        self.suggested_endpoint = "/messages/{message_id}/suggested"
         
         # Create instance-specific random number generator to avoid collisions
         # when multiple users start simultaneously. Use time + process ID for seeding.
