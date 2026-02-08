@@ -20,7 +20,7 @@ else:
     AsyncMemory = None  # type: ignore
 
 logger = get_logger(__name__)
-TASK_STATUS_KEY = "extraction_task_v1"
+TASK_STATUS_VERSION = "v1"
 TASK_STATUS_USER_ID = "memory_extractor"
 
 
@@ -51,21 +51,20 @@ class ExtractionTaskStatus:
 def task_status_metadata(*, task_id: str) -> dict[str, Any]:
     """Build metadata for task status storage."""
     return {
-        "__internal": True,
+        "__internal": "true",
         "internal_type": "extraction_task",
-        "task_key": TASK_STATUS_KEY,
+        "version": TASK_STATUS_VERSION,
         "task_id": task_id,
     }
 
 
 def task_status_filters(*, task_id: str) -> dict[str, Any]:
     """Build filters for task status retrieval."""
-    md = task_status_metadata(task_id=task_id)
     return {
         "__internal": "true",
         "internal_type": "extraction_task",
-        "task_key": md["task_key"],
-        "task_id": md["task_id"],
+        "task_id": task_id,
+        "version": TASK_STATUS_VERSION,
     }
 
 
@@ -165,10 +164,8 @@ class SyncTaskStatusManager:
                 user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
             )
             items = result.get("results", []) if isinstance(result, dict) else []
-
             if not items or not isinstance(items, list) or not items:
                 return None, None
-
             item = items[0]
             memory_id = str(item.get("id") or "").strip() or None
             raw = str(item.get("memory") or item.get("text") or "").strip()
@@ -395,10 +392,8 @@ class AsyncTaskStatusManager:
                 user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
             )
             items = result.get("results", []) if isinstance(result, dict) else []
-
             if not items or not isinstance(items, list) or not items:
                 return None, None
-
             item = items[0]
             memory_id = str(item.get("id") or "").strip() or None
             raw = str(item.get("memory") or item.get("text") or "").strip()

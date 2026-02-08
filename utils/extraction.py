@@ -1,7 +1,8 @@
 """Core incremental scan utilities for Dify -> Mem0 memory extraction.
 
 This module implements the "equivalent incremental" scan strategy described in SPEC.md:
-- conversations: reverse scan (newest first), stop when conversation.updated_at <= last_run_at
+- conversations: reverse scan (newest first), process only those with updated_at
+  within the [start_time, run_at] window
 - messages: reverse pagination, stop when reaching last_processed_message_id
 - drop messages created_at > run_at
 - reorder collected new messages to chronological order for downstream extraction
@@ -46,7 +47,6 @@ class ConversationCheckpoint:
 
 @dataclass
 class UserCheckpoint:
-    last_run_at: str | None = None
     conversations: dict[str, ConversationCheckpoint] | None = None
     resume_conversation_cursor: str | None = None
     resume_run_at: str | None = None
@@ -59,9 +59,6 @@ class UserCheckpoint:
             self.conversations[conversation_id] = ConversationCheckpoint()
         return self.conversations[conversation_id]
     
-    def mark_task_success(self, run_at: str) -> None:
-        """Mark task as successfully completed."""
-        self.last_run_at = run_at
 
 
 @dataclass
@@ -320,10 +317,10 @@ def scan_user_conversations_incremental(
     """Scan conversations in reverse chronological order (newest first).
     
     Conversations are scanned in descending updated_at order (newest to oldest).
+    Only conversations whose updated_at falls within [start_time, run_at] are processed.
     Stops when:
-    1. A conversation with updated_at <= last_run_at is found (checkpoint)
-    2. max_conversations limit is reached (business limit to prevent abuse)
-    3. No more conversations available
+    1. max_conversations limit is reached (business limit to prevent abuse)
+    2. No more conversations available
     
     All messages in each conversation are collected and returned as a simple list.
     If max_tokens_per_conversation is specified, message fetching stops early when
@@ -355,12 +352,7 @@ def scan_user_conversations_incremental(
     if run_at_dt is None:
         raise ValueError("run_at must be ISO8601")
 
-    last_run_at_dt = (
-        parse_iso_timestamp(user_checkpoint.last_run_at) if user_checkpoint else None
-    )
-
     resume_cursor: str | None = None
-    resume_active = False
     if user_checkpoint and user_checkpoint.resume_conversation_cursor:
         resume_matches_range = (
             user_checkpoint.resume_run_at == run_at
@@ -368,7 +360,12 @@ def scan_user_conversations_incremental(
         )
         if resume_matches_range:
             resume_cursor = user_checkpoint.resume_conversation_cursor
-            resume_active = True
+    
+    start_time_dt = None
+    if start_time:
+        start_time_dt = parse_iso_timestamp(start_time)
+        if start_time_dt is None:
+            raise ValueError("start_time must be ISO8601")
 
     results: dict[str, list[dict[str, Any]]] = {}
     last_id: str | None = resume_cursor
@@ -391,7 +388,6 @@ def scan_user_conversations_incremental(
             return results, stats, "no_more_conversations"
 
         for conv in page.items:
-            conversations_processed += 1
             stats.scanned_conversations += 1
             conv_id = _get_id(conv) or str(conv.get("id") or "").strip()
             if not conv_id:
@@ -403,15 +399,13 @@ def scan_user_conversations_incremental(
                     continue
 
             updated_at_dt = parse_iso_timestamp(conv.get("updated_at"))
-            # Descending scan: stop when conversation updated_at <= last_run_at
-            # (already processed, no updates)
-            if (
-                not resume_active
-                and last_run_at_dt
-                and updated_at_dt
-                and updated_at_dt.timestamp() <= last_run_at_dt.timestamp()
-            ):
-                return results, stats, "checkpoint_updated_at"
+            if updated_at_dt:
+                if updated_at_dt.timestamp() > run_at_dt.timestamp():
+                    # Skip future-updated conversations
+                    continue
+                if start_time_dt and updated_at_dt.timestamp() < start_time_dt.timestamp():
+                    # Skip conversations outside the time window
+                    continue
 
             last_processed_message_id = None
             processed_range_start = None
@@ -443,9 +437,12 @@ def scan_user_conversations_incremental(
                 # Token-based truncation is handled by the caller
                 results[conv_id] = new_messages
 
+            conversations_processed += 1
             if conversations_processed >= max_conversations:
-                stats.resume_conversation_cursor = conv_id
-                return results, stats, "max_conversations_reached"
+                if page.has_more and page.next_cursor:
+                    stats.resume_conversation_cursor = conv_id
+                    return results, stats, "max_conversations_reached"
+                return results, stats, "completed"
 
         last_id = page.next_cursor
         if not page.has_more or not last_id:

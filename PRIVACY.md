@@ -1,5 +1,7 @@
 ## Privacy Policy
 
+Last updated: 2026-02-08
+
 This privacy policy describes how the Mem0 Dify Plugin handles your information when you use it in **self-hosted mode**.
 
 ### Important: Self-Hosted Mode Operation

@@ -1,0 +1,38 @@
+identity:
+  author: mem0
+  name: get_user_checkpoint
+  label:
+    en_US: Get User Checkpoint
+    zh_Hans: 获取用户Checkpoint
+description:
+  human:
+    en_US: Get the extraction checkpoint for a user (optionally scoped by app_id).
+    zh_Hans: 获取用户的记忆提取Checkpoint（可选按 app_id 过滤）。
+  llm: Get the extraction checkpoint for a user. Use app_id to scope by application if provided.
+parameters:
+  - name: user_id
+    type: string
+    required: true
+    label:
+      en_US: User ID
+      zh_Hans: 用户ID
+    human_description:
+      en_US: User ID whose checkpoint you want to view.
+      zh_Hans: 要查看Checkpoint的用户ID。
+    llm_description: User ID whose checkpoint you want to view.
+    form: llm
+  - name: app_id
+    type: string
+    required: false
+    label:
+      en_US: App ID
+      zh_Hans: 应用ID
+    human_description:
+      en_US: Optional app_id to scope the checkpoint. If empty, uses "*".
+      zh_Hans: 可选 app_id 用于限定Checkpoint范围。为空则使用“*”。
+    llm_description: Optional app_id to scope the checkpoint. If empty, uses "*".
+    form: llm
+extra:
+  python:
+    source: tools/get_user_checkpoint.py
+

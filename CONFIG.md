@@ -1,5 +1,7 @@
 # Mem0 Dify Plugin - Configuration Guide
 
+Last updated: 2026-02-08
+
 This guide provides detailed installation and configuration instructions for the Mem0 Dify Plugin.
 
 ## Table of Contents
@@ -43,11 +45,12 @@ This guide provides detailed installation and configuration instructions for the
 
 ### Step 3: Verify Installation
 
-After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 10 tools:
+After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 11 tools:
 - `add_memory`, `search_memory`, `get_all_memories`, `get_memory`
 - `update_memory`, `delete_memory`, `delete_all_memories`, `get_memory_history`
 - `extract_long_term_memory` (extract semantic/episodic/procedural memories from Dify conversation history)
 - `check_extraction_status` (check the status and progress of async extraction tasks)
+- `get_user_checkpoint` (inspect checkpoint state for a user/app)
 
 ## Configuration Steps
 
@@ -514,7 +517,7 @@ For detailed usage examples, see the [Usage Examples](#usage-examples) section b
 
 ## Usage Examples
 
-This section provides complete usage examples for all 10 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
+This section provides complete usage examples for all 11 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
 
 ### Add Memory
 
@@ -879,6 +882,30 @@ The tool returns a structured JSON response with:
   "message": "Task extraction_task_12345 not found. It may have been completed and cleaned up, or never existed."
 }
 ```
+
+### Get User Checkpoint
+
+Use `get_user_checkpoint` to inspect the extraction checkpoint for a user, optionally scoped by app.
+
+**Required Parameters:**
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `app_id`: Dify App ID for checkpoint isolation (omit to fetch the latest user checkpoint across apps)
+
+**Example Configuration:**
+```json
+{
+  "user_id": "alex",
+  "app_id": "my-chatbot-app"
+}
+```
+
+**Output:**
+- `status`: SUCCESS/NOT_FOUND/ERROR
+- `checkpoint_id`: Internal checkpoint memory id (if found)
+- `checkpoint`: Checkpoint payload (conversation map + resume cursor info)
+- `conversations_count`: Number of conversations tracked in checkpoint
 
 **Important Notes:**
 - The `task_id` is returned by `extract_long_term_memory` when the task is accepted

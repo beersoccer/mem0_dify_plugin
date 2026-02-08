@@ -49,9 +49,10 @@ from utils.dify_client import DifyAPIError, DifyClient
 from utils.distributed_lock import AsyncLockManager, SyncLockManager
 from utils.extraction import UserCheckpoint, scan_user_conversations_incremental
 from utils.extraction_helpers import (
-    cmp_iso_timestamps,
     count_message_tokens,
+    get_last_message_checkpoint,
     get_time_range_from_days,
+    update_conv_checkpoint,
 )
 from utils.helpers import _parse_user_ids, dedup_keep_order
 from utils.logger import get_logger
@@ -91,6 +92,8 @@ logger = get_logger(__name__)
 # Message conversion functions moved to utils/message_utils.py for better testability
 # Token counting and truncation functions moved to utils/extraction_helpers.py
 # Time range and timestamp comparison functions moved to utils/extraction_helpers.py
+
+
 
 
 def _process_single_user_sync(
@@ -173,30 +176,6 @@ def _process_single_user_sync(
             cp = UserCheckpoint()
             logger.debug("[run:%s] No existing checkpoint for user %s", run_id, user_id)
 
-        # Idempotency check
-        if cmp_iso_timestamps(cp.last_run_at, end_time) > 0:
-            logger.info(
-                "[run:%s] Skip user %s: already processed beyond %s (last_run_at: %s)",
-                run_id,
-                user_id,
-                end_time,
-                cp.last_run_at,
-            )
-            user_report["status"] = "SKIPPED"
-            user_report["skipped"] = True
-            user_report["reason"] = "already_processed"
-            user_report["last_run_at"] = cp.last_run_at
-            return user_report
-
-        if cmp_iso_timestamps(cp.last_run_at, end_time) == 0:
-            logger.info(
-                "[run:%s] Reprocess user %s with same end_time %s: "
-                "checking for new messages or time range expansion",
-                run_id,
-                user_id,
-                end_time,
-            )
-
         # Process user
         try:
             conversations_data, stats, stop_reason = scan_user_conversations_incremental(
@@ -253,11 +232,12 @@ def _process_single_user_sync(
         for conv_id, conversation_messages in conversations_data.items():
             conv_cp = cp.get_conv(conv_id)
 
-            last_processed_id: str | None = None
-            last_processed_created_at: str | None = None
-
             if not conversation_messages:
                 continue
+
+            last_processed_id, last_processed_created_at = get_last_message_checkpoint(
+                conversation_messages
+            )
 
             # Log conversation processing details only if debug level is enabled
             if logger.isEnabledFor(logging.DEBUG):
@@ -274,6 +254,12 @@ def _process_single_user_sync(
             # Convert to mem0 message format
             mem0_msgs = dify_msg_to_mem0_messages(conversation_messages)
             if not mem0_msgs:
+                update_conv_checkpoint(
+                    conv_cp,
+                    last_processed_id=last_processed_id,
+                    last_processed_created_at=last_processed_created_at,
+                    start_time=start_time,
+                )
                 continue
 
             # Build message ID range for metadata (start_id~end_id)
@@ -305,24 +291,12 @@ def _process_single_user_sync(
             # Skip if no significant content, classification failed, or not worth extracting
             if classified_type is None or not should_extract:
                 # Still update checkpoint to avoid reprocessing
-                last_msg = conversation_messages[-1] if conversation_messages else None
-                if isinstance(last_msg, dict):
-                    last_processed_id = str(last_msg.get("id", "")).strip() or None
-                    ca = last_msg.get("created_at")
-                    if isinstance(ca, str) and ca.strip():
-                        last_processed_created_at = ca.strip()
-                # Update checkpoint even if skipped
-                if last_processed_id:
-                    conv_cp.last_processed_message_id = last_processed_id
-                    if conv_cp.processed_range_start is None or (
-                        start_time and start_time < conv_cp.processed_range_start
-                    ):
-                        conv_cp.processed_range_start = start_time
-                    if conv_cp.processed_range_end is None or (
-                        last_processed_created_at
-                        and last_processed_created_at > conv_cp.processed_range_end
-                    ):
-                        conv_cp.processed_range_end = last_processed_created_at
+                update_conv_checkpoint(
+                    conv_cp,
+                    last_processed_id=last_processed_id,
+                    last_processed_created_at=last_processed_created_at,
+                    start_time=start_time,
+                )
                 continue
 
             # STEP 2: Extract memory using only the classified type
@@ -385,28 +359,13 @@ def _process_single_user_sync(
                     "message": str(e),
                 })
 
-            # Update last processed message info
-            last_msg = conversation_messages[-1] if conversation_messages else None
-            if isinstance(last_msg, dict):
-                last_processed_id = str(last_msg.get("id", "")).strip() or None
-                ca = last_msg.get("created_at")
-                if isinstance(ca, str) and ca.strip():
-                    last_processed_created_at = ca.strip()
-
             # Update conversation checkpoint
-            if last_processed_id:
-                conv_cp.last_processed_message_id = last_processed_id
-
-                if conv_cp.processed_range_start is None or (
-                    start_time and start_time < conv_cp.processed_range_start
-                ):
-                    conv_cp.processed_range_start = start_time
-
-                if conv_cp.processed_range_end is None or (
-                    last_processed_created_at and
-                    last_processed_created_at > conv_cp.processed_range_end
-                ):
-                    conv_cp.processed_range_end = last_processed_created_at
+            update_conv_checkpoint(
+                conv_cp,
+                last_processed_id=last_processed_id,
+                last_processed_created_at=last_processed_created_at,
+                start_time=start_time,
+            )
 
         if stop_reason == "max_conversations_reached" and stats.resume_conversation_cursor:
             cp.resume_conversation_cursor = stats.resume_conversation_cursor
@@ -417,9 +376,6 @@ def _process_single_user_sync(
             cp.resume_run_at = None
             cp.resume_start_time = None
 
-        # Finalize user checkpoint
-        if stop_reason != "max_conversations_reached":
-            cp.mark_task_success(end_time)
         try:
             checkpoint_mgr = SyncCheckpointManager(base_mem)
             ok, new_id = checkpoint_mgr.save_atomic(
@@ -541,30 +497,6 @@ async def _process_single_user_async(
             cp = UserCheckpoint()
             logger.debug("[run:%s] No existing checkpoint for user %s", run_id, user_id)
 
-        # Idempotency check
-        if cmp_iso_timestamps(cp.last_run_at, end_time) > 0:
-            logger.info(
-                "[run:%s] Skip user %s: already processed beyond %s (last_run_at: %s)",
-                run_id,
-                user_id,
-                end_time,
-                cp.last_run_at,
-            )
-            user_report["status"] = "SKIPPED"
-            user_report["skipped"] = True
-            user_report["reason"] = "already_processed"
-            user_report["last_run_at"] = cp.last_run_at
-            return user_report
-
-        if cmp_iso_timestamps(cp.last_run_at, end_time) == 0:
-            logger.info(
-                "[run:%s] Reprocess user %s with same end_time %s: "
-                "checking for new messages or time range expansion",
-                run_id,
-                user_id,
-                end_time,
-            )
-
         # Process user
         logger.info(
             "[run:%s] Scanning conversations for user %s (time_range: %s to %s)",
@@ -633,11 +565,12 @@ async def _process_single_user_async(
         for conv_id, conversation_messages in conversations_data.items():
             conv_cp = cp.get_conv(conv_id)
 
-            last_processed_id: str | None = None
-            last_processed_created_at: str | None = None
-
             if not conversation_messages:
                 continue
+
+            last_processed_id, last_processed_created_at = get_last_message_checkpoint(
+                conversation_messages
+            )
 
             # Log conversation processing details only if debug level is enabled
             if logger.isEnabledFor(logging.DEBUG):
@@ -654,6 +587,12 @@ async def _process_single_user_async(
             # Convert to mem0 message format
             mem0_msgs = dify_msg_to_mem0_messages(conversation_messages)
             if not mem0_msgs:
+                update_conv_checkpoint(
+                    conv_cp,
+                    last_processed_id=last_processed_id,
+                    last_processed_created_at=last_processed_created_at,
+                    start_time=start_time,
+                )
                 continue
 
             # Build message ID range for metadata
@@ -685,24 +624,12 @@ async def _process_single_user_async(
             # Skip if no significant content, classification failed, or not worth extracting
             if classified_type is None or not should_extract:
                 # Still update checkpoint to avoid reprocessing
-                last_msg = conversation_messages[-1] if conversation_messages else None
-                if isinstance(last_msg, dict):
-                    last_processed_id = str(last_msg.get("id", "")).strip() or None
-                    ca = last_msg.get("created_at")
-                    if isinstance(ca, str) and ca.strip():
-                        last_processed_created_at = ca.strip()
-                # Update checkpoint even if skipped
-                if last_processed_id:
-                    conv_cp.last_processed_message_id = last_processed_id
-                    if conv_cp.processed_range_start is None or (
-                        start_time and start_time < conv_cp.processed_range_start
-                    ):
-                        conv_cp.processed_range_start = start_time
-                    if conv_cp.processed_range_end is None or (
-                        last_processed_created_at
-                        and last_processed_created_at > conv_cp.processed_range_end
-                    ):
-                        conv_cp.processed_range_end = last_processed_created_at
+                update_conv_checkpoint(
+                    conv_cp,
+                    last_processed_id=last_processed_id,
+                    last_processed_created_at=last_processed_created_at,
+                    start_time=start_time,
+                )
                 continue
 
             logger.debug(
@@ -773,28 +700,13 @@ async def _process_single_user_async(
                     "message": str(e),
                 })
 
-            # Update last processed message info
-            last_msg = conversation_messages[-1] if conversation_messages else None
-            if isinstance(last_msg, dict):
-                last_processed_id = str(last_msg.get("id", "")).strip() or None
-                ca = last_msg.get("created_at")
-                if isinstance(ca, str) and ca.strip():
-                    last_processed_created_at = ca.strip()
-
             # Update conversation checkpoint
-            if last_processed_id:
-                conv_cp.last_processed_message_id = last_processed_id
-
-                if conv_cp.processed_range_start is None or (
-                    start_time and start_time < conv_cp.processed_range_start
-                ):
-                    conv_cp.processed_range_start = start_time
-
-                if conv_cp.processed_range_end is None or (
-                    last_processed_created_at and
-                    last_processed_created_at > conv_cp.processed_range_end
-                ):
-                    conv_cp.processed_range_end = last_processed_created_at
+            update_conv_checkpoint(
+                conv_cp,
+                last_processed_id=last_processed_id,
+                last_processed_created_at=last_processed_created_at,
+                start_time=start_time,
+            )
 
         if stop_reason == "max_conversations_reached" and stats.resume_conversation_cursor:
             cp.resume_conversation_cursor = stats.resume_conversation_cursor
@@ -805,9 +717,6 @@ async def _process_single_user_async(
             cp.resume_run_at = None
             cp.resume_start_time = None
 
-        # Finalize user checkpoint (async version)
-        if stop_reason != "max_conversations_reached":
-            cp.mark_task_success(end_time)
         try:
             checkpoint_mgr = AsyncCheckpointManager(base_mem)
             ok, new_id = await checkpoint_mgr.save_atomic(

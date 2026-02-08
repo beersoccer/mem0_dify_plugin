@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from utils.checkpoint import (
-    CHECKPOINT_KEY,
+    CHECKPOINT_VERSION,
     SyncCheckpointManager,
     checkpoint_filters,
     checkpoint_metadata,
@@ -71,7 +71,15 @@ class FakeMemory:
         md = kwargs.get("metadata") or {}
         new_id = f"cp_{len(self._store)+1}"
         self._store.append({"id": new_id, "memory": text, "metadata": md})
-        self.added.append({"id": new_id, "text": text, "metadata": md})
+        self.added.append(
+            {
+                "id": new_id,
+                "text": text,
+                "metadata": md,
+                "user_id": kwargs.get("user_id"),
+                "agent_id": kwargs.get("agent_id"),
+            }
+        )
         return {"results": [{"id": new_id, "event": "ADD"}]}
 
     def delete(self, memory_id: str) -> dict[str, Any]:
@@ -81,18 +89,18 @@ class FakeMemory:
 
 
 def test_checkpoint_metadata_shape() -> None:
-    md = checkpoint_metadata(user_id="u1", app_id=None)
-    assert md["__internal"] is True
+    md = checkpoint_metadata()
+    assert md["__internal"] == "true"
     assert md["internal_type"] == "checkpoint"
-    assert md["checkpoint_key"] == CHECKPOINT_KEY
-    assert md["user_id"] == "u1"
-    assert md["app_id"] == "*"
+    assert md["version"] == CHECKPOINT_VERSION
 
 
 def test_checkpoint_filters_shape() -> None:
-    f = checkpoint_filters(user_id="u1", app_id="a1")
+    f = checkpoint_filters()
     assert isinstance(f, dict)
-    assert "AND" in f
+    assert f["__internal"] == "true"
+    assert f["internal_type"] == "checkpoint"
+    assert f["version"] == CHECKPOINT_VERSION
 
 
 def test_save_checkpoint_add_and_update(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,28 +111,36 @@ def test_save_checkpoint_add_and_update(monkeypatch: pytest.MonkeyPatch) -> None
     cp_id, cp = mgr.load(user_id="u1", app_id=None)
     assert cp_id is None
     assert cp is None
+    assert mem.get_all_calls
+    assert mem.get_all_calls[0]["user_id"] == "u1"
+    assert "agent_id" not in mem.get_all_calls[0]
 
     # save new
     ok, new_id = mgr.save(
         checkpoint_id=None,
         user_id="u1",
         app_id=None,
-        checkpoint=UserCheckpoint(last_run_at="2025-12-01T00:00:00Z"),
+        checkpoint=UserCheckpoint(),
     )
     assert ok is True
     assert new_id is not None
     assert mem.added
-    assert mem.added[0]["metadata"]["__internal"] is True
+    assert mem.added[0]["metadata"]["__internal"] == "true"
+    assert mem.added[0]["user_id"] == "u1"
+    assert mem.added[0]["agent_id"] is None
 
     # update existing (uses delete+add, not update)
     ok2, same_id = mgr.save(
         checkpoint_id=new_id,
         user_id="u1",
         app_id=None,
-        checkpoint=UserCheckpoint(last_run_at="2025-12-02T00:00:00Z"),
+        checkpoint=UserCheckpoint(),
     )
     assert ok2 is True
     assert same_id == new_id
     # save uses delete+add instead of update to avoid embedding
     assert new_id in mem.deleted  # Old checkpoint deleted
     assert len(mem.added) == 2  # New checkpoint added
+
+
+    

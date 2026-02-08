@@ -1,5 +1,25 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.7 (2026-02-08)
+
+### ⚡ Optimizations
+- **Windowed incremental scans**:
+  - Conversations are processed only within `[start_time, run_at]`, reducing over-scan and missed updates
+- **Resume cursor accuracy**:
+  - Resume cursors are set only when more pages exist, avoiding false max-conversation stops
+
+### ✨ Enhancements
+- **Checkpoint metadata tightening**:
+  - Internal checkpoint markers are versioned and app scoping uses `agent_id=app_id`
+- **Consistent checkpoint updates**:
+  - Unified checkpoint update helpers normalize `created_at` and update ranges on empty/filtered conversations
+
+### 🐛 Fixes
+- **Avoid skip-by-last_run_at**:
+  - Removed idempotency short-circuit to prevent missing messages when windows shift
+
+---
+
 ## Version 0.2.6 (2026-02-07)
 
 ### ⚡ Optimizations

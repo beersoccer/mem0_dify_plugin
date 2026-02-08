@@ -17,9 +17,9 @@ parameters:
       en_US: Memory ID
       zh_Hans: 记忆ID
     human_description:
-      en_US: The unique identifier of the memory to update.
-      zh_Hans: 要更新的记忆的唯一标识符。
-    llm_description: The unique identifier of the memory to update.
+      en_US: The unique UUID of the memory to update.
+      zh_Hans: 要更新的记忆的唯一UUID。
+    llm_description: The unique UUID of the memory to update.
     form: llm
   - name: text
     type: string

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
@@ -51,6 +52,17 @@ class UpdateMemoryTool(Tool):
         if not memory_id:
             yield from yield_error(
                 self, request_id, "memory_id is required", "update memory", {}
+            )
+            return
+        try:
+            uuid.UUID(str(memory_id))
+        except (TypeError, ValueError):
+            yield from yield_error(
+                self,
+                request_id,
+                "memory_id must be a valid UUID",
+                "update memory",
+                {},
             )
             return
 

@@ -19,6 +19,7 @@ from tools.extract_long_term_memory import (
 )
 from utils.constants import EXTRACTION_MAX_CONCURRENT_USERS
 from utils.extraction import ScanStats, UserCheckpoint
+from utils.helpers import parse_iso_timestamp
 
 
 @pytest.fixture
@@ -190,23 +191,38 @@ class TestProcessSingleUserAsync:
         assert result["lock_holder"] == "other_run"
 
     @pytest.mark.asyncio
-    async def test_already_processed(
+    async def test_processing_runs_with_checkpoint(
         self,
         mock_memory,
         mock_subtype_clients,
         mock_dify_client,
         mock_lock_manager,
     ):
-        """Test user skipped when already processed."""
-        with patch("tools.extract_long_term_memory.AsyncCheckpointManager") as mock_mgr_cls:
-            # Checkpoint shows already processed
+        """Test user processes normally with an existing checkpoint."""
+        with (
+            patch("tools.extract_long_term_memory.AsyncCheckpointManager") as mock_mgr_cls,
+            patch(
+                "tools.extract_long_term_memory.scan_user_conversations_incremental"
+            ) as mock_scan,
+        ):
             cp = UserCheckpoint()
-            cp.last_run_at = "2026-01-25T00:00:00Z"  # After end_time
             mock_mgr = MagicMock()
+
             async def mock_load(*args, **kwargs):
                 return ("cp_123", cp)
+
+            async def mock_save_atomic(*args, **kwargs):
+                return (True, "cp_123")
+
             mock_mgr.load = mock_load
+            mock_mgr.save_atomic = mock_save_atomic
             mock_mgr_cls.return_value = mock_mgr
+
+            mock_scan.return_value = (
+                {},
+                ScanStats(scanned_conversations=1, scanned_messages=1),
+                "completed",
+            )
 
             # Create mock base_client with async create method
             mock_base_client = MagicMock()
@@ -230,10 +246,87 @@ class TestProcessSingleUserAsync:
                 lock_ttl_sec=3600,
             )
 
-            assert result["status"] == "SKIPPED"
-            assert result["skipped"] is True
-            assert result["reason"] == "already_processed"
+            assert result["status"] == "SUCCESS"
+            assert result["skipped"] is False
+            assert mock_scan.called
             assert mock_lock_manager.release_lock.called
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_updates_with_int_created_at_when_mem0_empty(
+        self,
+        mock_memory,
+        mock_subtype_clients,
+        mock_dify_client,
+        mock_lock_manager,
+    ):
+        """Ensure int created_at is normalized and checkpoint updates on empty mem0."""
+        saved: dict[str, UserCheckpoint] = {}
+
+        with (
+            patch("tools.extract_long_term_memory.AsyncCheckpointManager") as mock_mgr_cls,
+            patch(
+                "tools.extract_long_term_memory.scan_user_conversations_incremental"
+            ) as mock_scan,
+            patch(
+                "tools.extract_long_term_memory.dify_msg_to_mem0_messages"
+            ) as mock_to_mem0,
+        ):
+            async def mock_load(*_args, **_kwargs):
+                return (None, UserCheckpoint())
+
+            async def mock_save_atomic(*_args, **kwargs):
+                saved["checkpoint"] = kwargs["checkpoint"]
+                return (True, "cp_123")
+
+            mock_mgr = MagicMock()
+            mock_mgr.load = mock_load
+            mock_mgr.save_atomic = mock_save_atomic
+            mock_mgr_cls.return_value = mock_mgr
+
+            mock_scan.return_value = (
+                {
+                    "conv1": [
+                        {
+                            "id": "msg1",
+                            "query": "Hello",
+                            "answer": "Hi",
+                            "created_at": 1770367009,
+                        }
+                    ]
+                },
+                ScanStats(scanned_conversations=1, scanned_messages=1),
+                "completed",
+            )
+            mock_to_mem0.return_value = []
+
+            mock_base_client = MagicMock()
+            mock_base_client.memory = mock_memory
+
+            async def mock_create():
+                return mock_memory
+
+            mock_base_client.create = mock_create
+
+            result = await _process_single_user_async(
+                base_client=mock_base_client,
+                subtype_clients=mock_subtype_clients,
+                user_id="user1",
+                app_id="app1",
+                run_id="run1",
+                start_time="2026-01-23T00:00:00Z",
+                end_time="2026-01-24T00:00:00Z",
+                dify=mock_dify_client,
+                lock_manager=mock_lock_manager,
+                max_conversations=50,
+                max_tokens_per_conversation=64000,
+                lock_ttl_sec=3600,
+            )
+
+            assert result["status"] == "SUCCESS"
+            conv_cp = saved["checkpoint"].conversations["conv1"]
+            assert conv_cp.last_processed_message_id == "msg1"
+            assert conv_cp.processed_range_end is not None
+            assert parse_iso_timestamp(conv_cp.processed_range_end) is not None
 
     @pytest.mark.asyncio
     async def test_dify_api_error(

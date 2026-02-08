@@ -38,8 +38,8 @@ class FakeDify:
         return pages[idx]
 
 
-def test_incremental_stop_on_updated_at() -> None:
-    """Test that scanning stops when conversation.updated_at <= last_run_at (newest first)."""
+def test_window_filters_by_updated_at() -> None:
+    """Test that scanning only processes conversations within the time window."""
     dify = FakeDify()
     # Descending order: newer conversations first
     dify.conv_pages = [
@@ -47,7 +47,7 @@ def test_incremental_stop_on_updated_at() -> None:
             items=[
                 # New conversation, should be processed
                 {"id": "c_new", "updated_at": "2025-12-05T00:00:00Z"},
-                # Old conversation, stop when encountered
+                # Old conversation, should be skipped by window filter
                 {"id": "c_old", "updated_at": "2025-12-01T00:00:00Z"},
             ],
             next_cursor=None,
@@ -61,19 +61,19 @@ def test_incremental_stop_on_updated_at() -> None:
             has_more=False,
         ),
     ]
-    cp = UserCheckpoint(last_run_at="2025-12-02T00:00:00Z", conversations={})
-
     segs, stats, stop_reason = scan_user_conversations_incremental(
         dify,  # type: ignore[arg-type]
         user_id="u1",
-        run_at="2025-12-10T00:00:00Z",
-        user_checkpoint=cp,
+        run_at="2025-12-06T00:00:00Z",
+        user_checkpoint=UserCheckpoint(conversations={}),
         app_id=None,
+        start_time="2025-12-04T00:00:00Z",
     )
-    # c_new processed, stopped when c_old encountered
+    # c_new processed, c_old skipped by window filter
     assert "c_new" in segs
-    assert stop_reason == "checkpoint_updated_at"  # Stopped at old conversation
-    assert stats.scanned_conversations >= 2
+    assert "c_old" not in segs
+    assert stop_reason == "completed"
+    assert stats.scanned_conversations == 2
 
 
 def test_max_conversations_sets_resume_cursor() -> None:
@@ -85,11 +85,11 @@ def test_max_conversations_sets_resume_cursor() -> None:
                 {"id": "c2", "updated_at": "2025-12-04T00:00:00Z"},
                 {"id": "c1", "updated_at": "2025-12-03T00:00:00Z"},
             ],
-            next_cursor=None,
-            has_more=False,
+            next_cursor="c1",
+            has_more=True,
         ),
     ]
-    cp = UserCheckpoint(last_run_at=None, conversations={})
+    cp = UserCheckpoint(conversations={})
 
     _, stats, stop_reason = scan_user_conversations_incremental(
         dify,  # type: ignore[arg-type]
@@ -104,7 +104,35 @@ def test_max_conversations_sets_resume_cursor() -> None:
     assert stats.resume_conversation_cursor == "c2"
 
 
-def test_resume_ignores_updated_at_checkpoint() -> None:
+def test_max_conversations_no_more_returns_completed() -> None:
+    dify = FakeDify()
+    dify.conv_pages = [
+        _Page(
+            items=[
+                {"id": "c3", "updated_at": "2025-12-05T00:00:00Z"},
+                {"id": "c2", "updated_at": "2025-12-04T00:00:00Z"},
+                {"id": "c1", "updated_at": "2025-12-03T00:00:00Z"},
+            ],
+            next_cursor=None,
+            has_more=False,
+        ),
+    ]
+    cp = UserCheckpoint(conversations={})
+
+    _, stats, stop_reason = scan_user_conversations_incremental(
+        dify,  # type: ignore[arg-type]
+        user_id="u1",
+        run_at="2025-12-10T00:00:00Z",
+        user_checkpoint=cp,
+        app_id=None,
+        max_conversations=2,
+    )
+
+    assert stop_reason == "completed"
+    assert stats.resume_conversation_cursor is None
+
+
+def test_scan_with_checkpoint_uses_window() -> None:
     dify = FakeDify()
     dify.conv_pages = [
         _Page(
@@ -120,24 +148,19 @@ def test_resume_ignores_updated_at_checkpoint() -> None:
             has_more=False,
         ),
     ]
-    cp = UserCheckpoint(
-        last_run_at="2025-12-02T00:00:00Z",
-        conversations={},
-        resume_conversation_cursor="c_resume",
-        resume_run_at="2025-12-10T00:00:00Z",
-        resume_start_time=None,
-    )
-
     segs, _, stop_reason = scan_user_conversations_incremental(
         dify,  # type: ignore[arg-type]
         user_id="u1",
-        run_at="2025-12-10T00:00:00Z",
-        user_checkpoint=cp,
+        run_at="2025-12-02T00:00:00Z",
+        user_checkpoint=UserCheckpoint(
+            conversations={},
+        ),
         app_id=None,
+        start_time="2025-11-30T00:00:00Z",
     )
 
-    assert stop_reason != "checkpoint_updated_at"
     assert "c_old" in segs
+    assert stop_reason == "completed"
 
 
 def test_drop_future_messages_and_stop_on_last_processed_message_id() -> None:
@@ -165,7 +188,6 @@ def test_drop_future_messages_and_stop_on_last_processed_message_id() -> None:
         ),
     ]
     cp = UserCheckpoint(
-        last_run_at="2025-11-01T00:00:00Z",
         conversations={"c1": ConversationCheckpoint(last_processed_message_id="m_old")},
     )
 
