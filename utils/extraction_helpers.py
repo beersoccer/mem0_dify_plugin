@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .constants import EXTRACTION_DEFAULT_ENCODING
 from .helpers import parse_iso_timestamp
 from .logger import get_logger
+
+if TYPE_CHECKING:
+    from .extraction import ConversationCheckpoint
 
 logger = get_logger(__name__)
 
@@ -219,4 +222,47 @@ def cmp_iso_timestamps(a: str | None, b: str | None) -> int:
     if ta > tb:
         return 1
     return 0
+
+
+def normalize_created_at(value: object) -> str | None:
+    dt = parse_iso_timestamp(value)
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+
+def get_last_message_checkpoint(
+    conversation_messages: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    if not conversation_messages:
+        return None, None
+    last_msg = conversation_messages[-1]
+    if not isinstance(last_msg, dict):
+        return None, None
+    last_processed_id = str(last_msg.get("id", "")).strip() or None
+    last_processed_created_at = normalize_created_at(last_msg.get("created_at"))
+    return last_processed_id, last_processed_created_at
+
+
+def update_conv_checkpoint(
+    conv_cp: ConversationCheckpoint,
+    *,
+    last_processed_id: str | None,
+    last_processed_created_at: str | None,
+    start_time: str | None,
+) -> None:
+    if last_processed_id:
+        conv_cp.last_processed_message_id = last_processed_id
+
+    if start_time and (
+        conv_cp.processed_range_start is None
+        or cmp_iso_timestamps(start_time, conv_cp.processed_range_start) < 0
+    ):
+        conv_cp.processed_range_start = start_time
+
+    if last_processed_created_at and (
+        conv_cp.processed_range_end is None
+        or cmp_iso_timestamps(last_processed_created_at, conv_cp.processed_range_end) > 0
+    ):
+        conv_cp.processed_range_end = last_processed_created_at
 

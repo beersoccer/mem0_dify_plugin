@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
 
-from utils.config_builder import build_local_mem0_config
+from utils.config_builder import build_local_mem0_config_without_pool
 from utils.helpers import (
     compute_duration_seconds,
     format_duration_mmss,
@@ -20,7 +20,7 @@ from utils.helpers import (
     trim_midnight_timestamp,
 )
 from utils.logger import get_logger
-from utils.mem0_client import Memory
+from utils.mem0_client import SyncMem0Client
 from utils.task_status import SyncTaskStatusManager
 
 if TYPE_CHECKING:
@@ -49,8 +49,13 @@ class CheckExtractionStatusTool(Tool):
                 return
 
             # Load task status from Mem0
-            base_cfg = build_local_mem0_config(self.runtime.credentials)
-            base_mem = Memory.from_config(base_cfg)
+            base_cfg = build_local_mem0_config_without_pool(self.runtime.credentials)
+            client = SyncMem0Client(
+                self.runtime.credentials,
+                enable_keepalive=False,
+                config_override=base_cfg,
+            )
+            base_mem = client.memory
 
             task_status_mgr = SyncTaskStatusManager(base_mem)
             _, task_status = task_status_mgr.load(task_id=task_id)
@@ -161,6 +166,7 @@ class CheckExtractionStatusTool(Tool):
             )
             yield self.create_json_message(response)
             yield self.create_text_message(status_msg)
+            return
 
         except Exception as e:
             logger.exception("Check extraction status failed")
@@ -169,5 +175,8 @@ class CheckExtractionStatusTool(Tool):
                 {"status": "ERROR", "messages": error_message, "results": []},
             )
             yield self.create_text_message(f"Failed to check status: {error_message}")
+        finally:
+            if "client" in locals() and client is not None:
+                client.close()
 
 

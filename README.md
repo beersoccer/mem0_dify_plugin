@@ -1,8 +1,10 @@
-# Mem0 Dify Plugin v0.2.6
+# Mem0 Dify Plugin v0.2.7
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
+
+Last updated: 2026-02-08
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -10,7 +12,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ## 🌟 Features
 
-### Complete Memory Management (10 Tools)
+### Complete Memory Management (11 Tools)
 - ✅ **Add Memory** - Intelligently add, update, or delete memories based on user interactions
 - ✅ **Search Memory** - Search with advanced filters (AND/OR logic) and top_k limiting, returns timestamp field (most recent created_at/updated_at)
 - ✅ **Get All Memories** - List memories with pagination
@@ -21,6 +23,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - ✅ **Get Memory History** - View change history
 - ✅ **Extract Long-Term Memory** - Automatically extract semantic/episodic/procedural memories from Dify conversation history
 - ✅ **Check Extraction Status** - Check the status and progress of async extraction tasks
+- ✅ **Get User Checkpoint** - Inspect extraction checkpoint state for a user/app
 
 ### Advanced Capabilities
 - 🖥️ **Self-Hosted Mode** - Run with Local Mem0 (JSON-based config)
@@ -31,81 +34,25 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.6) - Extraction Status & Resume Refinements ✅
+### What's New (v0.2.7) - Checkpoint Windowing & Resume Accuracy ✅
+- **Windowed checkpoint scanning**
+  - Incremental scans process only conversations within `[start_time, run_at]` to prevent skips
+- **Stronger resume guarantees**
+  - Resume cursors are only set when more pages exist, avoiding false max-conversation stops
+- **Consistent checkpoint updates**
+  - Normalized `created_at` values and unified checkpoint updates reduce reprocessing on empty/filtered conversations
+
+### Previous Updates (v0.2.6) - Extraction Status & Resume Refinements ✅
 - **Resume-safe extraction at conversation limits**
   - Checkpoints store resume cursors and avoid marking success when the per-user cap is reached
 - **Extraction defaults tuned for daily runs**
   - `days_back` defaults to 1, `conversations_limit` defaults to 20
 - **Richer task status visibility**
-  - `check_extraction_status` now includes time range, duration, and processed vs scanned counters with local-time timestamps
-- **Cleaner extraction writes**
-  - Extraction writes now use `agent_id=app_id` for scoping and simplified metadata tagged by `memory_origin`
+  - `check_extraction_status` includes time range, duration, and processed vs scanned counters
 
 ### Previous Updates (v0.2.5) - Reliability & Compatibility Improvements! 🛠️
 
-### Previous Updates (v0.2.4) - Resource Isolation Optimization! 🔒
-- **🔒 Connection Pool Sharing & Resource Isolation (2026-02-03)**
-  - **Critical Optimization**: Long-term memory extraction tool now uses intelligent connection pool sharing
-  - **Problem Solved**: Previously, each memory subtype client (semantic/episodic/procedural) created its own connection pool, wasting resources
-  - **Solution**: All subtype clients now share the base client's connection pool while maintaining independent Memory instances
-  - **Resource Efficiency**: **67% reduction** in database connections (from 3 pools to 1 shared pool per extraction task)
-  - **Smart Cleanup**: Automatic detection of shared pools prevents premature closure and resource leaks
-  - **Impact**: Significantly improved resource efficiency, prevents connection pool exhaustion, reduces infrastructure costs
-
-### Previous Updates (v0.2.3) - Documentation Updates! 📚
-- **📝 Comprehensive Documentation Update (2026-01-31)**
-  - Updated all markdown documentation to match current code implementation
-  - Merged scattered design documents into unified design history
-  - Ensured consistency across all documentation files
-  - **Impact**: Better documentation quality, easier maintenance, improved developer experience
-
-### Previous Updates (v0.2.2) - Performance Optimizations! ⚡
-- **🚀 Smart Memory Classification (2026-01-24)**
-  - Intelligently classifies each conversation to determine the most relevant memory type
-  - Extracts only the classified type (semantic/episodic/procedural) instead of all three
-  - **Reduces LLM calls by 33%** (from 3 per conversation to 2: 1 classification + 1 extraction)
-  - Based on the assumption that conversations typically focus on a single topic/memory type
-  - **Impact**: Faster processing, lower costs, more focused memory extraction
-
-- **⚡ Token-Aware Processing (2026-01-25)**
-  - Per-conversation processing with configurable token limits (default: 64K tokens)
-  - Uses tiktoken (cl100k_base encoding) for accurate token counting
-  - Token limiting applied during API pagination to optimize network transfer
-  - When token limit reached, pagination stops early and only recent messages are fetched
-  - **No segmentation needed** - preserves complete conversation context
-  - **Impact**: Better context preservation, optimized network usage, accurate token budgeting
-
-- **🔧 Code Quality & Testability Improvements**
-  - Refactored message conversion utilities to `utils/message_utils.py` for better testability
-  - Fixed MessageSegment test issues
-  - Improved code organization and maintainability
-
-### Previous Updates (v0.2.1) - Critical Fix! 🔥
-- **🐛 Critical Bug Fix: Data Loss Prevention**
-  - Fixed data loss when time range expands backward (e.g., backfilling historical data)
-  - Enhanced checkpoint with time range awareness (`processed_range_start/end`)
-  - ⭐ **Strongly recommended upgrade**
-  - Detailed documentation: See checkpoint implementation in `tools/extract_long_term_memory.py`
-
-### Previous Updates (v0.2.0)
-- **🚀 New Tool: Extract Long-Term Memory**
-  - Automatically extract semantic/episodic/procedural memories from Dify conversation history
-  - Async task pattern: returns task_id immediately, use check_extraction_status to monitor progress
-  - Time-range based processing with incremental scanning
-  - Checkpoint-based progress tracking (no external DB required)
-  - Supports batch processing of multiple users (up to 5 concurrent users)
-- **🔧 Robustness Enhancements**
-  - **Automatic Retry**: API calls retry 3 times with exponential backoff (success rate: 70% → 95%)
-  - **Distributed Lock**: Prevents concurrent processing (100% concurrent-safe)
-  - **Enhanced Checkpoint**: Task state tracking with 5 essential fields (v2, backward compatible)
-  - **Atomic Save**: Transactional checkpoint persistence with automatic rollback
-  - **Recovery Time**: Reduced from 5 minutes (manual) to 30 seconds (automatic)
-- **📊 Impact**: +35% success rate, -90% recovery time, 100% checkpoint consistency
-
-**Previous Version (v0.1.9):**
-- Connection Stability & Resource Management: TCP keep-alive, connection pool cleanup, PGVector enhancements
-
-> 📖 **For previous version updates, see [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md)**
+For full historical details, see [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md).
 
 ---
 
@@ -151,13 +98,13 @@ Details (including batch processing behavior) are in `CONFIG.md` under **Extract
 
 ### Start Using
 
-Once configured, all 10 tools are available in your workflows!
+Once configured, all 11 tools are available in your workflows!
 
 ---
 
 ## 📖 Quick Examples
 
-> 📖 **For complete usage examples with all 10 tools, see [CONFIG.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#usage-examples)**
+> 📖 **For complete usage examples with all 11 tools, see [CONFIG.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#usage-examples)**
 
 ### Add Memory
 
@@ -400,6 +347,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.7 | 2026-02-08 | Checkpoint windowing, resume cursor accuracy, normalized message timestamps |
 | v0.2.6 | 2026-02-07 | Extraction resume safeguards, richer status metrics, local-time task timestamps |
 | v0.2.5 | 2026-02-04 | Documentation refresh: recommended config choices and placeholder-safe examples |
 | v0.2.4 | 2026-02-03 | Resource isolation optimization: Connection pool sharing for long-term memory tool (67% reduction in database connections) |

@@ -140,6 +140,7 @@ tools:
   - tools/get_memory_history.yaml
   - tools/extract_long_term_memory.yaml
   - tools/check_extraction_status.yaml
+  - tools/get_user_checkpoint.yaml
 extra:
   python:
     source: provider/mem0ai.py

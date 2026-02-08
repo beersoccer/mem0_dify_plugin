@@ -20,7 +20,7 @@ else:
     AsyncMemory = None  # type: ignore
 
 logger = get_logger(__name__)
-TASK_STATUS_KEY = "extraction_task_v1"
+TASK_STATUS_VERSION = "v1"
 TASK_STATUS_USER_ID = "memory_extractor"
 
 
@@ -53,19 +53,18 @@ def task_status_metadata(*, task_id: str) -> dict[str, Any]:
     return {
         "__internal": True,
         "internal_type": "extraction_task",
-        "task_key": TASK_STATUS_KEY,
+        "version": TASK_STATUS_VERSION,
         "task_id": task_id,
     }
 
 
 def task_status_filters(*, task_id: str) -> dict[str, Any]:
     """Build filters for task status retrieval."""
-    md = task_status_metadata(task_id=task_id)
     return {
         "__internal": "true",
         "internal_type": "extraction_task",
-        "task_key": md["task_key"],
-        "task_id": md["task_id"],
+        "task_id": task_id,
+        "version": TASK_STATUS_VERSION,
     }
 
 

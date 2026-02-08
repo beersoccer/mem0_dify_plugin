@@ -634,7 +634,6 @@ uv sync  # 或 pip install -r requirements.txt -r requirements-dev.txt
 
 ### Checkpoint验证
 - ✅ Checkpoint成功保存到Mem0
-- ✅ Checkpoint包含正确的`last_run_at`时间
 - ✅ 每个会话的checkpoint包含`last_processed_message_id`
 - ✅ 每个会话的checkpoint包含时间范围信息
 

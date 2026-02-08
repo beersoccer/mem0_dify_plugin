@@ -269,7 +269,6 @@ class TestTimeRangeWithCheckpoint:
             pytest.skip("TEST_START_TIME and TEST_END_TIME not set in .env")
 
         checkpoint = UserCheckpoint(
-            last_run_at="2026-01-17T11:00:00Z",
             conversations={},
         )
 

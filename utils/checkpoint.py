@@ -3,9 +3,9 @@
 Checkpoint is stored as an internal Mem0 memory with metadata markers (SPEC.md):
 - metadata.__internal = true
 - metadata.internal_type = "checkpoint"
-- metadata.checkpoint_key = "dify_extraction_v1"
-- metadata.user_id = <user_id>
-- metadata.app_id = <app_id or "*">
+- metadata.version = "v1"
+
+App scoping uses Mem0's agent_id (agent_id = app_id when provided).
 
 Enhanced with atomic save and rollback mechanism for robustness.
 """
@@ -28,31 +28,29 @@ else:
     AsyncMemory = None  # type: ignore
 
 logger = get_logger(__name__)
-CHECKPOINT_KEY = "dify_extraction_v1"
+CHECKPOINT_VERSION = "v1"
 
 
-def checkpoint_metadata(*, user_id: str, app_id: str | None) -> dict[str, Any]:
+def checkpoint_metadata() -> dict[str, Any]:
     return {
         "__internal": True,
         "internal_type": "checkpoint",
-        "checkpoint_key": CHECKPOINT_KEY,
-        "user_id": user_id,
-        "app_id": app_id or "*",
+        "version": CHECKPOINT_VERSION,
     }
 
 
-def checkpoint_filters(*, user_id: str, app_id: str | None) -> dict[str, Any]:
-    md = checkpoint_metadata(user_id=user_id, app_id=app_id)
+def checkpoint_filters() -> dict[str, Any]:
     # Mem0 filters operate on metadata keys directly in local mode.
+    # Use string "true" to match mem0's stored metadata formatting.
     return {
-        "AND": [
-            {"__internal": {"eq": True}},
-            {"internal_type": {"eq": md["internal_type"]}},
-            {"checkpoint_key": {"eq": md["checkpoint_key"]}},
-            {"user_id": {"eq": md["user_id"]}},
-            {"app_id": {"eq": md["app_id"]}},
-        ],
+        "__internal": "true",
+        "internal_type": "checkpoint",
+        "version": CHECKPOINT_VERSION,
     }
+
+
+def _checkpoint_agent_id(app_id: str | None) -> str | None:
+    return app_id or None
 
 
 def _extract_memory_text(obj: dict[str, Any]) -> str:
@@ -85,20 +83,15 @@ class SyncCheckpointManager:
         Returns:
             (checkpoint_id, checkpoint): Tuple of checkpoint ID and checkpoint object
         """
-        filters = checkpoint_filters(user_id=user_id, app_id=app_id)
-        result = self.mem.get_all(user_id=user_id, limit=5, filters=filters)
-        items = result.get("results", []) if isinstance(result, dict) else []
-
-        if not isinstance(items, list) or not items:
+        items = self._load_items(user_id=user_id)
+        if not items:
             return None, None
 
         # Prefer newest by created_at/updated_at if available; else first.
         def _key(x: dict[str, Any]) -> str:
             return str(x.get("updated_at") or x.get("created_at") or "")
 
-        items_sorted = sorted(
-            [x for x in items if isinstance(x, dict)], key=_key, reverse=True
-        )
+        items_sorted = sorted(items, key=_key, reverse=True)
         chosen = items_sorted[0]
         mem_id = str(chosen.get("id") or "").strip() or None
         raw = _extract_memory_text(chosen)
@@ -114,7 +107,6 @@ class SyncCheckpointManager:
             return mem_id, UserCheckpoint()
 
         cp = UserCheckpoint(
-            last_run_at=data.get("last_run_at"),
             conversations={},
             resume_conversation_cursor=data.get("resume_conversation_cursor"),
             resume_run_at=data.get("resume_run_at"),
@@ -131,6 +123,17 @@ class SyncCheckpointManager:
                     processed_range_end=cpd.get("processed_range_end"),
                 )
         return mem_id, cp
+
+    def _load_items(self, *, user_id: str) -> list[dict[str, Any]]:
+        result = self.mem.get_all(
+            user_id=user_id,
+            limit=5,
+            filters=checkpoint_filters(),
+        )
+        items = result.get("results", []) if isinstance(result, dict) else []
+        if isinstance(items, list) and items:
+            return [x for x in items if isinstance(x, dict)]
+        return []
 
     def save(
         self,
@@ -157,7 +160,7 @@ class SyncCheckpointManager:
         """
         payload = asdict(checkpoint)
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        md = checkpoint_metadata(user_id=user_id, app_id=app_id)
+        md = checkpoint_metadata()
 
         # If updating existing checkpoint, delete it first to avoid embedding
         # mem0's update() method calls embedding_model.embed() which is unnecessary
@@ -172,7 +175,13 @@ class SyncCheckpointManager:
                 )
 
         # Create new internal memory; infer=False to avoid LLM calls and embedding
-        res = self.mem.add(text, user_id=user_id, metadata=md, infer=False)
+        res = self.mem.add(
+            text,
+            user_id=user_id,
+            agent_id=_checkpoint_agent_id(app_id),
+            metadata=md,
+            infer=False,
+        )
         new_id: str | None = None
         if isinstance(res, dict):
             results = res.get("results")
@@ -285,20 +294,15 @@ class AsyncCheckpointManager:
         Returns:
             (checkpoint_id, checkpoint): Tuple of checkpoint ID and checkpoint object
         """
-        filters = checkpoint_filters(user_id=user_id, app_id=app_id)
-        result = await self.mem.get_all(user_id=user_id, limit=5, filters=filters)
-        items = result.get("results", []) if isinstance(result, dict) else []
-
-        if not isinstance(items, list) or not items:
+        items = await self._load_items(user_id=user_id)
+        if not items:
             return None, None
 
         # Prefer newest by created_at/updated_at if available; else first.
         def _key(x: dict[str, Any]) -> str:
             return str(x.get("updated_at") or x.get("created_at") or "")
 
-        items_sorted = sorted(
-            [x for x in items if isinstance(x, dict)], key=_key, reverse=True
-        )
+        items_sorted = sorted(items, key=_key, reverse=True)
         chosen = items_sorted[0]
         mem_id = str(chosen.get("id") or "").strip() or None
         raw = _extract_memory_text(chosen)
@@ -314,7 +318,6 @@ class AsyncCheckpointManager:
             return mem_id, UserCheckpoint()
 
         cp = UserCheckpoint(
-            last_run_at=data.get("last_run_at"),
             conversations={},
         )
         conversations = data.get("conversations") or {}
@@ -328,6 +331,17 @@ class AsyncCheckpointManager:
                     processed_range_end=cpd.get("processed_range_end"),
                 )
         return mem_id, cp
+
+    async def _load_items(self, *, user_id: str) -> list[dict[str, Any]]:
+        result = await self.mem.get_all(
+            user_id=user_id,
+            limit=5,
+            filters=checkpoint_filters(),
+        )
+        items = result.get("results", []) if isinstance(result, dict) else []
+        if isinstance(items, list) and items:
+            return [x for x in items if isinstance(x, dict)]
+        return []
 
     async def save(
         self,
@@ -354,7 +368,7 @@ class AsyncCheckpointManager:
         """
         payload = asdict(checkpoint)
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        md = checkpoint_metadata(user_id=user_id, app_id=app_id)
+        md = checkpoint_metadata()
 
         # If updating existing checkpoint, delete it first to avoid embedding
         # mem0's update() method calls embedding_model.embed() which is unnecessary
@@ -369,7 +383,13 @@ class AsyncCheckpointManager:
                 )
 
         # Create new internal memory; infer=False to avoid LLM calls and embedding
-        res = await self.mem.add(text, user_id=user_id, metadata=md, infer=False)
+        res = await self.mem.add(
+            text,
+            user_id=user_id,
+            agent_id=_checkpoint_agent_id(app_id),
+            metadata=md,
+            infer=False,
+        )
         new_id: str | None = None
         if isinstance(res, dict):
             results = res.get("results")

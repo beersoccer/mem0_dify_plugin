@@ -50,12 +50,16 @@ def test_check_status_includes_actual_processed_counts() -> None:
     )
 
     with (
-        patch("tools.check_extraction_status.build_local_mem0_config", return_value={}),
-        patch("tools.check_extraction_status.Memory") as mock_memory_cls,
+        patch(
+            "tools.check_extraction_status.build_local_mem0_config_without_pool",
+            return_value={},
+        ),
+        patch("tools.check_extraction_status.SyncMem0Client") as mock_client_cls,
         patch("tools.check_extraction_status.SyncTaskStatusManager") as mock_mgr_cls,
     ):
-        mock_memory = MagicMock()
-        mock_memory_cls.from_config.return_value = mock_memory
+        mock_client = MagicMock()
+        mock_client.memory = MagicMock()
+        mock_client_cls.return_value = mock_client
         mock_mgr = MagicMock()
         mock_mgr.load.return_value = ("mem_id", status)
         mock_mgr_cls.return_value = mock_mgr
@@ -67,6 +71,12 @@ def test_check_status_includes_actual_processed_counts() -> None:
     assert "Users: 2/2 (processed/scanned)" in text
     assert "Conversations: 80/100 (processed/scanned)" in text
     assert "Messages: 200/251 (processed/scanned)" in text
+    mock_client_cls.assert_called_once_with(
+        mock_runtime.credentials,
+        enable_keepalive=False,
+        config_override={},
+    )
+    mock_client.close.assert_called_once()
 
 
 def test_compute_duration_seconds_with_updated_at() -> None:
@@ -127,12 +137,16 @@ def test_time_range_midnight_trimmed_in_status() -> None:
     )
 
     with (
-        patch("tools.check_extraction_status.build_local_mem0_config", return_value={}),
-        patch("tools.check_extraction_status.Memory") as mock_memory_cls,
+        patch(
+            "tools.check_extraction_status.build_local_mem0_config_without_pool",
+            return_value={},
+        ),
+        patch("tools.check_extraction_status.SyncMem0Client") as mock_client_cls,
         patch("tools.check_extraction_status.SyncTaskStatusManager") as mock_mgr_cls,
     ):
-        mock_memory = MagicMock()
-        mock_memory_cls.from_config.return_value = mock_memory
+        mock_client = MagicMock()
+        mock_client.memory = MagicMock()
+        mock_client_cls.return_value = mock_client
         mock_mgr = MagicMock()
         mock_mgr.load.return_value = ("mem_id", status)
         mock_mgr_cls.return_value = mock_mgr
@@ -141,6 +155,12 @@ def test_time_range_midnight_trimmed_in_status() -> None:
 
     text = _extract_text_message(messages[1])
     assert "Time: 2026-02-05 -> 2026-02-07" in text
+    mock_client_cls.assert_called_once_with(
+        mock_runtime.credentials,
+        enable_keepalive=False,
+        config_override={},
+    )
+    mock_client.close.assert_called_once()
 
 
 def test_format_task_time_range_missing_start() -> None:

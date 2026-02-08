@@ -256,13 +256,13 @@ class TestIncrementalScanRealData:
         assert isinstance(segments, dict)
         assert stats.scanned_conversations >= 0
 
-    def test_scan_conversations_incremental_stops_at_checkpoint(
+    def test_scan_conversations_incremental_with_checkpoint(
         self, dify_client: DifyClient, env_config: dict[str, str]
     ) -> None:
-        """Verify scan stops when hitting checkpoint updated_at."""
+        """Verify scan works with an existing checkpoint."""
         user_id = env_config["DIFY_USER_ID"]
 
-        checkpoint = UserCheckpoint(last_run_at="2099-12-31T23:59:59Z")
+        checkpoint = UserCheckpoint()
         run_at = "2100-01-01T00:00:00Z"
 
         segments, stats, stop_reason = scan_user_conversations_incremental(
@@ -273,9 +273,9 @@ class TestIncrementalScanRealData:
         )
 
         assert stop_reason in {
-            "checkpoint_updated_at",
             "no_more_conversations",
             "completed",
+            "max_conversations_reached",
         }
         assert stats.scanned_conversations >= 0
 
@@ -403,7 +403,7 @@ class TestCheckpointPersistence:
         mgr = SyncCheckpointManager(mem)
 
         checkpoint = UserCheckpoint(
-            last_run_at="2025-12-01T00:00:00Z", conversations={}
+            conversations={}
         )
 
         ok, cp_id = mgr.save(
@@ -417,19 +417,19 @@ class TestCheckpointPersistence:
 
         assert loaded_id == cp_id
         assert loaded_cp is not None
-        assert loaded_cp.last_run_at == "2025-12-01T00:00:00Z"
+        assert loaded_cp.conversations == {}
 
     def test_checkpoint_update_same_id(self) -> None:
         """Verify updating checkpoint reuses same ID."""
         mem = self.FakeMemory()
         mgr = SyncCheckpointManager(mem)
 
-        cp1 = UserCheckpoint(last_run_at="2025-12-01T00:00:00Z")
+        cp1 = UserCheckpoint()
         ok1, id1 = mgr.save(
             checkpoint_id=None, user_id="u1", app_id=None, checkpoint=cp1
         )
 
-        cp2 = UserCheckpoint(last_run_at="2025-12-02T00:00:00Z")
+        cp2 = UserCheckpoint()
         ok2, id2 = mgr.save(
             checkpoint_id=id1, user_id="u1", app_id=None, checkpoint=cp2
         )
@@ -439,7 +439,7 @@ class TestCheckpointPersistence:
 
         _, loaded = mgr.load(user_id="u1", app_id=None)
         assert loaded is not None
-        assert loaded.last_run_at == "2025-12-02T00:00:00Z"
+        assert loaded.conversations == {}
 
 
 class TestDifyMessageNormalization:

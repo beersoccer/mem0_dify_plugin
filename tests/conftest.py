@@ -78,6 +78,7 @@ def _file_imports_dify_plugin(file_path: Path) -> bool:
                         if node.module in (
                             "tools.extract_long_term_memory",
                             "tools.check_extraction_status",
+                            "tools.get_user_checkpoint",
                         ):
                             return True
     except (SyntaxError, UnicodeDecodeError):
