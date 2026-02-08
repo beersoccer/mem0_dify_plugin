@@ -33,7 +33,7 @@ CHECKPOINT_VERSION = "v1"
 
 def checkpoint_metadata() -> dict[str, Any]:
     return {
-        "__internal": True,
+        "__internal": "true",
         "internal_type": "checkpoint",
         "version": CHECKPOINT_VERSION,
     }

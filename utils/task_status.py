@@ -51,7 +51,7 @@ class ExtractionTaskStatus:
 def task_status_metadata(*, task_id: str) -> dict[str, Any]:
     """Build metadata for task status storage."""
     return {
-        "__internal": True,
+        "__internal": "true",
         "internal_type": "extraction_task",
         "version": TASK_STATUS_VERSION,
         "task_id": task_id,
@@ -164,10 +164,8 @@ class SyncTaskStatusManager:
                 user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
             )
             items = result.get("results", []) if isinstance(result, dict) else []
-
             if not items or not isinstance(items, list) or not items:
                 return None, None
-
             item = items[0]
             memory_id = str(item.get("id") or "").strip() or None
             raw = str(item.get("memory") or item.get("text") or "").strip()
@@ -394,10 +392,8 @@ class AsyncTaskStatusManager:
                 user_id=TASK_STATUS_USER_ID, limit=1, filters=filters
             )
             items = result.get("results", []) if isinstance(result, dict) else []
-
             if not items or not isinstance(items, list) or not items:
                 return None, None
-
             item = items[0]
             memory_id = str(item.get("id") or "").strip() or None
             raw = str(item.get("memory") or item.get("text") or "").strip()

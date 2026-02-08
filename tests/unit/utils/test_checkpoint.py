@@ -90,7 +90,7 @@ class FakeMemory:
 
 def test_checkpoint_metadata_shape() -> None:
     md = checkpoint_metadata()
-    assert md["__internal"] is True
+    assert md["__internal"] == "true"
     assert md["internal_type"] == "checkpoint"
     assert md["version"] == CHECKPOINT_VERSION
 
@@ -125,7 +125,7 @@ def test_save_checkpoint_add_and_update(monkeypatch: pytest.MonkeyPatch) -> None
     assert ok is True
     assert new_id is not None
     assert mem.added
-    assert mem.added[0]["metadata"]["__internal"] is True
+    assert mem.added[0]["metadata"]["__internal"] == "true"
     assert mem.added[0]["user_id"] == "u1"
     assert mem.added[0]["agent_id"] is None
 
