@@ -10,17 +10,15 @@ from typing import TYPE_CHECKING, Any
 from dify_plugin import Tool
 
 from utils.config_builder import is_async_mode
-from utils.constants import UPDATE_ACCEPT_RESULT, WRITE_OPERATION_TIMEOUT
+from utils.constants import (
+    MAX_PENDING_TASKS_MULTIPLIER,
+    UPDATE_ACCEPT_RESULT,
+    WRITE_OPERATION_TIMEOUT,
+)
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
-from utils.mem0_client import (
-    get_async_client,
-    get_sync_client,
-)
-from utils.memory_tool_helpers import (
-    init_request_context,
-    yield_error,
-)
+from utils.mem0_client import get_async_client, get_sync_client
+from utils.memory_tool_helpers import init_request_context, yield_error
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -136,6 +134,32 @@ class UpdateMemoryTool(Tool):
                     yield self.create_text_message(f"Error: {error_message}")
             else:
                 client = get_async_client(self.runtime.credentials)
+                # Pre-enqueue overload guard (early reject)
+                pending = client.get_pending_tasks_count()
+                max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER
+                if pending > max_pending:
+                    elapsed = time.time() - start_time
+                    logger.warning(
+                        "[req:%s] Update rejected before enqueue: queue overloaded "
+                        "(pending=%d, max=%d, memory_id: %s, duration: %.2fs)",
+                        request_id,
+                        pending,
+                        max_pending,
+                        memory_id,
+                        elapsed,
+                    )
+                    yield self.create_json_message(
+                        {
+                            "status": "OVERLOAD",
+                            "messages": {"memory_id": memory_id, "text": text},
+                            "results": {},
+                        }
+                    )
+                    yield self.create_text_message(
+                        "System overloaded, memory update skipped (not enqueued)."
+                    )
+                    return
+
                 # Submit update to background event loop without awaiting (non-blocking)
                 # Fire-and-forget: exceptions in background execution won't be caught here
                 loop = client.ensure_bg_loop()

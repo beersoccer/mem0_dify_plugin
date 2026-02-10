@@ -45,9 +45,12 @@ MAX_REQUEST_TIMEOUT: int = 60
 # Operation timeouts (in seconds) for individual Mem0 operations
 # These should be less than MAX_REQUEST_TIMEOUT to allow for error handling
 # Read operations: unified timeout for all read operations (search, get, get_all, history)
-READ_OPERATION_TIMEOUT: int = 15
-# Write operations: longer timeout to allow persistence
-WRITE_OPERATION_TIMEOUT: int = 30
+# NOTE: This is the default for tools unless overridden by tool parameter `timeout`.
+READ_OPERATION_TIMEOUT: int = 5
+# Write operations: default timeout for all write operations (add/update/delete/delete_all)
+# NOTE: In async_mode, write tools enqueue work and return immediately, but the background
+# operation still uses this timeout as a safeguard.
+WRITE_OPERATION_TIMEOUT: int = 15
 
 # Dify API pagination constraints
 # Maximum items (conversations or messages) that can be fetched in a single API request
@@ -86,14 +89,14 @@ EXTRACTION_MAX_CONCURRENT_USERS: int = 5  # Process up to 5 users concurrently
 # Concurrency controls
 # Maximum concurrent memory operations.
 # Applies to all operations including search/add/get/get_all/update/delete/delete_all/history.
-MAX_CONCURRENT_MEMORY_OPERATIONS: int = 40
+MAX_CONCURRENT_MEMORY_OPERATIONS: int = 20
 
 # Database connection pool settings for pgvector
 # These values should align with MAX_CONCURRENT_MEMORY_OPERATIONS to ensure
 # sufficient connections.
 PGVECTOR_MIN_CONNECTIONS: int = 10  # Minimum number of connections in the pool
 # Maximum number of connections in the pool (should match MAX_CONCURRENT_MEMORY_OPERATIONS)
-PGVECTOR_MAX_CONNECTIONS: int = 40
+PGVECTOR_MAX_CONNECTIONS: int = 20
 
 # Default top_k for search
 SEARCH_DEFAULT_TOP_K: int = 5
@@ -101,7 +104,10 @@ SEARCH_DEFAULT_TOP_K: int = 5
 # Maximum pending background tasks before rejecting new tasks
 # (multiple of MAX_CONCURRENT_MEMORY_OPERATIONS)
 # This prevents task queue from growing indefinitely when operations are slower than request rate
-MAX_PENDING_TASKS_MULTIPLIER: int = 5
+# NOTE: This is a safety valve, NOT a throughput knob.
+# For latency-sensitive deployments (e.g., search timeout=5s), keeping this low helps
+# prevent long queues from amplifying tail latency and CPU usage in long-running processes.
+MAX_PENDING_TASKS_MULTIPLIER: int = 2
 
 # Heartbeat interval (in seconds)
 # Used to prevent TCP connection silent timeout for LLM, embedding, and vector store services

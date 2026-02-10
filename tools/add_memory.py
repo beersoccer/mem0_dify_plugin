@@ -12,6 +12,7 @@ from utils.config_builder import is_async_mode
 from utils.constants import (
     ADD_ACCEPT_RESULT,
     ADD_SKIP_RESULT,
+    MAX_PENDING_TASKS_MULTIPLIER,
     WRITE_OPERATION_TIMEOUT,
 )
 from utils.helpers import log_thread_info, parse_timeout
@@ -95,6 +96,32 @@ class AddMemoryTool(Tool):
     ) -> Generator[ToolInvokeMessage, None, None]:
         """Execute async memory addition."""
         client = get_async_client(self.runtime.credentials)
+
+        # Pre-enqueue overload guard (early reject)
+        pending = client.get_pending_tasks_count()
+        max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER
+        if pending > max_pending:
+            logger.warning(
+                "[req:%s] Add skipped before enqueue: queue overloaded "
+                "(pending=%d, max=%d, user_id: %s)",
+                request_id,
+                pending,
+                max_pending,
+                user_id,
+            )
+            yield self.create_json_message(
+                {
+                    "status": "OVERLOAD",
+                    "messages": messages,
+                    **ADD_SKIP_RESULT,
+                }
+            )
+            yield self.create_text_message(
+                "System overloaded, memory add skipped (not enqueued).",
+            )
+            log_thread_info(logger, request_id, "COMPLETED (OVERLOAD SKIPPED)", start_time)
+            return
+
         loop = client.ensure_bg_loop()
         future = asyncio.run_coroutine_threadsafe(
             client.add(payload, timeout_s=timeout),

@@ -222,7 +222,7 @@ Note: `extract_long_term_memory` uses `conversations_limit` as the per-user tota
      - `local_graph_db_json_secret` (was `local_graph_db_json`, optional)
      - `local_reranker_json_secret` (was `local_reranker_json`, optional)
    - **Important**: If you previously used `pgvector_min_connections` and `pgvector_max_connections` credential fields, you must now configure them in the `local_vector_db_json_secret` JSON config:
-     - Add `"minconn": 10` and `"maxconn": 40` to your pgvector config JSON (see [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for examples)
+     - Add `"minconn": 10` and `"maxconn": 20` to your pgvector config JSON (or set `maxconn` to match your `max_concurrent_memory_operations`, default: 20). See [CONFIG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#vector-store-configuration-local_vector_db_json_secret) for examples.
      - These fields are no longer available as separate credential fields
    - Use the same configuration values you backed up in step 1
    - Save the configuration
@@ -243,7 +243,7 @@ Note: `extract_long_term_memory` uses `conversations_limit` as the per-user tota
 **New Features:**
 - **Dynamic Log Level**: You can now change log level (INFO/DEBUG/WARNING/ERROR) in plugin credentials without redeployment
 - **Request Tracing**: All tools now support `run_id` parameter for better call chain tracking (recommended to use Dify's `workflow_run_id`)
-- **Timeout Optimization**: Read operation timeout reduced to 15 seconds for better responsiveness
+- **Timeout Optimization**: Read operation timeout is tuned for responsiveness (current default: 5s, configurable per tool)
 
 ### Upgrading from v0.1.3
 

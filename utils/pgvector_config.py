@@ -552,7 +552,7 @@ def normalize_pgvector_config(
 
     Connection pool parameters (in JSON config, same level as connection_string):
     - minconn: Minimum connections for mem0 PGVector (default: 10)
-    - maxconn: Maximum connections for mem0 PGVector (default: 40)
+    - maxconn: Maximum connections for mem0 PGVector (default: 20)
     - pool_max_lifetime, pool_max_idle, pool_timeout, etc.: Advanced psycopg3
       ConnectionPool parameters (optional, for fine-tuning)
 
@@ -577,14 +577,16 @@ def normalize_pgvector_config(
         "password",  # Database password (required)
         "host",  # Database host (required)
         "port",  # Database port (required)
-        "diskann",  # Use DiskANN for vector search (default: True)
-        "hnsw",  # Use HNSW for vector search (default: False)
+        # Index selection (Mem0 defaults): diskann=False, hnsw=True
+        # NOTE: These are NOT part of connection_string; they are top-level pgvector config fields.
+        "diskann",  # Use DiskANN for vector search (default: False)
+        "hnsw",  # Use HNSW for vector search (default: True)
         "sslmode",  # SSL mode (optional)
         "connection_string",  # PostgreSQL connection string (overrides individual params)
         "connection_pool",  # psycopg2/psycopg3 connection pool object (highest priority)
         # Extended parameters (used by mem0 internally, not in official docs):
-        "minconn",  # Minimum connections in pool (mem0 internal, default: 10)
-        "maxconn",  # Maximum connections in pool (mem0 internal, default: 40)
+        "minconn",  # Minimum connections in pool (plugin default: 10)
+        "maxconn",  # Maximum connections in pool (plugin default: 20)
         "metric",  # Vector similarity metric (mem0 internal)
         # psycopg3 ConnectionPool advanced parameters (optional, for fine-tuning):
         "pool_max_lifetime",  # Connection max lifetime in seconds (default: 3600)
@@ -600,6 +602,14 @@ def normalize_pgvector_config(
     for key in valid_keys:
         if key in config and config[key] is not None:
             normalized[key] = config[key]
+
+    # Default index strategy (safety net):
+    # If user doesn't explicitly specify either `hnsw` or `diskann`, default to HNSW.
+    # This matches Mem0's PGVectorConfig defaults and avoids "no index" surprises when
+    # users only provide connection_string + pool sizing.
+    if "hnsw" not in normalized and "diskann" not in normalized:
+        normalized["hnsw"] = True
+        normalized["diskann"] = False
 
     # Handle connection parameters according to priority:
     # 1. connection_pool (highest priority) - overrides everything

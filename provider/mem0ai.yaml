@@ -94,13 +94,13 @@ credentials_for_provider:
   max_concurrent_memory_operations:
     type: text-input
     required: false
-    default: "40"
+    default: "20"
     label:
       en_US: Max Concurrent Memory Operations
       zh_Hans: 最大并发记忆操作数
     help:
-      en_US: "Maximum concurrent memory operations (default: 40). Must be a positive integer (>= 1). Applies to all operations including search/add/get/get_all/update/delete/delete_all/history."
-      zh_Hans: "记忆操作的最大并发数（默认值：40）。必须为正整数（>= 1），涵盖所有操作包括 search/add/get/get_all/update/delete/delete_all/history。"
+      en_US: "Maximum concurrent memory operations (default: 20). Must be a positive integer (>= 1). Applies to all operations including search/add/get/get_all/update/delete/delete_all/history."
+      zh_Hans: "记忆操作的最大并发数（默认值：20）。必须为正整数（>= 1），涵盖所有操作包括 search/add/get/get_all/update/delete/delete_all/history。"
   log_level:
     type: select
     required: false

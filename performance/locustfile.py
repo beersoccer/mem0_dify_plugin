@@ -35,7 +35,7 @@ Usage:
     DIFY_API_KEY='key' \
     DIFY_ENDPOINT='/chat-messages' \
     DIFY_QUERY='Your custom query' \
-    DIFY_USER_ID='test_user' \
+    DIFY_USER_COUNT='10' \
     DIFY_RESPONSE_MODE='streaming' \
     locust -f performance/locustfile.py --host=http://localhost
 """
@@ -51,6 +51,7 @@ from typing import ClassVar
 
 from dotenv import load_dotenv
 from locust import HttpUser, TaskSet, between, events, task
+from user_ids import build_user_ids
 
 # Load environment variables from .env file in performance directory
 env_file = Path(__file__).parent / ".env"
@@ -91,11 +92,9 @@ class DifyChatflowTasks(TaskSet):
         # Configurable payload template
         self.response_mode = os.getenv("DIFY_RESPONSE_MODE", "streaming")
         
-        # Parse user_id(s) - can be comma-separated list for random selection
-        user_id_str = os.getenv("DIFY_USER_ID", "test_user")
-        self.user_ids = [uid.strip() for uid in user_id_str.split(",") if uid.strip()]
-        if not self.user_ids:
-            self.user_ids = ["test_user"]
+        # Parse user_id(s) - integer count generates user1..userN
+        user_count_str = os.getenv("DIFY_USER_COUNT", "5")
+        self.user_ids = build_user_ids(user_count_str, default_user="test_user")
         
         # Multi-turn conversation settings
         # min_turns and max_turns define the range for follow-up conversation rounds

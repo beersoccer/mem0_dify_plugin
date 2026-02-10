@@ -43,6 +43,8 @@ from utils.constants import (
     EXTRACTION_DIFY_TIMEOUT,
     EXTRACTION_MAX_CONCURRENT_USERS,
     EXTRACTION_TIME_BUDGET,
+    MAX_CONCURRENT_MEMORY_OPERATIONS,
+    MAX_PENDING_TASKS_MULTIPLIER,
     WRITE_OPERATION_TIMEOUT,
 )
 from utils.dify_client import DifyAPIError, DifyClient
@@ -54,12 +56,13 @@ from utils.extraction_helpers import (
     get_time_range_from_days,
     update_conv_checkpoint,
 )
-from utils.helpers import _parse_user_ids, dedup_keep_order
-from utils.logger import get_logger
-from utils.mem0_client import (
-    AsyncMem0Client,
-    SyncMem0Client,
+from utils.helpers import (
+    _parse_user_ids,
+    dedup_keep_order,
+    parse_positive_int,
 )
+from utils.logger import get_logger
+from utils.mem0_client import AsyncMem0Client, SyncMem0Client
 from utils.mem0_extraction import (
     AsyncMemoryClassificationManager,
     AsyncMemoryWriter,
@@ -1464,6 +1467,41 @@ class ExtractLongTermMemoryTool(Tool):
                         )
 
                 # Get shared background event loop
+                # Pre-enqueue overload guard (early reject) - avoid starting a heavy background job
+                # when the plugin daemon is already saturated.
+                pending = TaskTracker.get_pending_tasks_count()
+                max_ops = parse_positive_int(
+                    self.runtime.credentials.get("max_concurrent_memory_operations"),
+                    MAX_CONCURRENT_MEMORY_OPERATIONS,
+                    logger=logger,
+                    config_name="max_concurrent_memory_operations",
+                )
+                max_pending = max_ops * MAX_PENDING_TASKS_MULTIPLIER
+                if pending > max_pending:
+                    logger.warning(
+                        "Extraction task rejected before enqueue: queue overloaded "
+                        "(pending=%d, max=%d, users=%d, run_id=%s)",
+                        pending,
+                        max_pending,
+                        len(user_ids),
+                        run_id,
+                    )
+                    yield self.create_json_message(
+                        {
+                            "status": "OVERLOAD",
+                            "message": (
+                                f"Queue overloaded: {pending} pending tasks "
+                                f"(max: {max_pending}). Please retry later."
+                            ),
+                            "user_count": len(user_ids),
+                            "mode": "async",
+                        }
+                    )
+                    yield self.create_text_message(
+                        "System overloaded, extraction task was not enqueued. Please retry later."
+                    )
+                    return
+
                 loop = BackgroundEventLoop.ensure_loop()
                 
                 # Submit coroutine to background loop and track it
