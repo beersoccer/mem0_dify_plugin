@@ -12,13 +12,9 @@ from collections.abc import Callable
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger
 from utils.constants import MAX_PENDING_TASKS_MULTIPLIER
-from utils.mem0_client import (
-    QueueOverloadError,
-    get_async_client,
-    get_sync_client,
-)
+from utils.logger import get_logger
+from utils.mem0_client import QueueOverloadError, get_async_client, get_sync_client
 
 if TYPE_CHECKING:
     from collections.abc import Generator

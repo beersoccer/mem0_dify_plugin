@@ -10,17 +10,15 @@ from typing import TYPE_CHECKING, Any
 from dify_plugin import Tool
 
 from utils.config_builder import is_async_mode
-from utils.constants import MAX_PENDING_TASKS_MULTIPLIER, UPDATE_ACCEPT_RESULT, WRITE_OPERATION_TIMEOUT
+from utils.constants import (
+    MAX_PENDING_TASKS_MULTIPLIER,
+    UPDATE_ACCEPT_RESULT,
+    WRITE_OPERATION_TIMEOUT,
+)
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
-from utils.mem0_client import (
-    get_async_client,
-    get_sync_client,
-)
-from utils.memory_tool_helpers import (
-    init_request_context,
-    yield_error,
-)
+from utils.mem0_client import get_async_client, get_sync_client
+from utils.memory_tool_helpers import init_request_context, yield_error
 
 if TYPE_CHECKING:
     from collections.abc import Generator
