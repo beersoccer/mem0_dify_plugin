@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from dify_plugin import Tool
 
 from utils.config_builder import is_async_mode
-from utils.constants import DELETE_ACCEPT_RESULT, WRITE_OPERATION_TIMEOUT
+from utils.constants import DELETE_ACCEPT_RESULT, MAX_PENDING_TASKS_MULTIPLIER, WRITE_OPERATION_TIMEOUT
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import (
@@ -108,6 +108,32 @@ class DeleteMemoryTool(Tool):
                     yield self.create_text_message(f"Error: {error_message}")
             else:
                 client = get_async_client(self.runtime.credentials)
+                # Pre-enqueue overload guard (early reject)
+                pending = client.get_pending_tasks_count()
+                max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER
+                if pending > max_pending:
+                    elapsed = time.time() - start_time
+                    logger.warning(
+                        "[req:%s] Delete rejected before enqueue: queue overloaded "
+                        "(pending=%d, max=%d, memory_id: %s, duration: %.2fs)",
+                        request_id,
+                        pending,
+                        max_pending,
+                        memory_id,
+                        elapsed,
+                    )
+                    yield self.create_json_message(
+                        {
+                            "status": "OVERLOAD",
+                            "messages": {"memory_id": memory_id},
+                            "results": {},
+                        }
+                    )
+                    yield self.create_text_message(
+                        "System overloaded, memory deletion skipped (not enqueued)."
+                    )
+                    return
+
                 # Submit delete to background event loop without awaiting (non-blocking)
                 # Fire-and-forget: exceptions in background execution won't be caught here
                 loop = client.ensure_bg_loop()

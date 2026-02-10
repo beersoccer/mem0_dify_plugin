@@ -13,6 +13,7 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any
 
 from utils.logger import get_logger
+from utils.constants import MAX_PENDING_TASKS_MULTIPLIER
 from utils.mem0_client import (
     QueueOverloadError,
     get_async_client,
@@ -134,6 +135,27 @@ def execute_async_read_operation(  # noqa: PLR0913
         Tuple of (result, error_type). result is None on error, error_type is None on success.
     """
     client = get_async_client(tool_instance.runtime.credentials)
+
+    # Pre-enqueue overload guard (early reject):
+    # This prevents scheduling new background tasks when the system is already saturated.
+    # Important for low read timeouts (e.g., search timeout=5s) to avoid long queues that
+    # amplify tail latency and CPU usage.
+    pending = client.get_pending_tasks_count()
+    max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER
+    if pending > max_pending:
+        elapsed = time.time() - start_time
+        logger.warning(
+            "[req:%s] %s rejected before enqueue: queue overloaded "
+            "(pending=%d, max=%d, mode: %s, duration: %.2fs)",
+            request_id,
+            operation_name,
+            pending,
+            max_pending,
+            mode_str,
+            elapsed,
+        )
+        return (None, "OVERLOAD")
+
     loop = client.ensure_bg_loop()
     future = asyncio.run_coroutine_threadsafe(
         operation(*operation_args, **operation_kwargs),

@@ -62,7 +62,7 @@ First, select the operation mode in plugin credentials:
   - Recommended for production environments
   - Supports high concurrency
   - Write operations (Add/Update/Delete/Delete_All): non-blocking, return ACCEPT status immediately
-  - Read operations (Search/Get/Get_All/History): wait for results with timeout protection (default: 30s)
+  - Read operations (Search/Get/Get_All/History): wait for results with timeout protection (default: 5s)
 
 - **Sync Mode** (`async_mode=false`)
   - Recommended for testing environments
@@ -116,14 +116,14 @@ After installation, click on the `mem0ai` plugin to configure it. You'll see cre
 You can configure the following performance parameters in plugin settings to optimize concurrency and database connections for production environments:
 
 **Performance Parameters:**
-- `max_concurrent_memory_operations` - Maximum concurrent memory operations (default: 40)
+- `max_concurrent_memory_operations` - Maximum concurrent memory operations (default: 20)
   - Applies to all operations including search/add/get/get_all/update/delete/delete_all/history
   - Must be a positive integer (>= 1)
-  - Invalid values (<= 0 or cannot be converted to integer) will use default value 40 with warning logs
+  - Invalid values (<= 0 or cannot be converted to integer) will use default value 20 with warning logs
 
 **Concurrency Configuration Logic:**
 - **`max_concurrent_memory_operations` configured**: Uses the configured value directly
-- **Not configured**: Uses default value (40)
+- **Not configured**: Uses default value (20)
 - **Invalid values** (cannot be converted to positive integers): Uses default values and logs a warning
 - **Unset or empty values**: Uses default values and logs a warning
 
@@ -276,8 +276,8 @@ The plugin automatically creates a psycopg3 ConnectionPool when `connection_stri
     "connection_string": "postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
     "collection_name": "mem0",
     "embedding_model_dims": 1536,
-    "minconn": 2,
-    "maxconn": 4
+    "minconn": 10,
+    "maxconn": 40
   }
 }
 ```
@@ -349,9 +349,9 @@ If you need fine-grained control over pool sizing and lifecycle, you can add the
     "collection_name": "mem0",
     "embedding_model_dims": 1536,
     "min_connections": 10,
-    "max_connections": 40,
+    "max_connections": 20,
     "pool_min_size": 10,
-    "pool_max_size": 40,
+    "pool_max_size": 20,
     "pool_max_lifetime": 3600,
     "pool_max_idle": 600,
     "pool_timeout": 30,
@@ -364,9 +364,9 @@ If you need fine-grained control over pool sizing and lifecycle, you can add the
 
 **Connection Pool Parameters (Optional, with best practice defaults):**
 - `min_connections` (int, default: 10): Default minimum connections (used when `pool_min_size` not provided)
-- `max_connections` (int, default: 40): Default maximum connections (used when `pool_max_size` not provided)
+- `max_connections` (int, default: 20): Default maximum connections (used when `pool_max_size` not provided)
 - `pool_min_size` (int, default: uses `min_connections` or 10): Minimum number of connections in the pool
-- `pool_max_size` (int, default: uses `max_connections` or 40): Maximum number of connections in the pool
+- `pool_max_size` (int, default: uses `max_connections` or 20): Maximum number of connections in the pool
 - `pool_max_lifetime` (float, default: 3600.0): Connection maximum lifetime in seconds (1 hour)
 - `pool_max_idle` (float, default: 600.0): Connection maximum idle time in seconds (10 minutes)
 - `pool_timeout` (float, default: 30.0): Timeout in seconds to get a connection from the pool
@@ -389,7 +389,7 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
 **Important Notes:**
 - If using individual parameters, `user` is required
 - Connection pool defaults (`min_connections`, `max_connections`) should be specified in the vector store config JSON
-- The plugin automatically sets `minconn` and `maxconn` based on `min_connections`/`max_connections` in config (or defaults: 10 and 40)
+- The plugin automatically sets `minconn` and `maxconn` based on `min_connections`/`max_connections` in config (or defaults: 10 and 20)
 - **Production recommendation**: Set `max_connections` to match `max_concurrent_memory_operations` for optimal performance
 - Parameter priority: `connection_pool` > `connection_string` > individual parameters
 - If you provide both `connection_string` and individual parameters, `connection_string` takes precedence
@@ -936,7 +936,7 @@ Use `get_user_checkpoint` to inspect the extraction checkpoint for a user, optio
 
 - **Read Operations** (Search/Get/Get_All/History):
   - Wait for results and return actual data
-  - **Timeout protection**: All async read operations have timeout mechanisms (default: 30s, configurable)
+  - **Timeout protection**: All async read operations have timeout mechanisms (default: 5s, configurable)
   - On timeout or error: logs event, cancels background tasks, returns default/empty results
 
 ### Sync Mode (`async_mode=false`)
@@ -1147,7 +1147,7 @@ For detailed upgrade instructions and field mapping, see [README.md - Upgrade Gu
 - **Cause**: Invalid or unset concurrency parameter values (cannot be converted to positive integers)
 - **Solution**:
   - Check logs for specific warning messages indicating which parameter has an invalid value
-  - Ensure concurrency parameters are positive integers (minimum: 1, default: 40)
+  - Ensure concurrency parameters are positive integers (minimum: 1, default: 20)
   - Configure `max_concurrent_memory_operations` to control concurrency for all operations
   - See [Performance Parameters](#step-3-configure-performance-parameters-optional-recommended-for-production) for detailed configuration logic
 

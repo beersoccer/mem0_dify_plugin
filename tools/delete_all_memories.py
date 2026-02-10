@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Any
 from dify_plugin import Tool
 
 from utils.config_builder import is_async_mode
-from utils.constants import DELETE_ALL_ACCEPT_RESULT, WRITE_OPERATION_TIMEOUT
+from utils.constants import (
+    DELETE_ALL_ACCEPT_RESULT,
+    MAX_PENDING_TASKS_MULTIPLIER,
+    WRITE_OPERATION_TIMEOUT,
+)
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import (
@@ -76,6 +80,32 @@ class DeleteAllMemoriesTool(Tool):
             )
             if async_mode:
                 client = get_async_client(self.runtime.credentials)
+                # Pre-enqueue overload guard (early reject)
+                pending = client.get_pending_tasks_count()
+                max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER
+                if pending > max_pending:
+                    elapsed = time.time() - start_time
+                    logger.warning(
+                        "[req:%s] Delete_all rejected before enqueue: queue overloaded "
+                        "(pending=%d, max=%d, user_id: %s, duration: %.2fs)",
+                        request_id,
+                        pending,
+                        max_pending,
+                        user_id,
+                        elapsed,
+                    )
+                    yield self.create_json_message(
+                        {
+                            "status": "OVERLOAD",
+                            "messages": {"filters": params},
+                            "results": {},
+                        }
+                    )
+                    yield self.create_text_message(
+                        "System overloaded, batch deletion skipped (not enqueued)."
+                    )
+                    return
+
                 # Submit delete_all to background event loop without awaiting (non-blocking)
                 # Fire-and-forget: exceptions in background execution won't be caught here
                 loop = client.ensure_bg_loop()

@@ -71,9 +71,10 @@ class Mem0Provider(ToolProvider):
 
         logger.debug("Validating Mem0 provider credentials")
 
-        # Use a longer timeout for validation to allow for vector DB initialization
-        # (e.g., Pinecone connection setup, index creation, etc.)
-        validation_timeout = READ_OPERATION_TIMEOUT * 2  # 30 seconds
+        # Use a longer timeout for validation to allow for vector DB initialization.
+        # NOTE: This should be independent from runtime read timeouts (e.g. search timeout=5s),
+        # otherwise first-time credential validation can become flaky in real networks.
+        validation_timeout = max(30, READ_OPERATION_TIMEOUT * 2)
 
         try:
             async_mode = is_async_mode(credentials)

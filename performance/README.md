@@ -23,8 +23,8 @@ locust -f performance/locustfile.py --host=http://localhost
 ### Headless Mode
 
 ```bash
-# Run without web UI
-locust -f performance/locustfile.py \
+# Run without web UI (override user count)
+DIFY_USER_COUNT=10 locust -f performance/locustfile.py \
     --host=http://localhost \
     --users 10 \
     --spawn-rate 2 \
@@ -60,7 +60,7 @@ DIFY_API_KEY="<your-dify-api-key>"
 DIFY_BASE_URL="http://<your-dify-host>/v1"  # Base URL for remote testing (overrides --host if set)
 DIFY_ENDPOINT="/chat-messages"
 DIFY_QUERY="<your-custom-query>"
-DIFY_USER_ID="<user_a>"  # Single user, or comma-separated list: "<user_a>,<user_b>"
+DIFY_USER_COUNT=5  # 参与测试的用户数量，实际用户 ID 为 user1..userN（默认 5）
 DIFY_RESPONSE_MODE="streaming"
 DIFY_MIN_TURNS=3  # Minimum number of follow-up conversation turns (default: 3)
 DIFY_MAX_TURNS=5  # Maximum number of follow-up conversation turns (default: 5)
@@ -70,7 +70,7 @@ The script will automatically load variables from `performance/.env` if it exist
 
 **Note**: 
 - The conversation will have 3-5 follow-up turns (randomly selected) after the initial message. This simulates multi-turn conversations that can trigger long-term memory extraction.
-- If `DIFY_USER_ID` contains multiple users (comma-separated), each request will randomly select one user from the list. This allows testing with different user contexts.
+- If `DIFY_USER_COUNT` is an integer N, each request will randomly select one user from user1..userN. This allows testing with different user contexts.
 - Use a base URL ending with `/v1` and endpoints starting with `/chat-messages` and `/messages/...` to match the Dify API structure.
 
 **Option 2: Set environment variables directly**
@@ -80,7 +80,7 @@ DIFY_API_KEY='<your-dify-api-key>' \
 DIFY_BASE_URL='http://<your-dify-host>/v1' \
 DIFY_ENDPOINT='/chat-messages' \
 DIFY_QUERY='<your-custom-query>' \
-DIFY_USER_ID='<user_a>' \
+DIFY_USER_COUNT=10 \
 DIFY_RESPONSE_MODE='streaming' \
 DIFY_MIN_TURNS=3 \
 DIFY_MAX_TURNS=5 \
