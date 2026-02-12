@@ -132,10 +132,7 @@ def execute_async_read_operation(  # noqa: PLR0913
     """
     client = get_async_client(tool_instance.runtime.credentials)
 
-    # Pre-enqueue overload guard (early reject):
-    # This prevents scheduling new background tasks when the system is already saturated.
-    # Important for low read timeouts (e.g., search timeout=5s) to avoid long queues that
-    # amplify tail latency and CPU usage.
+    # Pre-enqueue overload guard (early reject).
     pending = client.get_pending_tasks_count()
     max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER
     if pending > max_pending:

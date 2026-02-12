@@ -104,9 +104,7 @@ SEARCH_DEFAULT_TOP_K: int = 5
 # Maximum pending background tasks before rejecting new tasks
 # (multiple of MAX_CONCURRENT_MEMORY_OPERATIONS)
 # This prevents task queue from growing indefinitely when operations are slower than request rate
-# NOTE: This is a safety valve, NOT a throughput knob.
-# For latency-sensitive deployments (e.g., search timeout=5s), keeping this low helps
-# prevent long queues from amplifying tail latency and CPU usage in long-running processes.
+# NOTE: Safety valve for queue depth (latency protection).
 MAX_PENDING_TASKS_MULTIPLIER: int = 2
 
 # Heartbeat interval (in seconds)

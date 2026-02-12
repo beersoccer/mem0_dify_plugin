@@ -1,6 +1,6 @@
 # Mem0 Dify Plugin - Configuration Guide
 
-Last updated: 2026-02-08
+Last updated: 2026-02-12
 
 This guide provides detailed installation and configuration instructions for the Mem0 Dify Plugin.
 
@@ -131,7 +131,7 @@ You can configure the following performance parameters in plugin settings to opt
 - If performance parameters are not configured, default values will be used
 - PGVector connection pool settings should be configured in the vector store JSON config (see Vector Store Configuration section below)
   - For basic pool sizing: `minconn` / `maxconn`
-  - For advanced psycopg3 tuning: `min_connections` / `max_connections`
+  - For advanced psycopg3 tuning: `pool_timeout` / `pool_max_waiting` / `pool_max_idle` / `pool_reconnect_timeout`
 - Invalid or unset values trigger warning logs for better observability
 
 ## Configuration Examples
@@ -277,7 +277,7 @@ The plugin automatically creates a psycopg3 ConnectionPool when `connection_stri
     "collection_name": "mem0",
     "embedding_model_dims": 1536,
     "minconn": 10,
-    "maxconn": 40
+    "maxconn": 20
   }
 }
 ```
@@ -303,7 +303,7 @@ The plugin automatically adds TCP keepalive parameters to prevent connection sil
     "port": "<port>",
     "sslmode": "disable",
     "minconn": 10,
-    "maxconn": 40
+    "maxconn": 20
   }
 }
 ```
@@ -313,7 +313,7 @@ The plugin automatically adds TCP keepalive parameters to prevent connection sil
 - The plugin will automatically build a `connection_string` from these parameters
 - TCP keepalive parameters (`keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5`) are automatically added to the connection string
 - Connection pool settings (`minconn`, `maxconn`) can be specified in the config
-- If not specified, defaults to 10 (min) and 40 (max)
+- If not specified, defaults to 10 (min) and 20 (max)
 
 **Alternative Method: Using Connection String with TCP Keepalive (No pool tuning)**
 
@@ -325,7 +325,7 @@ If you already have a PostgreSQL connection string, you can use it directly with
   "config": {
     "connection_string": "postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
     "minconn": 10,
-    "maxconn": 40
+    "maxconn": 20
   }
 }
 ```
@@ -348,30 +348,26 @@ If you need fine-grained control over pool sizing and lifecycle, you can add the
     "connection_string": "postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&connect_timeout=5",
     "collection_name": "mem0",
     "embedding_model_dims": 1536,
-    "min_connections": 10,
-    "max_connections": 20,
-    "pool_min_size": 10,
-    "pool_max_size": 20,
+    "minconn": 10,
+    "maxconn": 20,
     "pool_max_lifetime": 3600,
     "pool_max_idle": 600,
-    "pool_timeout": 30,
+    "pool_timeout": 1,
     "pool_reconnect_timeout": 300,
-    "pool_max_waiting": 0,
+    "pool_max_waiting": 20,
     "pool_open": true
   }
 }
 ```
 
-**Connection Pool Parameters (Optional, with best practice defaults):**
-- `min_connections` (int, default: 10): Default minimum connections (used when `pool_min_size` not provided)
-- `max_connections` (int, default: 20): Default maximum connections (used when `pool_max_size` not provided)
-- `pool_min_size` (int, default: uses `min_connections` or 10): Minimum number of connections in the pool
-- `pool_max_size` (int, default: uses `max_connections` or 20): Maximum number of connections in the pool
+**Connection Pool Parameters (Optional):**
+- `minconn` (int, default: 10): Minimum number of connections in the pool
+- `maxconn` (int, default: 20): Maximum number of connections in the pool
 - `pool_max_lifetime` (float, default: 3600.0): Connection maximum lifetime in seconds (1 hour)
 - `pool_max_idle` (float, default: 600.0): Connection maximum idle time in seconds (10 minutes)
-- `pool_timeout` (float, default: 30.0): Timeout in seconds to get a connection from the pool
+- `pool_timeout` (float, default: 30.0): Timeout in seconds to get a connection from the pool (recommend: 1-2s for read timeout=5s)
 - `pool_reconnect_timeout` (float, default: 300.0): Reconnection timeout in seconds (5 minutes)
-- `pool_max_waiting` (int, default: 0): Maximum number of requests waiting for a connection (0 = unlimited)
+- `pool_max_waiting` (int, default: derived): Maximum number of requests waiting for a connection (set 0 for unlimited)
 - `pool_open` (bool, default: true): Whether to open the pool immediately
 - `pool_check` (callable/None, default: ConnectionPool.check_connection): Connection health check callback
 
@@ -380,6 +376,9 @@ If you need fine-grained control over pool sizing and lifecycle, you can add the
 - TCP keepalive parameters are automatically added to connection strings if not present (when using individual parameters)
 - If `psycopg[pool]` is not installed, the plugin falls back to using `connection_string` only
 - Connection pool parameters are only used when creating a psycopg3 ConnectionPool
+- **Recommendation for low-latency search (e.g., read timeout=5s)**:
+  - Set `pool_timeout` to **1-2 seconds** to avoid spending most of the SLA waiting for a pooled connection.
+  - Set `pool_max_waiting` to a **finite value** aligned with your overload threshold (e.g., `max_pending - maxconn`, where `max_pending = maxconn * MAX_PENDING_TASKS_MULTIPLIER`).
 - Parameter priority: `connection_pool` > `connection_string` > individual parameters
 
 **Option 4: Using Pre-configured Connection Pool (Most Advanced)**
@@ -388,9 +387,9 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
 
 **Important Notes:**
 - If using individual parameters, `user` is required
-- Connection pool defaults (`min_connections`, `max_connections`) should be specified in the vector store config JSON
-- The plugin automatically sets `minconn` and `maxconn` based on `min_connections`/`max_connections` in config (or defaults: 10 and 20)
-- **Production recommendation**: Set `max_connections` to match `max_concurrent_memory_operations` for optimal performance
+- Connection pool defaults (`minconn`, `maxconn`) should be specified in the vector store config JSON
+- The plugin automatically sets `minconn` and `maxconn` (defaults: 10 and 20)
+- **Production recommendation**: Set `maxconn` to match `max_concurrent_memory_operations` for optimal performance
 - Parameter priority: `connection_pool` > `connection_string` > individual parameters
 - If you provide both `connection_string` and individual parameters, `connection_string` takes precedence
 
@@ -959,13 +958,13 @@ When operations timeout or encounter errors:
 
 All read operations (Search/Get/Get_All/History) support user-configurable timeout values:
 - Timeout parameters are available in the Dify plugin configuration interface as manual input fields
-- If not specified, tools use default values (30 seconds for all read operations)
+- If not specified, tools use default values (5 seconds for all read operations)
 - Invalid timeout values are caught and logged with a warning, defaulting to constants
 
 ### Default Timeout Values
 
-- **Read Operations** (Search/Get/Get_All/History): 15 seconds (unified timeout, configurable)
-- **Write Operations** (Add/Update/Delete): 30 seconds (configurable)
+- **Read Operations** (Search/Get/Get_All/History): 5 seconds (unified timeout, configurable)
+- **Write Operations** (Add/Update/Delete): 15 seconds (configurable)
 - `MAX_REQUEST_TIMEOUT`: 60 seconds
 
 **Note**: Sync mode has no timeout protection (blocking calls). If timeout protection is needed, use `async_mode=true`
@@ -1131,7 +1130,7 @@ For detailed upgrade instructions and field mapping, see [README.md - Upgrade Gu
 **Problem**: Slow operations
 - **Solution**:
   - Increase `max_concurrent_memory_operations` as needed
-  - For pgvector: Set `max_connections` in vector store config JSON to match `max_concurrent_memory_operations`
+  - For pgvector: Set `maxconn` in vector store config JSON to match `max_concurrent_memory_operations`
   - Check database performance and connection pool settings
   - See [Performance Parameters](#step-3-configure-performance-parameters-optional-recommended-for-production) and [Vector Store Configuration](#vector-store-configuration-local_vector_db_json_secret) for configuration details
 

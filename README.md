@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.2.7
+# Mem0 Dify Plugin v0.2.8
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-02-08
+Last updated: 2026-02-12
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -34,7 +34,15 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.7) - Checkpoint Windowing & Resume Accuracy ✅
+### What's New (v0.2.8) - Stability & Latency Safeguards ✅
+- **Pre-enqueue overload guard**:
+  - Async operations reject early when pending tasks exceed threshold (prevents queue buildup)
+- **Conservative defaults tuned for production**:
+  - Read timeout defaults to 5s; write timeout defaults to 15s; default concurrency and pgvector pool sizing are aligned (see `CONFIG.md`)
+- **PGVector connection reliability**:
+  - Hardened connection string encoding for `options=-c ...` and derived `pool_max_waiting` defaults to match overload controls
+
+### Previous Updates (v0.2.7) - Checkpoint Windowing & Resume Accuracy ✅
 - **Windowed checkpoint scanning**
   - Incremental scans process only conversations within `[start_time, run_at]` to prevent skips
 - **Stronger resume guarantees**
@@ -347,6 +355,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.8 | 2026-02-12 | Stability under load: pre-enqueue overload guard, conservative defaults, pgvector pool/DSN hardening |
 | v0.2.7 | 2026-02-08 | Checkpoint windowing, resume cursor accuracy, normalized message timestamps |
 | v0.2.6 | 2026-02-07 | Extraction resume safeguards, richer status metrics, local-time task timestamps |
 | v0.2.5 | 2026-02-04 | Documentation refresh: recommended config choices and placeholder-safe examples |
