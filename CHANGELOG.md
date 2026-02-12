@@ -1,5 +1,21 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.8 (2026-02-12)
+
+### 🛡️ Stability Under Load
+- **Pre-enqueue overload guard**:
+  - Async operations reject early when pending tasks exceed threshold (prevents queue buildup and runaway CPU)
+- **Safer defaults for production**:
+  - Read timeout defaults to 5s; write timeout defaults to 15s; lower default concurrency and pgvector pool sizing
+
+### 🧱 PGVector Robustness
+- **Connection string encoding hardening**:
+  - Uses strict percent-encoding for `options=-c ...` so Postgres parses DB-side timeouts reliably
+- **Connection pool waiting cap**:
+  - Derives `pool_max_waiting` default from pool size and overload multiplier (avoids unlimited waiting)
+
+---
+
 ## Version 0.2.7 (2026-02-08)
 
 ### ⚡ Optimizations

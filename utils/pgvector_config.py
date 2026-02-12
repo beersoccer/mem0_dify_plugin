@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import parse_qs, quote_plus, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlparse, urlunparse
 
-from .constants import PGVECTOR_MAX_CONNECTIONS, PGVECTOR_MIN_CONNECTIONS
+from .constants import (
+    MAX_PENDING_TASKS_MULTIPLIER,
+    PGVECTOR_MAX_CONNECTIONS,
+    PGVECTOR_MIN_CONNECTIONS,
+)
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -75,7 +79,16 @@ def _extract_pool_parameters(
         pool_reconnect_timeout = float(
             normalized.pop("pool_reconnect_timeout", None) or 300.0,
         )
-        pool_max_waiting = int(normalized.pop("pool_max_waiting", None) or 0)
+        # Default `pool_max_waiting` (when unset): maxconn * (multiplier - 1).
+        raw_max_waiting = normalized.pop("pool_max_waiting", None)
+        if raw_max_waiting is None:
+            # Cap extra waiters (exclude active conns).
+            pool_max_waiting = max(
+                0,
+                int(pool_max_size) * max(0, int(MAX_PENDING_TASKS_MULTIPLIER) - 1),
+            )
+        else:
+            pool_max_waiting = int(raw_max_waiting)
 
         pool_open = normalized.pop("pool_open", None)
         if pool_open is None:
@@ -231,7 +244,8 @@ def _extract_query_params_from_url(connection_string: str) -> list[str]:
     parsed = urlparse(connection_string)
     existing_params = parse_qs(parsed.query, keep_blank_values=True)
     return [
-        f"{k}={quote_plus(str(v[0] if v else ''))}" for k, v in existing_params.items()
+        # libpq expects percent-encoding (spaces as %20); avoid '+' for `options=-c ...`.
+        f"{k}={quote(str(v[0] if v else ''), safe='')}" for k, v in existing_params.items()
     ]
 
 
@@ -370,9 +384,9 @@ def _build_pgvector_connection_string(normalized: dict[str, Any]) -> str | None:
         )
 
     # Build connection_string from individual parameters
-    user_enc = quote_plus(str(user))
-    pwd_enc = quote_plus(str(password))
-    dbname_enc = quote_plus(dbname)
+    user_enc = quote(str(user), safe="")
+    pwd_enc = quote(str(password), safe="")
+    dbname_enc = quote(dbname, safe="")
     dsn = f"postgresql://{user_enc}:{pwd_enc}@{host}:{port}/{dbname_enc}"
 
     # Collect all query parameters
@@ -389,7 +403,7 @@ def _build_pgvector_connection_string(normalized: dict[str, Any]) -> str | None:
 
     # Build query parameters list (use encoded values for consistency)
     query_params_list = [
-        f"{k}={quote_plus(str(v))}" for k, v in query_params_dict.items()
+        f"{k}={quote(str(v), safe='')}" for k, v in query_params_dict.items()
     ]
 
     # Add TCP keepalive parameters (best practice defaults) if not already present
@@ -593,7 +607,7 @@ def normalize_pgvector_config(
         "pool_max_idle",  # Connection max idle time in seconds (default: 600)
         "pool_timeout",  # Timeout to get connection from pool in seconds (default: 30)
         "pool_reconnect_timeout",  # Reconnect timeout in seconds (default: 300)
-        "pool_max_waiting",  # Max waiting connections (default: 0 = unlimited)
+        "pool_max_waiting",  # Max waiters (default: derived; 0 = unlimited if explicitly set)
         "pool_open",  # Open pool immediately (default: True)
         "pool_check",  # Health check function (default: ConnectionPool.check_connection)
     )
