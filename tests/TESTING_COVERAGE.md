@@ -91,7 +91,7 @@
   - Checkpoint元数据格式
   - 保存和加载
   - 更新逻辑
-- ✅ `test_idempotency_fix.py` - 幂等性测试
+- ✅ `test_idempotency.py` - 幂等性测试
 
 ### 4. `utils/mem0_extraction.py` - 记忆抽取
 
@@ -102,8 +102,9 @@
 
 **测试覆盖:**
 - ⚠️ **部分覆盖** - 需要补充测试
-  - ❌ 会话分类逻辑未测试
-  - ❌ 元数据构建未测试
+  - ✅ `test_mem0_extraction_logging.py` - 验证 `SyncMemoryClassificationManager` 的分类日志等级
+  - ❌ 会话分类逻辑（`classify_conversation_memory_type`）未有功能性单元测试
+  - ❌ 元数据构建（`build_memory_metadata`）未测试
   - ✅ Memory实例创建（通过集成测试间接覆盖）
 
 ### 5. `utils/distributed_lock.py` - 分布式锁
@@ -124,41 +125,48 @@
 - 最终报告保存
 
 **测试覆盖:**
-- ⚠️ **部分覆盖**
-  - ✅ 基本功能（通过集成测试间接覆盖）
-  - ❌ 缺少专门的单元测试
+- ✅ **已有专门单元测试**
+  - ✅ `test_task_status_async.py` - 任务状态异步更新（`processed_counts` 参数）
+  - ✅ `test_task_status_filters.py` - `task_status_filters` 内部标记格式验证
 
 ## 现有测试文件总结
 
 ### 单元测试
 
-#### 工具类单元测试（tests/unit/tools）
+#### 工具类单元测试（tests/unit/tools）— 10 个文件
 
-1. ✅ `test_check_extraction_status.py` - 任务状态展示与格式化
-2. ✅ `test_extract_long_term_memory.py` - 辅助函数与去重逻辑
-3. ✅ `test_extraction_async.py` - 异步抽取核心逻辑
-4. ✅ `test_extraction_parameters.py` - 参数验证与报告结构
-5. ✅ `test_search_with_filters.py` - 搜索过滤器回归
-6. ✅ `test_time_range_expansion.py` - 时间范围扩展
-7. ✅ `test_token_truncation.py` - Token 截断
+1. ✅ `test_check_extraction_status.py` - 任务状态展示与格式化（11个测试）
+2. ✅ `test_extract_long_term_memory.py` - 辅助函数与去重逻辑（7个测试）
+3. ✅ `test_extraction_async.py` - 异步抽取核心逻辑（13个测试）
+4. ✅ `test_extraction_parameters.py` - 参数验证与报告结构（26个测试）
+5. ✅ `test_search_with_filters.py` - 搜索过滤器回归（1个测试）
+6. ✅ `test_time_range_expansion.py` - 时间范围扩展（3个测试）
+7. ✅ `test_token_truncation.py` - Token 截断（8个测试）
+8. ✅ `test_add_memory_overload_guard.py` - 记忆添加过载保护（1个测试）
+9. ✅ `test_get_user_checkpoint.py` - 用户 Checkpoint 查询（2个测试）
+10. ✅ `test_update_memory.py` - 记忆更新 UUID 校验（1个测试）
 
-#### 工具支撑单元测试（tests/unit/utils）
+#### 工具支撑单元测试（tests/unit/utils）— 18 个文件
 
-8. ✅ `test_async_local_client_read_timeout.py` - 异步客户端超时
-9. ✅ `test_bg_task_tracking.py` - 后台任务跟踪
-10. ✅ `test_checkpoint.py` - Checkpoint 持久化
-11. ✅ `test_dify_client.py` - Dify 客户端基础行为
-12. ✅ `test_dify_incremental_scan.py` - 增量扫描与分页
-13. ✅ `test_distributed_lock.py` - 分布式锁
-14. ✅ `test_idempotency.py` - 幂等性验证
-15. ✅ `test_mem0_client_config_override.py` - Mem0 配置覆盖
-16. ✅ `test_mem0_client_llm_compat.py` - LLM 兼容补丁
-17. ✅ `test_mem0_extraction_logging.py` - 分类日志等级
-18. ✅ `test_message_utils.py` - 消息规范化与统计
-19. ✅ `test_prompts.py` - Prompt 约束
-20. ✅ `test_retry.py` - 重试机制
-21. ✅ `test_task_status_async.py` - 任务状态异步更新
-22. ✅ `test_task_status_filters.py` - 任务状态过滤器
+11. ✅ `test_async_local_client_read_timeout.py` - 异步客户端超时（2个测试）
+12. ✅ `test_bg_task_tracking.py` - 后台任务跟踪（3个测试）
+13. ✅ `test_checkpoint.py` - Checkpoint 持久化（3个测试）
+14. ✅ `test_dify_client.py` - Dify 客户端基础行为（2个测试）
+15. ✅ `test_dify_incremental_scan.py` - 增量扫描与分页（13个测试）
+16. ✅ `test_distributed_lock.py` - 分布式锁（11个测试）
+17. ✅ `test_idempotency.py` - 幂等性验证
+18. ✅ `test_mem0_client_config_override.py` - Mem0 配置覆盖（1个测试）
+19. ✅ `test_mem0_client_llm_compat.py` - LLM 兼容补丁（2个测试）
+20. ✅ `test_mem0_extraction_logging.py` - 分类日志等级（1个测试）
+21. ✅ `test_message_utils.py` - 消息规范化与统计（12个测试）
+22. ✅ `test_overload_guard_preenqueue.py` - 过载保护预入队拒绝（1个测试）
+23. ✅ `test_performance_user_ids.py` - 用户ID列表构建性能（3个测试）
+24. ✅ `test_pgvector_config_defaults.py` - pgvector 索引默认值（1个测试）
+25. ✅ `test_pgvector_pool_max_waiting_default.py` - 连接池等待上限默认值（1个测试）
+26. ✅ `test_prompts.py` - Prompt 约束（2个测试）
+27. ✅ `test_retry.py` - 重试机制（8个测试）
+28. ✅ `test_task_status_async.py` - 任务状态异步更新（2个测试）
+29. ✅ `test_task_status_filters.py` - 任务状态过滤器（1个测试）
 
 ### 集成测试
 
@@ -174,12 +182,15 @@
 ### ✅ 已充分测试的模块
 
 1. **Dify API客户端** - 单元测试 + 集成测试
-2. **增量扫描逻辑** - 完整的单元测试覆盖
+2. **增量扫描逻辑** - 完整的单元测试覆盖（13个测试）
 3. **Checkpoint管理** - 单元测试 + 幂等性测试
-4. **分布式锁** - 单元测试
+4. **分布式锁** - 单元测试（11个测试）
 5. **时间范围过滤** - 专门的测试文件
-6. **Token截断** - 专门的测试文件
-7. **消息格式转换** - 单元测试
+6. **Token截断** - 专门的测试文件（8个测试）
+7. **消息格式转换** - 单元测试（12个测试）
+8. **任务状态管理** - 专门的单元测试（test_task_status_async.py + test_task_status_filters.py）
+9. **参数验证** - 专门的测试文件（26个测试）
+10. **pgvector 配置** - 专门的单元测试（默认值、连接池参数）
 
 ### ⚠️ 需要补充测试的模块
 
@@ -288,65 +299,7 @@ def test_max_conversations_limit():
 
 ### 低优先级
 
-5. **元数据构建测试** - 结构简单，风险低
-
-## 测试运行指南
-
-### 运行所有单元测试
-
-```bash
-pytest tests/ -v --ignore=tests/test_e2e_session_memory.py
-```
-
-### 运行端到端测试（需要配置tests/.env）
-
-```bash
-# 方法1: 手动运行 pytest（推荐）
-source .venv/bin/activate
-pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-
-# 方法2: 使用统一脚本
-./tests/run_tests.sh --e2e -v -s
-
-# 方法3: 运行单个测试
-source .venv/bin/activate
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
-```
-
-### 运行集成测试（需要真实Dify环境）
-
-```bash
-pytest tests/test_dify_integration.py -v -s
-```
-
-### 运行异步测试
-
-```bash
-# 异步抽取测试
-pytest --forked tests/test_extraction_async.py -v
-```
-
-## 测试数据要求
-
-### Dify测试数据
-
-端到端测试需要在Dify环境中准备以下测试数据：
-
-1. **test_user** - 测试用户
-   - 至少3个会话
-   - 每个会话至少5条消息
-   - 涵盖不同类型的对话（个人信息、事件、操作步骤）
-
-2. **real_user** - 真实用户
-   - 至少5个会话
-   - 消息数量不等（测试不同规模）
-   - 包含一些长会话（>1000 tokens）
-
-### Mem0环境
-
-- PostgreSQL数据库（pgvector扩展）
-- LLM服务（Azure OpenAI / OpenAI）
-- Embedding服务
+5. **元数据构建测试** (`build_memory_metadata`) - 结构简单，风险低
 
 ## 代码质量指标
 
@@ -404,4 +357,9 @@ start_time, end_time = _get_time_range_from_days(7)
 2. ⏳ 补充缺失的单元测试（按优先级）
 3. ⏳ 运行端到端测试并验证结果
 4. ⏳ 根据测试结果修复发现的问题
+
+## 相关文档
+
+- [TESTING_README.md](TESTING_README.md) — 测试运行方法、环境配置、E2E 测试详情、故障排除
+- [TESTING_TECHNICAL_GUIDE.md](TESTING_TECHNICAL_GUIDE.md) — Gevent / fork 模式的根本原因、实现细节与高级故障排除
 

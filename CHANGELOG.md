@@ -1,5 +1,16 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.2.9 (2026-03-04)
+
+### ⚡ Optimizations
+- **Worker Pool concurrency for extraction**:
+  - Replaced batch-based while loop with a sliding-window Semaphore + `asyncio.as_completed`; the Semaphore now acts as a true sliding window so a slow user no longer blocks the next one from starting (straggler problem eliminated)
+  - Time budget check moved inside the Semaphore acquisition: new user work is prevented from starting past the deadline at user granularity, not batch granularity
+  - Exceptions are captured inside each user coroutine and returned as ERROR results, removing raw exception propagation through `asyncio.gather`
+  - Progress flushes to DB every N completions (same write frequency as the prior batch loop), but each user's result is aggregated immediately as it arrives
+
+---
+
 ## Version 0.2.8 (2026-02-12)
 
 ### 🛡️ Stability Under Load
@@ -13,6 +24,8 @@
   - Uses strict percent-encoding for `options=-c ...` so Postgres parses DB-side timeouts reliably
 - **Connection pool waiting cap**:
   - Derives `pool_max_waiting` default from pool size and overload multiplier (avoids unlimited waiting)
+
+**Note:** These changes mitigate long-run CPU growth and timeout storms. Individual timed-out requests may still have underlying threads run to completion (known limitation; fix would require changes in mem0 upstream).
 
 ---
 

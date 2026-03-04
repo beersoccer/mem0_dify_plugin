@@ -1,6 +1,6 @@
 # Plugin Submission Form
 
-Last updated: 2026-02-12
+Last updated: 2026-03-04
 
 ## 1. Metadata
 
@@ -35,9 +35,8 @@ This submission updates the Mem0 Dify plugin (self-hosted mode). Key changes are
 
 ### Key Updates
 
-- **Stability under load**: Pre-enqueue overload guard for async operations to prevent unbounded background task buildup
-- **Safer defaults**: Tuned default timeouts/concurrency and pgvector pool sizing (see `CONFIG.md` for current defaults)
-- **PGVector robustness**: Connection string encoding hardened for `options=-c ...` injection; pool waiting cap defaults align with overload threshold
+- **Extraction Worker Pool**: Sliding-window Semaphore replaces batch loop; straggler problem eliminated; time budget enforced at user granularity
+- **Extraction error handling**: User-level exceptions captured in-coroutine; `asyncio.as_completed` enables real-time per-user result aggregation with unchanged DB write frequency
 
 All API keys and credentials are stored locally in the user's Dify instance configuration and are not shared with any third parties. The plugin only communicates with services configured by the user (their LLM, embedding, and database services).
 

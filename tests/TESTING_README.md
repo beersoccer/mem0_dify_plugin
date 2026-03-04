@@ -77,8 +77,8 @@ pytest -m "not slow" -v
 ```
 tests/
 ├── unit/
-│   ├── tools/          # 工具单元测试（7个文件）
-│   └── utils/          # 工具类单元测试（7个文件）
+│   ├── tools/          # 工具单元测试（10个文件）
+│   └── utils/          # 工具类单元测试（18个文件）
 ├── integration/        # 集成测试（2个文件）
 └── e2e/               # 端到端测试（1个文件）
 ```
@@ -127,36 +127,13 @@ TEST_END_TIME="2026-01-17T12:01:00Z"
    - Embedding服务
 
 3. **Python依赖**
-   - `pytest>=7.0.0`
-   - `pytest-forked`（可选，用于避免 gevent 警告）
-   - `pytest-asyncio`（用于异步测试）
+   - `pytest==8.3.4`
+   - `pytest-forked>=1.6.0`（fork 隔离，已在 `pyproject.toml` 中配置）
+   - `pytest-asyncio>=0.21.0`（用于异步测试）
 
 ## 单元测试
 
-### 核心测试文件
-
-#### 工具测试 (tests/unit/tools/)
-
-| 测试文件 | 测试内容 | 测试数量 |
-|---------|---------|---------|
-| `test_extract_long_term_memory.py` | 辅助函数、去重与时间比较 | 19 |
-| `test_extraction_async.py` | 异步抽取、并发处理 | 多组 |
-| `test_extraction_parameters.py` | 参数验证、时间范围 | 多组 |
-| `test_token_truncation.py` | Token截断逻辑 | 多组 |
-| `test_time_range_expansion.py` | 时间范围扩展 | 多组 |
-| `test_search_with_filters.py` | 搜索过滤器 | 3 |
-
-#### 工具类测试 (tests/unit/utils/)
-
-| 测试文件 | 测试内容 | 测试数量 |
-|---------|---------|---------|
-| `test_dify_incremental_scan.py` | 增量扫描逻辑、分页 | 8 |
-| `test_checkpoint.py` | Checkpoint持久化 | 5 |
-| `test_distributed_lock.py` | 分布式锁 | 多组 |
-| `test_retry.py` | 重试机制 | 多组 |
-| `test_bg_task_tracking.py` | 后台任务跟踪 | 多组 |
-| `test_async_local_client_read_timeout.py` | 异步客户端超时 | 多组 |
-| `test_idempotency.py` | 幂等性 | 多组 |
+> 各测试文件对应的模块、测试数量及覆盖状态，详见 [TESTING_COVERAGE.md](TESTING_COVERAGE.md#现有测试文件总结)。
 
 ### 运行单元测试
 
@@ -176,9 +153,8 @@ pytest tests/unit/utils/test_checkpoint.py -v
 
 ### 测试文件
 
-- `tests/integration/test_dify_integration.py` - Dify API集成测试
-- `tests/integration/test_time_range_filtering.py` - 真实 Dify 数据的时间范围过滤
-- `tests/unit/tools/test_extraction_async.py` - 异步抽取测试（工具测试，但包含集成逻辑）
+- `tests/integration/test_dify_integration.py` - Dify API集成测试（17个测试，含端到端抽取）
+- `tests/integration/test_time_range_filtering.py` - 真实 Dify 数据的时间范围过滤（标记为 `slow`）
 
 ### 运行集成测试
 
@@ -187,12 +163,8 @@ source .venv/bin/activate
 pytest tests/integration/test_dify_integration.py -v
 pytest tests/integration/test_time_range_filtering.py -v
 
-# 异步抽取测试（不使用 --forked 也能运行，但会有 gevent 警告）
-pytest tests/unit/tools/test_extraction_async.py -v
-
-# 如果需要避免 gevent 警告，可以使用 --forked（macOS 上需要设置环境变量）
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/unit/tools/test_extraction_async.py -v
+# 跳过慢速集成测试
+pytest tests/integration/ -v -m "not slow"
 ```
 
 ### 集成测试内容
@@ -203,7 +175,7 @@ pytest --forked tests/unit/tools/test_extraction_async.py -v
 - ✅ 消息格式转换
 - ✅ 错误处理和重试
 - ✅ 并发处理
-- ✅ 端到端抽取（默认包含，需要完整 Dify + Mem0 环境）
+- ✅ 端到端抽取（`TestEndToEndExtraction`，需要完整 Dify + Mem0 环境）
 
 ## 端到端测试
 
@@ -458,89 +430,35 @@ for conv in conversations:
 
 ## 测试覆盖
 
-### 已覆盖的功能模块
-
-1. **Dify API客户端** - 单元测试 + 集成测试
-2. **增量扫描逻辑** - 完整的单元测试覆盖
-3. **Checkpoint管理** - 单元测试 + 幂等性测试
-4. **分布式锁** - 单元测试
-5. **时间范围过滤** - 专门的测试文件
-6. **Token截断** - 专门的测试文件
-7. **消息格式转换** - 单元测试
-
-### 测试覆盖度
-
-- **核心逻辑覆盖率**: ~75%
-- **边界条件覆盖率**: ~60%
-- **错误处理覆盖率**: ~50%
-- **集成测试覆盖率**: ~80%
-
-### 需要补充的测试
-
-1. **会话分类逻辑** - 需要LLM调用，建议使用mock
-2. **错误处理和恢复** - 需要补充更多边界场景
-3. **并发处理** - 需要更多压力测试
-4. **性能测试** - 大规模数据处理场景
+详细的模块级覆盖分析、覆盖率指标和待补充测试清单，见 [TESTING_COVERAGE.md](TESTING_COVERAGE.md)。
 
 ## 故障排除
 
-### 问题1: Gevent Monkey Patching 警告
+### 问题1: Gevent 警告 / macOS fork 崩溃
 
-**症状:**
-```
-MonkeyPatchWarning: Monkey-patching ssl after ssl has already been imported...
-```
-
-**解决方案:**
-这些警告不影响测试结果，可以忽略。如果希望避免警告，可以使用 fork 模式：
+正常情况下 `pyproject.toml` 和 `conftest.py` 的双层防护已将警告抑制。如果仍出现，或使用 `--forked` 时在 macOS 上崩溃：
 
 ```bash
-# macOS 上需要设置环境变量
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
 ```
 
-**注意:** 
-- **默认情况下不需要使用 `--forked`**，测试可以正常运行，只是会有警告
-- 在 macOS 上，如果使用 `--forked` 时遇到 fork 崩溃，需要设置 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` 环境变量
+根本原因和完整的技术分析见 [TESTING_TECHNICAL_GUIDE.md](TESTING_TECHNICAL_GUIDE.md)。
 
-### 问题2: macOS 上 fork() 崩溃
-
-**症状:**
-```
-DeprecationWarning: This process (pid=63712) is multi-threaded, use of fork() may lead to deadlocks in the child.
-objc[63716]: +[NSCharacterSet initialize] may have been in progress in another thread when fork() was called.
-Fatal Python error: Aborted
-```
-
-**原因:**
-macOS 上，当进程是多线程的时，使用 `fork()` 是不安全的。`pytest-forked` 使用 `fork()` 来隔离测试，但在 macOS 上会导致崩溃。
-
-**解决方案:**
-
-```bash
-# 设置环境变量后使用 --forked
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-```
-
-**注意:** 这个环境变量只影响 fork 子进程，不会影响主进程的安全性。
-
-### 问题3: "未找到 .env 文件"
+### 问题2: "未找到 .env 文件"
 
 **解决方案:**
 ```bash
-# 创建 tests/.env 文件并填写配置
 touch tests/.env
-# 编辑填写配置...
+# 编辑填写配置（见上方"环境配置"章节）
 ```
 
-### 问题4: "用户没有会话数据"
+### 问题3: "用户没有会话数据"
 
 **解决方案:**
 在Dify环境中为test_user和real_user创建测试会话和消息。
 
-### 问题5: "Mem0连接失败"
+### 问题4: "Mem0连接失败"
 
 **解决方案:**
 检查以下配置：
@@ -549,52 +467,23 @@ touch tests/.env
 - LLM和Embedding服务是否可访问
 - `tests/.env`中的配置是否正确
 
-### 问题6: 测试运行很慢
+### 问题5: 测试运行很慢
 
-**原因:**
-- LLM推理需要时间（每个会话约2-5秒）
-- 网络请求需要时间
-- Token计数需要处理
+**原因:** LLM推理（每个会话约2-5秒）+ 网络请求 + Token计数
 
 **优化建议:**
-- 减少测试用户数量
-- 减少测试时间范围（使用1天而不是7天）
+- 减少测试用户数量或时间范围（使用1天而不是7天）
 - 使用更快的LLM模型
-- 使用并行执行：`pytest -n auto -v`
+- 并行执行：`pytest -n auto -v`
 
-### 问题7: 导入错误 / No module named pytest
+### 问题6: No module named pytest / 虚拟环境不存在
 
-**症状:**
-```
-ModuleNotFoundError: No module named 'pytest'
-```
-
-**解决方案:**
 ```bash
+# 激活现有虚拟环境
 source .venv/bin/activate
-pytest tests/unit/ -v
-```
 
-或直接使用虚拟环境的 pytest（无需激活）：
-```bash
-.venv/bin/pytest tests/unit/ -v
-```
-
-### 问题8: 虚拟环境不存在
-
-**解决方案:**
-```bash
-# 使用 uv（推荐）
-uv venv
-
-# 或使用 venv
-python -m venv .venv
-```
-
-然后安装依赖：
-```bash
-source .venv/bin/activate
-uv sync  # 或 pip install -r requirements.txt -r requirements-dev.txt
+# 或重建虚拟环境
+uv venv && source .venv/bin/activate && uv sync
 ```
 
 ## 性能基准
@@ -670,5 +559,5 @@ uv sync  # 或 pip install -r requirements.txt -r requirements-dev.txt
 
 ## 相关文档
 
-- [TESTING_TECHNICAL_GUIDE.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/tests/TESTING_TECHNICAL_GUIDE.md) - 技术问题分析和解决方案（Gevent Monkey Patching、Fork 模式等）
-- [TESTING_COVERAGE.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/tests/TESTING_COVERAGE.md) - 详细的测试覆盖分析
+- [TESTING_COVERAGE.md](TESTING_COVERAGE.md) — 模块级覆盖分析、测试文件速查表、覆盖缺口与优先级
+- [TESTING_TECHNICAL_GUIDE.md](TESTING_TECHNICAL_GUIDE.md) — Gevent / fork 模式的根本原因、实现细节与高级故障排除
