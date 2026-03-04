@@ -8,7 +8,9 @@
 
 ### 问题现象
 
-当测试文件导入 `tools/extract_long_term_memory.py`（该文件导入 `dify_plugin.Tool`）时，会出现以下错误：
+**当前状态**：该问题已通过多层防护基本消除（见"实现细节"第3、4节）。以下描述的是未配置防护时会出现的原始症状，保留作为背景说明。
+
+当测试文件导入 `tools/extract_long_term_memory.py`（该文件导入 `dify_plugin.Tool`）时，若不加防护会出现以下错误：
 
 ```
 MonkeyPatchWarning: Monkey-patching ssl after ssl has already been imported...
@@ -78,37 +80,58 @@ Gevent 是一个基于协程的 Python 网络库，它通过 **monkey patching**
   - 导入 `tools.extract_long_term_memory`（会触发 `dify_plugin.Tool` 导入）
   - 导入 `tools.check_extraction_status`
 
-**检测机制**：
-- 使用 AST 解析测试文件，检查导入语句
-- 如果 AST 解析失败，回退到文件名检查
-- 已知需要隔离的测试文件列表：
-  - `test_extraction_async.py`
-  - `test_token_truncation.py`
-  - `test_extraction_parameters.py`
-  - `test_extract_long_term_memory.py`
-  - `test_e2e_session_memory.py`
+**检测机制**（优先级由高到低）：
+1. **AST 解析**（主要方式）：使用 `ast` 模块解析测试文件，检查 import 语句是否包含 `dify_plugin` 或相关 tools 模块
+2. **文件名 fallback**：AST 解析失败时，回退到硬编码文件名列表匹配：
+   - `test_extraction_async.py`
+   - `test_token_truncation.py`
+   - `test_extraction_parameters.py`
+   - `test_extract_long_term_memory.py`
+   - `test_e2e_session_memory.py`
 
-#### 3. 测试标记配置
+> **注意**：新增导入 `dify_plugin` 的测试文件会被 AST 自动检测，无需手动维护 fallback 列表。
+
+#### 3. 测试标记配置与警告抑制
 
 **文件**: `pyproject.toml`
 
-已添加 `dify_plugin` 标记定义：
+已添加 `dify_plugin` 标记定义，并在配置层面抑制 gevent 警告：
 ```toml
 [tool.pytest.ini_options]
+addopts = "-p no:warnings -p no:langsmith --tb=short"
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::gevent.monkey.MonkeyPatchWarning",
+    "ignore:.*gevent.*:UserWarning",
+]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "dify_plugin: tests that import dify_plugin (requires fork isolation to avoid gevent monkey patching conflicts)",
 ]
 ```
 
-#### 4. 运行脚本
+> `-p no:warnings` 禁用了 pytest 的 warnings 插件，`filterwarnings` 在 warnings 插件启用时生效。此外 `conftest.py` 在 pytest 启动的最早阶段（`pytest_load_initial_conftests`）通过 `warnings.filterwarnings` 直接抑制 gevent 警告，以覆盖 `pyproject.toml` 配置尚未加载的窗口期。
+
+#### 4. OutputFilter 输出过滤
+
+**文件**: `tests/conftest.py`
+
+`conftest.py` 安装了 `OutputFilter` 类（替换 `sys.stdout`/`sys.stderr`），在输出层面过滤以下杂乱信息：
+- gevent monkey patching 警告行
+- langsmith 递归上传错误
+- pytest session header 中的无关路径信息
+
+这是对 `pyproject.toml` 警告抑制的补充，处理那些绕过 warnings 系统直接输出到 stderr 的信息。
+
+#### 5. 运行脚本
 
 **文件**: `tests/run_tests.sh`
 
 统一的测试运行脚本，包含：
-- 自动检查虚拟环境
-- 自动检查 `pytest-forked` 是否已安装
-- 支持 fork 模式、E2E 模式等多种测试场景
+- 自动检查虚拟环境和 `pytest-forked` 安装状态
+- `--e2e` 模式自动启用 `--forked`，并要求 `tests/.env` 存在
+- macOS 下 fork 模式自动导出 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`
+- `--output-file` 参数将输出通过 `tee` 同时写入文件和终端
 
 ### 使用方法
 
@@ -270,10 +293,17 @@ def test_something(mock_tool):
 
 ### 问题1: 仍然看到 gevent 警告
 
-**解决方案**：
-- 确保使用 `--forked` 选项
-- 检查 `pytest-forked` 是否已安装：`pip list | grep pytest-forked`
-- 确认测试被标记为 `dify_plugin`：`pytest --collect-only -m dify_plugin`
+正常情况下警告已被抑制（`pyproject.toml` + `conftest.py` 双层防护）。若仍出现，按顺序检查：
+
+1. 确认在项目根目录运行 pytest（需要 `pyproject.toml` 生效）：`cd /path/to/mem0_dify_plugin`
+2. 确认 `pyproject.toml` 中 `addopts` 包含 `-p no:warnings`
+3. 确认使用的是项目虚拟环境：`source .venv/bin/activate`
+4. 如仍无法消除，使用 `--forked` 彻底隔离：
+   ```bash
+   export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+   pytest --forked -m dify_plugin -v
+   ```
+5. 检查 `pytest-forked` 是否已安装：`pip list | grep pytest-forked`
 
 ### 问题2: 测试没有被自动标记
 
@@ -337,7 +367,12 @@ def test_something(mock_tool):
    pytest.fail(f"调试输出: 处理了 {count} 个用户")
    ```
 
-## 参考资料
+## 相关文档
+
+- [TESTING_README.md](TESTING_README.md) — 测试运行方法、环境配置、E2E 测试详情、故障排除
+- [TESTING_COVERAGE.md](TESTING_COVERAGE.md) — 模块级覆盖分析、测试文件速查表、覆盖缺口与优先级
+
+## 外部参考资料
 
 - [Gevent Monkey Patching 文档](http://www.gevent.org/api/gevent.monkey.html)
 - [Pytest-forked 文档](https://pytest-forked.readthedocs.io/)

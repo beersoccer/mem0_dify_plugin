@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.2.8
+# Mem0 Dify Plugin v0.2.9
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-02-12
+Last updated: 2026-03-04
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -34,31 +34,27 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.8) - Stability & Latency Safeguards ✅
-- **Pre-enqueue overload guard**:
-  - Async operations reject early when pending tasks exceed threshold (prevents queue buildup)
-- **Conservative defaults tuned for production**:
-  - Read timeout defaults to 5s; write timeout defaults to 15s; default concurrency and pgvector pool sizing are aligned (see `CONFIG.md`)
-- **PGVector connection reliability**:
-  - Hardened connection string encoding for `options=-c ...` and derived `pool_max_waiting` defaults to match overload controls
+### What's New (v0.2.9) - Extraction Worker Pool Optimization ✅
+- **Sliding-window concurrency**:
+  - Extraction uses `asyncio.as_completed` with a true Semaphore sliding window; a slow user no longer blocks the next one from starting (straggler problem eliminated)
+- **Precise time budget enforcement**:
+  - Time budget is checked after acquiring the Semaphore slot, preventing new work from starting past the deadline at user granularity
+- **Cleaner error handling**:
+  - User-level exceptions are captured inside each coroutine and returned as ERROR results; progress updates flush every N completions
+
+These changes **improve extraction throughput and resource utilization** for large user batches; the global concurrency ceiling across multiple concurrent extraction tasks remains unchanged.
+
+### Previous Updates (v0.2.8) - Stability & Latency Safeguards ✅
+- **Pre-enqueue overload guard**: Async operations reject early when pending tasks exceed threshold
+- **Conservative defaults for production**: Read timeout 5s, write timeout 15s, aligned concurrency and pgvector pool sizing
+- **PGVector connection reliability**: Hardened connection string encoding; `pool_max_waiting` defaults match overload controls
 
 ### Previous Updates (v0.2.7) - Checkpoint Windowing & Resume Accuracy ✅
-- **Windowed checkpoint scanning**
-  - Incremental scans process only conversations within `[start_time, run_at]` to prevent skips
-- **Stronger resume guarantees**
-  - Resume cursors are only set when more pages exist, avoiding false max-conversation stops
-- **Consistent checkpoint updates**
-  - Normalized `created_at` values and unified checkpoint updates reduce reprocessing on empty/filtered conversations
+- **Windowed checkpoint scanning**: Incremental scans process only conversations within `[start_time, run_at]`
+- **Stronger resume guarantees**: Resume cursors set only when more pages exist
+- **Consistent checkpoint updates**: Normalized `created_at` values reduce reprocessing on empty/filtered conversations
 
-### Previous Updates (v0.2.6) - Extraction Status & Resume Refinements ✅
-- **Resume-safe extraction at conversation limits**
-  - Checkpoints store resume cursors and avoid marking success when the per-user cap is reached
-- **Extraction defaults tuned for daily runs**
-  - `days_back` defaults to 1, `conversations_limit` defaults to 20
-- **Richer task status visibility**
-  - `check_extraction_status` includes time range, duration, and processed vs scanned counters
-
-### Previous Updates (v0.2.5) - Reliability & Compatibility Improvements! 🛠️
+### Previous Updates (v0.2.6) - Extraction Status & Resume Refinements! 🛠️
 
 For full historical details, see [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md).
 

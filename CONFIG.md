@@ -1,6 +1,6 @@
 # Mem0 Dify Plugin - Configuration Guide
 
-Last updated: 2026-02-12
+Last updated: 2026-03-04
 
 This guide provides detailed installation and configuration instructions for the Mem0 Dify Plugin.
 

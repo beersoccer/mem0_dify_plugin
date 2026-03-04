@@ -824,129 +824,113 @@ async def _execute_extraction_async(
 
         overall_status = "SUCCESS"
 
-        # Semaphore to limit concurrent user processing
+        # Semaphore to limit concurrent user processing (sliding window).
+        # All users are submitted at once; the semaphore ensures at most
+        # EXTRACTION_MAX_CONCURRENT_USERS run simultaneously at any moment,
+        # so a slow user never blocks the next one from starting.
         semaphore = asyncio.Semaphore(EXTRACTION_MAX_CONCURRENT_USERS)
 
-        async def process_user_with_semaphore(user_id: str) -> dict[str, Any]:
-            """Process user with concurrency control (async)."""
+        async def process_user_safe(user_id: str) -> dict[str, Any]:
+            """Process user with concurrency control, time budget check, and error capture."""
             async with semaphore:
-                return await _process_single_user_async(
-                    base_client,
-                    subtype_clients,
-                    user_id,
-                    app_id,
-                    run_id,
-                    start_time,
-                    end_time,
-                    dify,
-                    lock_manager,
-                    max_conversations,
-                    max_tokens_per_conversation,
-                    lock_ttl_sec,
-                )
-
-        # Process users in batches, respecting time budget
-        remaining_users = list(user_ids)
-        # Batch size equals concurrent limit for optimal resource utilization
-        batch_size = EXTRACTION_MAX_CONCURRENT_USERS
-        
-        while remaining_users and (time.monotonic() - started_at) < hard_time_budget_sec:
-            batch = remaining_users[:batch_size]
-            remaining_users = remaining_users[batch_size:]
-            
-            # Process batch concurrently (up to 5 at a time due to semaphore)
-            batch_tasks = [process_user_with_semaphore(uid) for uid in batch]
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-            
-            # Aggregate results
-            for user_id, result in zip(batch, batch_results, strict=True):
-                if isinstance(result, Exception):
-                    logger.exception(
-                        "[run:%s] Error processing user %s: %s",
+                # Time budget check inside the semaphore: prevents starting new
+                # user work after the deadline, even if the slot just became free.
+                if time.monotonic() - started_at >= hard_time_budget_sec:
+                    return {
+                        "user_id": user_id,
+                        "status": "SKIPPED",
+                        "skipped": True,
+                        "reason": "time_budget_exceeded",
+                    }
+                try:
+                    return await _process_single_user_async(
+                        base_client,
+                        subtype_clients,
+                        user_id,
+                        app_id,
+                        run_id,
+                        start_time,
+                        end_time,
+                        dify,
+                        lock_manager,
+                        max_conversations,
+                        max_tokens_per_conversation,
+                        lock_ttl_sec,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[run:%s] Error processing user %s: %s: %s",
                         run_id,
                         user_id,
-                        result,
+                        type(e).__name__,
+                        e,
                     )
-                    per_user.append({
+                    return {
                         "user_id": user_id,
                         "status": "ERROR",
-                        "errors": [{"type": type(result).__name__, "message": str(result)}],
-                    })
+                        "errors": [{"type": type(e).__name__, "message": str(e)}],
+                    }
+
+        # Submit all users at once; asyncio.as_completed yields each result the
+        # moment it finishes, so progress can be reported without waiting for the
+        # slowest user in an artificial batch to complete.
+        all_tasks = [process_user_safe(uid) for uid in user_ids]
+        task_status_mgr = AsyncTaskStatusManager(base_mem)
+        completed_count = 0
+
+        for coro in asyncio.as_completed(all_tasks):
+            result = await coro
+            completed_count += 1
+
+            per_user.append(result)
+            if result["status"] in ("SUCCESS", "PARTIAL_SUCCESS"):
+                if result["status"] == "PARTIAL_SUCCESS":
                     overall_status = "PARTIAL_SUCCESS"
-                else:
-                    per_user.append(result)
-                    if result["status"] == "SUCCESS":
-                        summary["processed_users"] += 1
-                        summary["scanned_conversations"] += result.get("scanned_conversations", 0)
-                        summary["scanned_messages"] += result.get("scanned_messages", 0)
-                        summary["processed_conversations"] += result.get(
-                            "conversations_with_messages", 0
-                        )
-                        summary["processed_messages"] += result.get(
-                            "messages_in_time_range", 0
-                        )
-                        for mem_type in ["semantic", "episodic", "procedural"]:
-                            summary["written_memories"][mem_type] += result.get(
-                                "written_memories", {}
-                            ).get(mem_type, 0)
-                    elif result["status"] == "PARTIAL_SUCCESS":
-                        # PARTIAL_SUCCESS also counts as processed
-                        # (user was processed but with some errors)
-                        summary["processed_users"] += 1
-                        summary["scanned_conversations"] += result.get("scanned_conversations", 0)
-                        summary["scanned_messages"] += result.get("scanned_messages", 0)
-                        summary["processed_conversations"] += result.get(
-                            "conversations_with_messages", 0
-                        )
-                        summary["processed_messages"] += result.get(
-                            "messages_in_time_range", 0
-                        )
-                        for mem_type in ["semantic", "episodic", "procedural"]:
-                            summary["written_memories"][mem_type] += result.get(
-                                "written_memories", {}
-                            ).get(mem_type, 0)
-                        overall_status = "PARTIAL_SUCCESS"
-                    elif result.get("skipped"):
-                        summary["skipped_users"] += 1
-                    else:
-                        overall_status = "PARTIAL_SUCCESS"
-            
-            # Update progress after each batch
-            task_status_mgr = AsyncTaskStatusManager(base_mem)
-            await task_status_mgr.update_progress(
-                task_id=task_id,
-                processed_users=summary["processed_users"] + summary["skipped_users"],
-                total_users=len(user_ids),
-                scanned_conversations=summary["scanned_conversations"],
-                scanned_messages=summary["scanned_messages"],
-                processed_conversations=summary["processed_conversations"],
-                processed_messages=summary["processed_messages"],
-                written_memories=summary["written_memories"],
-            )
-            logger.info(
-                "[run:%s] Batch progress: processed=%d/%d users, "
-                "conversations=%d, messages=%d, memories=%d",
-                run_id,
-                summary["processed_users"] + summary["skipped_users"],
-                len(user_ids),
-                summary["scanned_conversations"],
-                summary["scanned_messages"],
-                sum(summary["written_memories"].values()),
-            )
+                summary["processed_users"] += 1
+                summary["scanned_conversations"] += result.get("scanned_conversations", 0)
+                summary["scanned_messages"] += result.get("scanned_messages", 0)
+                summary["processed_conversations"] += result.get(
+                    "conversations_with_messages", 0
+                )
+                summary["processed_messages"] += result.get(
+                    "messages_in_time_range", 0
+                )
+                for mem_type in ["semantic", "episodic", "procedural"]:
+                    summary["written_memories"][mem_type] += result.get(
+                        "written_memories", {}
+                    ).get(mem_type, 0)
+            elif result.get("skipped"):
+                summary["skipped_users"] += 1
+                if result.get("reason") == "time_budget_exceeded":
+                    overall_status = "PARTIAL_SUCCESS"
+            else:
+                overall_status = "PARTIAL_SUCCESS"
 
-        # Handle remaining users that exceeded time budget
-        for uid in remaining_users:
-            overall_status = "PARTIAL_SUCCESS"
-            per_user.append(
-                {
-                    "user_id": uid,
-                    "status": "SKIPPED",
-                    "reason": "time_budget_exceeded",
-                },
-            )
-            summary["skipped_users"] += 1
-
-        summary["skipped_users"] = summary.get("skipped_users", 0)
+            # Update progress every N completions (same cadence as the original
+            # batch size) to keep DB write frequency low while still providing
+            # visibility. Always flush on the final completion.
+            batch_boundary = completed_count % EXTRACTION_MAX_CONCURRENT_USERS == 0
+            if batch_boundary or completed_count == len(user_ids):
+                await task_status_mgr.update_progress(
+                    task_id=task_id,
+                    processed_users=summary["processed_users"] + summary["skipped_users"],
+                    total_users=len(user_ids),
+                    scanned_conversations=summary["scanned_conversations"],
+                    scanned_messages=summary["scanned_messages"],
+                    processed_conversations=summary["processed_conversations"],
+                    processed_messages=summary["processed_messages"],
+                    written_memories=summary["written_memories"],
+                )
+                logger.info(
+                    "[run:%s] Progress: completed=%d/%d users, "
+                    "conversations=%d, messages=%d, memories=%d",
+                    run_id,
+                    completed_count,
+                    len(user_ids),
+                    summary["scanned_conversations"],
+                    summary["scanned_messages"],
+                    sum(summary["written_memories"].values()),
+                )
 
         report = {
             "status": overall_status,
