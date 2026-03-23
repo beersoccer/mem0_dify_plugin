@@ -32,15 +32,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint (ruff)
         run: ruff check .
 
       - name: Unit tests
         run: |
-          ./tests/run_tests.sh --suite unit --profile ci --timeout 120
+          ./tests/run_tests.sh --suite unit --timeout 120
 
   integration-dify:
     name: integration-dify
@@ -74,8 +75,9 @@ jobs:
       - name: Install dependencies
         if: steps.guard.outputs.run == 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Integration tests (Dify API)
         if: steps.guard.outputs.run == 'true'
@@ -89,7 +91,7 @@ jobs:
           DIFY_APP_ID: ${{ vars.DIFY_APP_ID }}
           DIFY_HTTP_TIMEOUT: ${{ vars.DIFY_HTTP_TIMEOUT }}
         run: |
-          ./tests/run_tests.sh --suite integration --profile ci --require-network --timeout 180 --output-file integration.log
+          ./tests/run_tests.sh --suite integration --require-network --timeout 180 --output-file integration.log
 
       - name: Upload integration logs
         if: always() && steps.guard.outputs.run == 'true'
@@ -135,8 +137,9 @@ jobs:
       - name: Install dependencies
         if: steps.guard.outputs.run == 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 
       - name: E2E extraction tests
         if: steps.guard.outputs.run == 'true'
@@ -154,7 +157,7 @@ jobs:
           MEM0_GRAPH_DB_CONFIG: ${{ secrets.MEM0_GRAPH_DB_CONFIG }}
           MEM0_RERANKER_CONFIG: ${{ secrets.MEM0_RERANKER_CONFIG }}
         run: |
-          ./tests/run_tests.sh --suite e2e --profile ci --require-network --timeout 360 --output-file e2e-extraction.log
+          ./tests/run_tests.sh --suite e2e --require-network --timeout 360 --output-file e2e-extraction.log
 
       - name: Upload e2e logs
         if: always() && steps.guard.outputs.run == 'true'
@@ -197,8 +200,9 @@ jobs:
       - name: Install dependencies
         if: steps.guard.outputs.run == 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Workflow acceptance tests
         if: steps.guard.outputs.run == 'true'
@@ -219,7 +223,7 @@ jobs:
           DIFY_POLL_INTERVAL: ${{ vars.DIFY_POLL_INTERVAL }}
           DIFY_STALL_TIMEOUT: ${{ vars.DIFY_STALL_TIMEOUT }}
         run: |
-          ./tests/run_tests.sh --suite acceptance --profile ci --require-network --timeout 240 --output-file workflow-acceptance.log
+          ./tests/run_tests.sh --suite acceptance --require-network --timeout 240 --output-file workflow-acceptance.log
 
       - name: Upload acceptance logs
         if: always() && steps.guard.outputs.run == 'true'
