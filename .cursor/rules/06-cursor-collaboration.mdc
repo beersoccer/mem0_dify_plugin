@@ -7,6 +7,8 @@ description: Cursor AI collaboration rules and preferences
 
 ## General Workflow
 - Before editing: summarize a file-level plan (5-10 bullets) and list files to touch
+- Save project-level plans in this repository's own `.cursor/plans/` directory, not in a global or other-project plans location
+- When saving a plan under `.cursor/plans/`, use the filename format `YYYY-MM-DD-short-kebab-summary.md`
 - If unsure: ask 1-3 clarifying questions before coding
 - Prefer repo files as truth. Do not invent Dify plugin fields; read `manifest.yaml` first
 

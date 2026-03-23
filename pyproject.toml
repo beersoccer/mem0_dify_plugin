@@ -1,6 +1,6 @@
 [project]
 name = "mem0-dify-plugin"
-version = "0.2.8"
+version = "0.2.10"
 description = "Mem0 Dify plugin"
 requires-python = ">=3.12"
 dependencies = [
@@ -18,10 +18,12 @@ dependencies = [
 dev = [
   "pytest==8.3.4",
   "pytest-asyncio>=0.21.0",
+  "pytest-timeout",
   "ruff==0.8.4",
   "locust>=2.0.0",
   "python-dotenv>=1.0.0",
   "pytest-forked>=1.6.0",
+  "PyYAML",
 ]
 
 [tool.pytest.ini_options]
@@ -44,8 +46,13 @@ filterwarnings = [
 log_cli = false
 log_cli_level = "INFO"
 markers = [
+    "unit: pure-logic tests, no network or external services required",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "dify_plugin: tests that import dify_plugin (requires fork isolation to avoid gevent monkey patching conflicts)",
+    "dify_api: tests that connect to a real Dify Chat/Chatflow API",
+    "extraction_e2e: seeded extraction end-to-end tests against real Dify + Mem0",
+    "workflow_acceptance: workflow acceptance tests against a published Dify workflow",
+    "requires_remote: tests intended for remote/CI Dify environments",
 ]
 
 [tool.ruff]

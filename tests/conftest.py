@@ -108,6 +108,22 @@ def pytest_configure(config):
             "(requires fork isolation to avoid gevent monkey patching conflicts)"
         ),
     )
+    config.addinivalue_line(
+        "markers",
+        "dify_api: tests that connect to a real Dify Chat/Chatflow API",
+    )
+    config.addinivalue_line(
+        "markers",
+        "extraction_e2e: seeded extraction end-to-end tests against real Dify + Mem0",
+    )
+    config.addinivalue_line(
+        "markers",
+        "workflow_acceptance: workflow acceptance tests against a published Dify workflow",
+    )
+    config.addinivalue_line(
+        "markers",
+        "requires_remote: tests intended for remote/CI Dify environments",
+    )
     
     # Suppress MonkeyPatchWarning from gevent
     import warnings
@@ -170,93 +186,49 @@ _original_stderr = sys.stderr
 _original_stdout = sys.stdout
 
 class OutputFilter:
-    """Filter to suppress unwanted output: langsmith errors, pytest headers, and warnings."""
-    
+    """Filter to suppress known-noisy output that cannot be silenced via pytest config.
+
+    Only suppresses:
+    - langsmith upload recursion errors (error uploading + maximum recursion depth)
+    - gevent MonkeyPatchWarning lines
+
+    Everything else passes through unchanged so that real errors are never hidden.
+    """
+
     def __init__(self, original, stream_name="stderr"):
         self.original = original
         self.stream_name = stream_name
         self._buffer = ""
-        # Patterns to suppress
-        self.suppress_patterns = [
-            "test session starts",
-            "platform ",
-            "Python ",
-            "pytest-",
-            "pluggy-",
-            "cachedir:",
-            "rootdir:",
-            "configfile:",
-            "plugins:",
-            "collecting ...",
-            "MonkeyPatchWarning",
-            "Monkey-patching",
-            "gevent",
-        ]
-    
+
+    def _should_suppress(self, text: str) -> bool:
+        lower = text.lower()
+        # Suppress langsmith upload recursion errors (multi-line, buffered together)
+        if "error uploading" in lower and "maximum recursion depth" in lower:
+            return True
+        # Suppress gevent MonkeyPatchWarning lines
+        if "monkeypatchwarning" in lower or "monkey-patching" in lower:
+            return True
+        return False
+
     def write(self, text):
-        # Buffer text to check for multi-line messages
         self._buffer += text
-        
-        # Check for langsmith upload errors
-        buffer_lower = self._buffer.lower()
-        has_upload_error = "error uploading" in buffer_lower
-        has_recursion_error = "maximum recursion depth" in buffer_lower
-        if has_upload_error and has_recursion_error:
+        # Flush buffer on newline or when it gets large
+        if "\n" in text or len(self._buffer) > 500:
+            buffered = self._buffer
             self._buffer = ""
-            return len(text)  # Suppress
-        
-        # Check for patterns to suppress
-        buffer_lower = self._buffer.lower()
-        for pattern in self.suppress_patterns:
-            if pattern.lower() in buffer_lower:
-                # Suppress lines containing these patterns
-                if "\n" in text or len(self._buffer) > 500:
-                    self._buffer = ""
-                    return len(text)  # Suppress
-        
-        # If buffer is getting too large or we see a newline, flush it
-        if len(self._buffer) > 500 or "\n" in text:
-            # Only write if it doesn't contain suppress patterns
-            should_suppress = False
-            for pattern in self.suppress_patterns:
-                if pattern.lower() in self._buffer.lower():
-                    should_suppress = True
-                    break
-            
-            if not should_suppress:
-                result = self.original.write(self._buffer)
-            else:
-                result = len(self._buffer)  # Suppress but return length
-            
-            self._buffer = ""
-            return result
-        
+            if not self._should_suppress(buffered):
+                return self.original.write(buffered)
+            return len(buffered)
         return len(text)
-    
+
     def flush(self):
         if self._buffer:
-            # Check buffer one more time before flushing
-            buffer_lower = self._buffer.lower()
-            
-            # Check for langsmith errors
-            has_upload_error = "error uploading" in buffer_lower
-            has_recursion_error = "maximum recursion depth" in buffer_lower
-            if has_upload_error and has_recursion_error:
-                self._buffer = ""
-                return self.original.flush()
-            
-            # Check for suppress patterns
-            should_suppress = False
-            for pattern in self.suppress_patterns:
-                if pattern.lower() in buffer_lower:
-                    should_suppress = True
-                    break
-            
-            if not should_suppress:
-                self.original.write(self._buffer)
+            buffered = self._buffer
             self._buffer = ""
+            if not self._should_suppress(buffered):
+                self.original.write(buffered)
         return self.original.flush()
-    
+
     def __getattr__(self, name):
         return getattr(self.original, name)
 

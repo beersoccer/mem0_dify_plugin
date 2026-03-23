@@ -15,23 +15,12 @@ async def close_vector_store(
     Args:
         memory: Memory instance containing vector store.
         loop: Event loop for running executor tasks.
-        client: Optional client instance to check if sharing pool.
+        client: Unused; kept for API compatibility.
 
     """
     vs = getattr(memory, "vector_store", None)
     if not vs or not hasattr(vs, "connection_pool") or not vs.connection_pool:
         return
-
-    # Check if this client is sharing the connection pool
-    # If so, don't close it (it will be closed by the owner)
-    if client is not None:
-        if hasattr(client, "_is_sharing_pool") and getattr(
-            client, "_is_sharing_pool", False
-        ):
-            logger.debug(
-                "Skipping connection pool close (sharing pool from base_client)"
-            )
-            return
 
     try:
         pool = vs.connection_pool

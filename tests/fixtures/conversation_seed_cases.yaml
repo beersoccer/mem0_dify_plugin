@@ -1,0 +1,103 @@
+# Integration cases: 3 English cases (one per memory type).
+# Used by tests/integration/conftest.py — kept small to stay within the
+# integration pytest-timeout budget (~120 s).
+integration:
+  # ── Semantic (English) ─────────────────────────────────────────────────────
+  - name: semantic_preferences
+    enabled: true
+    memory_type: SEMANTIC
+    user_id_template: "seed-{short_run_id}-semantic"
+    turns:
+      - query: "Hi, I'm Alex. I always prefer dark mode in all my applications — it's easier on my eyes since I work long hours as a software engineer."
+      - query: "I'm vegetarian, so any food-related recommendations should keep that in mind. I've been vegetarian for over 5 years."
+      - query: "I love Italian food and enjoy hiking on weekends. I usually wake up at 6am for my morning run before work."
+
+  # ── Episodic (English) ─────────────────────────────────────────────────────
+  - name: episodic_trip
+    enabled: true
+    memory_type: EPISODIC
+    user_id_template: "seed-{short_run_id}-episodic"
+    turns:
+      - query: "I just got back from a trip to Paris last month — I visited the Louvre for the first time and spent almost a whole day there."
+      - query: "I also saw the Eiffel Tower and walked along the Seine. I stayed in a small hotel near Montmartre for 5 days."
+      - query: "The croissants were amazing, but my absolute favourite were the Ladurée macarons — I went back to the same shop three times during the trip."
+
+  # ── Procedural (English) ───────────────────────────────────────────────────
+  - name: procedural_workflow
+    enabled: true
+    memory_type: PROCEDURAL
+    user_id_template: "seed-{short_run_id}-procedural"
+    turns:
+      - query: "My code review workflow always checks three things in order: variable naming, test coverage, then documentation."
+      - query: "I use automated linters for naming conventions but review test coverage and docs manually. I've been using this workflow for over 3 years."
+      - query: "When I fix a bug, I first reproduce it, then add a regression test, then apply the patch."
+
+# acceptance_extraction: 3 cases used by test_memory_extraction_quality.
+# Tests the Python classification + extraction path directly (no workflow).
+# user_id suffix "-x" isolates these users from lifecycle users.
+acceptance_extraction:
+  # ── Semantic (Chinese) ─────────────────────────────────────────────────────
+  - name: semantic_zh
+    enabled: true
+    memory_type: SEMANTIC
+    user_id_template: "seed-{short_run_id}-sem-x"
+    turns:
+      - query: "你好，我叫李明，是一名数据分析师。我喜欢喝咖啡但不喝茶，而且我平时不吃辣。"
+      - query: "除了工作，我还喜欢阅读和摄影，这两个爱好陪伴我很多年了。"
+      - query: "我通常晚上11点睡觉、早上7点起床，这个作息我已经坚持三年了。"
+
+  # ── Episodic (English) ─────────────────────────────────────────────────────
+  - name: episodic_en
+    enabled: true
+    memory_type: EPISODIC
+    user_id_template: "seed-{short_run_id}-epi-x"
+    turns:
+      - query: "I just got back from a trip to Paris last month — I visited the Louvre for the first time and spent almost a whole day there."
+      - query: "I also saw the Eiffel Tower and walked along the Seine. I stayed in a small hotel near Montmartre for 5 days."
+      - query: "The croissants were amazing, but my absolute favourite were the Ladurée macarons — I went back to the same shop three times during the trip."
+
+  # ── Procedural (Chinese) ───────────────────────────────────────────────────
+  - name: procedural_zh
+    enabled: true
+    memory_type: PROCEDURAL
+    user_id_template: "seed-{short_run_id}-pro-x"
+    turns:
+      - query: "我写文档的流程分三步：先列大纲确定结构，再写初稿填充内容，最后润色检查语言和格式。"
+      - query: "时间分配上大纲占20%、初稿50%、润色30%。润色时我还会让同事从读者角度提出意见。"
+      - query: "这个方法我已经坚持用了两年多，无论是技术文档还是项目报告都用它，效果很好。"
+
+# acceptance_lifecycle: 3 cases used by test_workflow_memory_lifecycle_cases.
+# Tests the Dify Workflow → extract_long_term_memory → Mem0 end-to-end path.
+# user_id suffix "-w" isolates these users from extraction users.
+# The 3 user IDs JSON-serialised are ~66 chars, well within the Dify workflow
+# `users` input variable 128-character limit.
+acceptance_lifecycle:
+  # ── Semantic (Chinese) ─────────────────────────────────────────────────────
+  - name: semantic_zh
+    enabled: true
+    memory_type: SEMANTIC
+    user_id_template: "seed-{short_run_id}-sem-w"
+    turns:
+      - query: "你好，我叫李明，是一名数据分析师。我喜欢喝咖啡但不喝茶，而且我平时不吃辣。"
+      - query: "除了工作，我还喜欢阅读和摄影，这两个爱好陪伴我很多年了。"
+      - query: "我通常晚上11点睡觉、早上7点起床，这个作息我已经坚持三年了。"
+
+  # ── Episodic (English) ─────────────────────────────────────────────────────
+  - name: episodic_en
+    enabled: true
+    memory_type: EPISODIC
+    user_id_template: "seed-{short_run_id}-epi-w"
+    turns:
+      - query: "I just got back from a trip to Paris last month — I visited the Louvre for the first time and spent almost a whole day there."
+      - query: "I also saw the Eiffel Tower and walked along the Seine. I stayed in a small hotel near Montmartre for 5 days."
+      - query: "The croissants were amazing, but my absolute favourite were the Ladurée macarons — I went back to the same shop three times during the trip."
+
+  # ── Procedural (Chinese) ───────────────────────────────────────────────────
+  - name: procedural_zh
+    enabled: true
+    memory_type: PROCEDURAL
+    user_id_template: "seed-{short_run_id}-pro-w"
+    turns:
+      - query: "我写文档的流程分三步：先列大纲确定结构，再写初稿填充内容，最后润色检查语言和格式。"
+      - query: "时间分配上大纲占20%、初稿50%、润色30%。润色时我还会让同事从读者角度提出意见。"
+      - query: "这个方法我已经坚持用了两年多，无论是技术文档还是项目报告都用它，效果很好。"

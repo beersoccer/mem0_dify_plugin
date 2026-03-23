@@ -233,6 +233,10 @@ def _normalize_vector_store(vector_store: dict[str, Any]) -> None:
     Connection pool settings (minconn, maxconn) should be specified
     in the vector_store config JSON, same level as connection_string.
 
+    The configuration cache must never hold live pool objects (psycopg3
+    ConnectionPool contains thread locks and TCP sockets). Pool creation is
+    therefore deferred to the runtime client layer via ``attach_pgvector_pool()``.
+
     Args:
         vector_store: Vector store configuration dictionary (modified in-place).
 
@@ -240,9 +244,10 @@ def _normalize_vector_store(vector_store: dict[str, Any]) -> None:
     if vector_store.get("provider") == "pgvector" and isinstance(
         vector_store.get("config"), dict
     ):
-        logger.debug("Normalizing pgvector configuration")
+        logger.debug("Normalizing pgvector configuration (pool creation deferred)")
         vector_store["config"] = normalize_pgvector_config(
             vector_store["config"],
+            create_pool=False,
         )  # type: ignore[index]
     else:
         provider = vector_store.get("provider") if vector_store else "unknown"
@@ -343,40 +348,31 @@ def build_local_mem0_config(credentials: dict[str, Any]) -> dict[str, Any]:
 def build_local_mem0_config_without_pool(
     credentials: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build Mem0 config without connection pool (for independent pool creation).
+    """Build a deep-copy of the Mem0 config with a fresh independent connection pool.
 
-    Returns a deep copy of the config without the cached connection pool.
-    The connection pool is removed before deep copying (pools contain locks
-    that cannot be deep copied), then recreated as a new independent pool.
+    The configuration cache (built by ``build_local_mem0_config``) never holds live
+    pool objects, so a plain ``copy.deepcopy`` is safe here.  After copying,
+    ``attach_pgvector_pool`` is called on the copy to create a new pool that is
+    exclusively owned by the caller and must be closed by the caller when done.
 
     Args:
         credentials: Configuration dictionary for the Mem0 client.
 
     Returns:
-        Configuration dictionary without connection pool (deep copy).
+        Deep-copy of the cached config with a freshly created independent pool.
     """
     import copy
 
-    config = build_local_mem0_config(credentials)
+    from utils.pgvector_config import attach_pgvector_pool
 
-    # Remove connection_pool before deep copying (pools contain locks)
-    if "vector_store" in config and isinstance(config["vector_store"], dict):
-        vs_config = config["vector_store"].get("config", {})
-        if isinstance(vs_config, dict) and "connection_pool" in vs_config:
-            vs_config.pop("connection_pool")
+    config_copy = copy.deepcopy(build_local_mem0_config(credentials))
 
-    config = copy.deepcopy(config)
-
-    # Re-normalize to create a new independent connection pool
-    if "vector_store" in config and isinstance(config["vector_store"], dict):
-        vs_config = config["vector_store"].get("config", {})
+    if "vector_store" in config_copy and isinstance(config_copy["vector_store"], dict):
+        vs_config = config_copy["vector_store"].get("config")
         if isinstance(vs_config, dict):
-            from utils.pgvector_config import normalize_pgvector_config
+            attach_pgvector_pool(vs_config)
 
-            normalized = normalize_pgvector_config(vs_config)
-            config["vector_store"]["config"] = normalized
-
-    return config
+    return config_copy
 
 
 def is_async_mode(credentials: dict[str, Any]) -> bool:

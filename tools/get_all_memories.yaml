@@ -72,9 +72,9 @@ parameters:
       en_US: Timeout (seconds)
       zh_Hans: 超时时间（秒）
     human_description:
-      en_US: Optional timeout in seconds for the get all operation (async mode only). Defaults to 5 if not specified. Only applies when async_mode=true.
-      zh_Hans: 可选，获取所有记忆操作的超时时间（秒，仅异步模式）。未指定时默认为 5 秒。仅在 async_mode=true 时生效。
-    llm_description: Optional timeout in seconds for the get all operation (async mode only). Defaults to 5 if not specified. Only applies when async_mode=true.
+      en_US: Optional timeout in seconds for the get all operation (async mode only). Defaults to 15 if not specified. Only applies when async_mode=true.
+      zh_Hans: 可选，获取所有记忆操作的超时时间（秒，仅异步模式）。未指定时默认为 15 秒。仅在 async_mode=true 时生效。
+    llm_description: Optional timeout in seconds for the get all operation (async mode only). Defaults to 15 if not specified. Only applies when async_mode=true.
     form: form
 extra:
   python:

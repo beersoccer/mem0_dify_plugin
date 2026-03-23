@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any
 
 from dify_plugin import Tool
 
+from utils.access_log import AsyncAccessLogManager, SyncAccessLogManager
+from utils.background_loop import BackgroundEventLoop
 from utils.config_builder import is_async_mode
 from utils.constants import READ_OPERATION_TIMEOUT, SEARCH_DEFAULT_TOP_K
 from utils.helpers import format_recent_timestamp, log_thread_info, parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import get_async_client, get_sync_client
+from utils.memory_forgetting import build_updates, forget_params
 from utils.memory_tool_helpers import (
     _is_internal_metadata,
     build_status_and_message,
@@ -145,6 +149,79 @@ class SearchMemoryTool(Tool):
             norm_results.append(entry)
         return norm_results
 
+    def _update_access_log_sync(
+        self,
+        results: list[dict[str, Any]],
+        user_id: str,
+        app_id: str | None,
+        request_id: str,
+    ) -> None:
+        """Update access log synchronously after a sync-mode search.
+
+        Performs three pure-IO mem0 calls (get_all + delete + add) with no LLM
+        or embedding overhead.  Errors are logged and swallowed so they never
+        surface to the caller.
+        """
+        try:
+            params = forget_params()
+            client = get_sync_client(self.runtime.credentials)
+            mgr = SyncAccessLogManager(client.memory)
+            log_id, log_dict = mgr.load(user_id=user_id, app_id=app_id)
+            updates = build_updates(results, log_dict, params)
+            if updates:
+                for mem_id, entry in updates.items():
+                    log_dict[mem_id] = entry
+                mgr.save(log_id=log_id, user_id=user_id, app_id=app_id, log_dict=log_dict)
+                logger.debug(
+                    "[req:%s] Access log updated (sync, %d entries)", request_id, len(updates)
+                )
+        except Exception:
+            logger.exception("[req:%s] Failed to update access log (sync)", request_id)
+
+    def _schedule_access_log_update_async(
+        self,
+        results: list[dict[str, Any]],
+        user_id: str,
+        app_id: str | None,
+        request_id: str,
+    ) -> None:
+        """Fire-and-forget access log update for async mode.
+
+        Submits the update coroutine to the background event loop so the search
+        response is returned immediately without waiting.
+        """
+        async def _do_update() -> None:
+            try:
+                params = forget_params()
+                client = get_async_client(self.runtime.credentials)
+                await client.create()
+                mgr = AsyncAccessLogManager(client.memory)
+                log_id, log_dict = await mgr.load(user_id=user_id, app_id=app_id)
+                updates = build_updates(results, log_dict, params)
+                if updates:
+                    for mem_id, entry in updates.items():
+                        log_dict[mem_id] = entry
+                    await mgr.save(
+                        log_id=log_id, user_id=user_id, app_id=app_id, log_dict=log_dict
+                    )
+                    logger.debug(
+                        "[req:%s] Access log updated (async, %d entries)",
+                        request_id,
+                        len(updates),
+                    )
+            except Exception:
+                logger.exception(
+                    "[req:%s] Failed to update access log (async)", request_id
+                )
+
+        try:
+            loop = BackgroundEventLoop.ensure_loop()
+            asyncio.run_coroutine_threadsafe(_do_update(), loop)
+        except Exception:
+            logger.exception(
+                "[req:%s] Failed to schedule access log update", request_id
+            )
+
     def _format_text_output(
         self,
         payload: dict[str, Any],
@@ -237,6 +314,19 @@ class SearchMemoryTool(Tool):
                     mode_str,
                     start_time,
                 )
+
+            # Update access log with raw results (before filtering internal memories).
+            # Results contain rerank_score / vector_distance needed for quality scoring.
+            # async mode: fire-and-forget (search returns immediately).
+            # sync mode: synchronous update (3 pure-IO ops, ~25–160ms extra).
+            app_id: str | None = payload.get("agent_id") or None
+            if results:
+                if async_mode:
+                    self._schedule_access_log_update_async(
+                        results, user_id, app_id, request_id
+                    )
+                else:
+                    self._update_access_log_sync(results, user_id, app_id, request_id)
 
             # Normalize results
             norm_results = self._normalize_results(results)

@@ -1,6 +1,6 @@
 # Plugin Submission Form
 
-Last updated: 2026-03-04
+Last updated: 2026-03-23
 
 ## 1. Metadata
 
@@ -35,8 +35,9 @@ This submission updates the Mem0 Dify plugin (self-hosted mode). Key changes are
 
 ### Key Updates
 
-- **Extraction Worker Pool**: Sliding-window Semaphore replaces batch loop; straggler problem eliminated; time budget enforced at user granularity
-- **Extraction error handling**: User-level exceptions captured in-coroutine; `asyncio.as_completed` enables real-time per-user result aggregation with unchanged DB write frequency
+- **Score Semantics Unification**: Added automatic score mode inference (`distance` / `similarity`) and unified search outputs to stable 0-1 similarity across vector backends
+- **Memory Lifecycle Maintenance**: Added access-log-driven forgetting plus new `forget_memories` maintenance workflow with `dry_run` preview support
+- **Retention Controls & Isolation Fix**: Added `memory_ttl_days` / `checkpoint_ttl_days` and fixed checkpoint app-scope isolation with `agent_id=app_id`
 
 All API keys and credentials are stored locally in the user's Dify instance configuration and are not shared with any third parties. The plugin only communicates with services configured by the user (their LLM, embedding, and database services).
 

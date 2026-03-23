@@ -1,0 +1,49 @@
+identity:
+  name: forget_memories
+  author: beersoccer
+  label:
+    en_US: Forget Memories
+    zh_Hans: 遗忘记忆
+description:
+  human:
+    en_US: Apply the Ebbinghaus forgetting curve to forget stale memories and clean up old checkpoints. Recommended to run on a scheduled (weekly or bi-weekly) basis.
+    zh_Hans: 对用户记忆执行艾宾浩斯遗忘曲线评估，遗忘保留率低于阈值的陈旧记忆，并清理旧 Checkpoint。建议按周或双周定时调用。
+  llm: Use this tool to periodically forget low-retention memories and clean up stale extraction checkpoints. Run it weekly or bi-weekly to keep long-term memories healthy without over-aggressive deletion.
+parameters:
+  - name: user_id
+    type: string
+    required: true
+    label:
+      en_US: User ID
+      zh_Hans: 用户ID
+    human_description:
+      en_US: Required. The user whose memories to forget and clean up.
+      zh_Hans: 必填，要执行遗忘与清理的用户ID。
+    llm_description: Required user identifier for scoping the forgetting/cleanup pass.
+    form: llm
+  - name: app_id
+    type: string
+    required: false
+    label:
+      en_US: App ID
+      zh_Hans: 应用ID
+    human_description:
+      en_US: Optional. Scope the forgetting/cleanup to a specific app (maps to agent_id). Leave empty to process all memories for the user across all apps.
+      zh_Hans: 可选，将遗忘与清理范围限定到特定应用（映射为 agent_id）。留空则处理该用户所有应用下的记忆。
+    llm_description: Optional app/agent identifier to scope the forgetting/cleanup pass. Leave empty for all apps.
+    form: llm
+  - name: dry_run
+    type: boolean
+    required: false
+    default: false
+    label:
+      en_US: Dry Run
+      zh_Hans: 演练模式（不实际删除）
+    human_description:
+      en_US: If true, return the list of memories that would be deleted without actually deleting anything. Useful for previewing the forgetting pass before committing.
+      zh_Hans: 若为 true，仅返回将被删除的记忆列表，不实际执行删除。可用于提交前预览遗忘效果。
+    llm_description: If true, preview which memories would be forgotten without actually deleting them. Returns would_delete list in results.
+    form: form
+extra:
+  python:
+    source: tools/forget_memories.py

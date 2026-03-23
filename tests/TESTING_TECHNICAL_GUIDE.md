@@ -1,380 +1,257 @@
-# 测试技术指南
+# 测试技术说明（实现机制与排障路径）
 
-## 概述
+## 文档定位
 
-本文档详细说明测试过程中遇到的技术问题及其解决方案，特别是 gevent monkey patching 冲突问题和 fork 模式隔离方案。
+`TESTING_README.md` 讲“怎么跑”，本文件讲“为什么这样设计”。
+适合以下场景：
 
-## Gevent Monkey Patching 冲突问题
+- 你要改测试框架代码（helpers / CI / runner）
+- 你要定位顽固失败（超时、网络、数据污染）
+- 你要扩展新的真实环境测试层
 
-### 问题现象
+---
 
-**当前状态**：该问题已通过多层防护基本消除（见"实现细节"第3、4节）。以下描述的是未配置防护时会出现的原始症状，保留作为背景说明。
+## 总体设计：同一套代码，多执行策略
 
-当测试文件导入 `tools/extract_long_term_memory.py`（该文件导入 `dify_plugin.Tool`）时，若不加防护会出现以下错误：
+核心原则：
 
-```
-MonkeyPatchWarning: Monkey-patching ssl after ssl has already been imported...
-RuntimeError: cannot release un-acquired lock
-```
+1. 测试逻辑尽量复用同一套代码。
+2. 差异只体现在 profile 与 fail/skip 策略。
+3. 所有真实环境测试必须具备 preflight、timeout、cleanup、artifact。
 
-### 问题根本原因
+Profile 语义：
 
-#### Gevent Monkey Patching 的工作原理
+- `local`
+  - 开发机调试友好；网络不可达可按策略 skip。
+- `remote`
+  - 手工连远端测试环境；默认要求网络可达。
+- `ci`
+  - CI 场景；失败优先快速暴露（fail-fast）。
 
-Gevent 是一个基于协程的 Python 网络库，它通过 **monkey patching** 机制替换标准库中的阻塞 I/O 操作（如 `socket`、`ssl`、`select` 等），使其变成非阻塞的协程操作。
+---
 
-**关键要求**：Gevent 的 monkey patching **必须在导入标准库模块之前执行**，否则会导致冲突。
+## Preflight 机制（最关键防线）
 
-#### Dify Plugin SDK 的 Gevent 使用
+入口在 `tests/helpers/dify_env.py`：
 
-`dify_plugin` SDK 内部使用了 gevent。当导入 `dify_plugin.Tool` 时，会触发以下导入链：
+- `create_dify_client()`
+- `preflight_chat_client()` / `preflight_workflow_client()`
 
-1. `dify_plugin.Tool` → 
-2. `dify_plugin` 内部模块 → 
-3. `dify_plugin.interfaces.model.ai_model` → 
-4. `import gevent.socket` → 
-5. **Gevent 自动执行 monkey patching**
+执行顺序：
 
-#### 与 Pytest 的冲突
+1. 读取并规范化 base URL（必须 `/v1`）。
+2. 检查 API key 是否存在。
+3. localhost 策略判断：
+   - 未显式允许 localhost 时，根据 profile 决定 skip/fail。
+4. 轻量探测：
+   - `list_conversations(limit=1)` 验证 API 可达性。
+5. 根据 `REQUIRE_DIFY_NETWORK` 最终决策 skip 或 fail。
 
-**冲突发生的原因**：
+设计目的：避免“正式用例运行到一半才发现环境不可用”。
 
-1. **Pytest 已导入标准库模块**：
-   - Pytest 框架本身或测试加载过程中可能已经导入了 `ssl`、`socket` 等标准库模块
-   - 这些模块在 gevent monkey patching 之前就已经被加载
+---
 
-2. **Gevent 尝试替换已导入的模块**：
-   - Gevent 检测到 `ssl` 等模块已经被导入
-   - 尝试进行 monkey patching 时产生警告和错误
-   - 可能导致锁状态不一致，引发 `RuntimeError: cannot release un-acquired lock`
+## 超时治理（四层）
 
-3. **时序问题**：
-   - 测试框架的导入顺序与 gevent 的要求冲突
-   - 无法控制 pytest 何时导入标准库模块
+### 1) 请求超时
 
-## 解决方案：Fork 模式隔离
+- 配置：`DIFY_HTTP_TIMEOUT`
+- 作用：单次 HTTP 请求上限
 
-### 方案概述
+### 2) 轮询总超时
 
-使用 `pytest-forked` 的 fork 模式在独立的子进程中运行测试，确保 gevent monkey patching 在标准库导入之前执行。
+- 配置：`DIFY_WORKFLOW_MAX_WAIT`
+- 作用：workflow 从触发到终态的最大等待时间
 
-### 实施状态
+### 3) 无进展超时
 
-✅ **已完成实施**
+- 配置：`DIFY_STALL_TIMEOUT`
+- 作用：状态/时间戳长时间不变判定为卡住
 
-### 实现细节
+### 4) pytest 级超时
 
-#### 1. 依赖安装
+- 通过 `tests/run_tests.sh --timeout` 注入
+- 若本地未装 `pytest-timeout`，脚本自动降级（提示但不失败）
 
-`pytest-forked` 已添加到 `pyproject.toml` 的 dev 依赖中。
+推荐默认值：
 
-#### 2. 自动检测和标记机制
+- HTTP: 20s
+- max wait: 120s
+- poll interval: 2s
+- stall: 30s
 
-**文件**: `tests/conftest.py`
+---
 
-实现了自动检测和标记功能：
-- 自动扫描测试文件，检测是否导入 `dify_plugin` 或相关工具模块
-- 自动为需要隔离的测试添加 `@pytest.mark.dify_plugin` 标记
-- 支持检测以下导入：
-  - 直接导入 `dify_plugin`
-  - 导入 `tools.extract_long_term_memory`（会触发 `dify_plugin.Tool` 导入）
-  - 导入 `tools.check_extraction_status`
+## Seed / Cleanup 生命周期（防污染核心）
 
-**检测机制**（优先级由高到低）：
-1. **AST 解析**（主要方式）：使用 `ast` 模块解析测试文件，检查 import 语句是否包含 `dify_plugin` 或相关 tools 模块
-2. **文件名 fallback**：AST 解析失败时，回退到硬编码文件名列表匹配：
-   - `test_extraction_async.py`
-   - `test_token_truncation.py`
-   - `test_extraction_parameters.py`
-   - `test_extract_long_term_memory.py`
-   - `test_e2e_session_memory.py`
+### Seed
 
-> **注意**：新增导入 `dify_plugin` 的测试文件会被 AST 自动检测，无需手动维护 fallback 列表。
+- 实现：`tests/helpers/dify_seed.py`
+- 输入：`tests/fixtures/conversation_seed_cases.yaml`
+- 输出：`SeedManifest`（run_id/user_ids/conversation_ids）
 
-#### 3. 测试标记配置与警告抑制
+### Cleanup
 
-**文件**: `pyproject.toml`
+- Dify cleanup：`tests/helpers/dify_cleanup.py`
+  - `delete_conversation`
+  - 可选删除后可见性验证
+- Mem0 cleanup：`tests/helpers/mem0_cleanup.py`
+  - `delete_all`
+  - checkpoint / access_log / lock / task_status 显式清理
 
-已添加 `dify_plugin` 标记定义，并在配置层面抑制 gevent 警告：
-```toml
-[tool.pytest.ini_options]
-addopts = "-p no:warnings -p no:langsmith --tb=short"
-asyncio_mode = "auto"
-filterwarnings = [
-    "ignore::gevent.monkey.MonkeyPatchWarning",
-    "ignore:.*gevent.*:UserWarning",
-]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "dify_plugin: tests that import dify_plugin (requires fork isolation to avoid gevent monkey patching conflicts)",
-]
-```
+保障方式：
 
-> `-p no:warnings` 禁用了 pytest 的 warnings 插件，`filterwarnings` 在 warnings 插件启用时生效。此外 `conftest.py` 在 pytest 启动的最早阶段（`pytest_load_initial_conftests`）通过 `warnings.filterwarnings` 直接抑制 gevent 警告，以覆盖 `pyproject.toml` 配置尚未加载的窗口期。
+- fixture teardown 或 `try/finally` 强制执行 cleanup
+- 即使断言失败/异常也能回收数据
 
-#### 4. OutputFilter 输出过滤
+---
 
-**文件**: `tests/conftest.py`
+## Workflow 执行状态机
 
-`conftest.py` 安装了 `OutputFilter` 类（替换 `sys.stdout`/`sys.stderr`），在输出层面过滤以下杂乱信息：
-- gevent monkey patching 警告行
-- langsmith 递归上传错误
-- pytest session header 中的无关路径信息
+实现：`tests/helpers/workflow_runner.py`
 
-这是对 `pyproject.toml` 警告抑制的补充，处理那些绕过 warnings 系统直接输出到 stderr 的信息。
+执行步骤：
 
-#### 5. 运行脚本
+1. `run_workflow_blocking(inputs, user_id)`
+2. 解析 `workflow_run_id`
+3. 轮询 `get_workflow_run_detail`
+4. 达到终态：`succeeded|failed|stopped|completed`
+5. 断言输出：status/key/contains
 
-**文件**: `tests/run_tests.sh`
+artifact 输出策略：
 
-统一的测试运行脚本，包含：
-- 自动检查虚拟环境和 `pytest-forked` 安装状态
-- `--e2e` 模式自动启用 `--forked`，并要求 `tests/.env` 存在
-- macOS 下 fork 模式自动导出 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`
-- `--output-file` 参数将输出通过 `tee` 同时写入文件和终端
+- 触发后立即写 `workflow-initial-*`
+- 成功终态写 `workflow-final-*`
+- 任意异常写 `workflow-failure-*`（含错误类型、消息、上下文、初始响应）
 
-### 使用方法
+---
 
-#### 方法1: 手动运行 pytest（推荐）
+## Artifact 与排障流程
+
+启用条件：
+
+- 设置 `TEST_ARTIFACTS_DIR`
+
+典型产物：
+
+- seed manifest
+- cleanup summary
+- workflow initial/final/failure
+
+推荐排障顺序：
+
+1. 看 pytest 日志（先定位失败用例）
+2. 看 manifest/cleanup（确认数据生命周期）
+3. 看 workflow failure（确认请求参数与远端响应）
+
+---
+
+## 并发与进程策略
+
+历史风险：导入 `dify_plugin` 可能触发 gevent monkey patching 冲突。
+
+当前策略：
+
+- `tests/run_tests.sh` 仅在显式传入 `--forked` 时启用多进程隔离
+- `acceptance` 默认不加 `--forked`，以便 session 级 fixture 共享 seed 数据
+- macOS 下仅在启用 `--forked` 时设置 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`
+
+调试建议：
+
+- 使用 `--output-file` 保存完整输出
+- 配合 artifact 做故障复盘
+
+---
+
+## CI 编排与触发
+
+文件：`/.github/workflows/ci.yml`
+
+- `push/pull_request`：默认执行 `unit`
+- `workflow_dispatch` + `run_real_env_suites=true`：执行
+  - `integration-dify`
+  - `acceptance-workflow`
+
+每个真实环境 job 包含：
+
+- guard step（缺 secrets 时显式 skip）
+- suite 执行
+- pytest 日志上传
+- `test-artifacts/<suite>` 上传
+
+---
+
+## 操作建议（环境初始化与命令顺序）
+
+推荐将 conda 作为全局 Python 管理器，但本项目测试执行统一使用 `.venv`。
+
+### 首次初始化
 
 ```bash
+cd /Users/beersoccer/workspace/mem0_dify_plugin
+uv venv .venv
+uv sync --group dev
 source .venv/bin/activate
-pytest --forked -m dify_plugin -v -s
+./tests/run_tests.sh --check-env
+./tests/run_tests.sh --suite unit --timeout 120
 ```
 
-#### 方法2: 使用脚本
+三条核心命令作用：
+
+- `uv venv .venv`：创建项目本地虚拟环境。
+- `uv sync --group dev`：按 `pyproject.toml` + `uv.lock` 安装依赖（含测试依赖）。
+- `source .venv/bin/activate`：激活项目环境，确保 `python/pytest` 指向 `.venv`。
+
+### 日常开发（每次新开终端）
 
 ```bash
-# 使用统一脚本运行所有需要 dify_plugin 的测试
-./tests/run_tests.sh --forked -m dify_plugin -v -s
-
-# 运行特定的测试文件（使用 fork 模式）
-./tests/run_tests.sh --forked tests/e2e/test_e2e_session_memory.py -v -s
-
-# 或直接使用 pytest（推荐）
+cd /Users/beersoccer/workspace/mem0_dify_plugin
 source .venv/bin/activate
-pytest --forked -m dify_plugin -v -s
-pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-
-# 运行所有测试（包括需要隔离的，使用 fork 模式）
-pytest --forked -v -s
+./tests/run_tests.sh --suite unit --timeout 120
 ```
 
-#### 方法3: 手动标记测试
+### 真实环境测试执行顺序
 
-如果测试文件没有被自动检测，可以手动添加标记：
-
-```python
-import pytest
-
-@pytest.mark.dify_plugin
-def test_something():
-    from dify_plugin import Tool
-    # ... 测试代码
+```bash
+# 先确保 tests/.env.local 或 tests/.env.remote 已配置（本地/远程手工测试）
+# CI 不使用 .env 文件，改为 secrets 注入同名环境变量
+source .venv/bin/activate
+./tests/run_tests.sh --suite integration --env-file tests/.env.remote --require-network --timeout 180
+./tests/run_tests.sh --suite acceptance --env-file tests/.env.remote --require-network --timeout 900
 ```
 
-### 工作原理
+### 依赖更新后
 
-1. **Fork 隔离**：
-   - `pytest-forked` 的 `--forked` 选项会在独立的子进程中运行每个测试
-   - 这确保了 gevent monkey patching 在标准库模块导入之前执行
-   - 完全隔离，不会影响其他测试
-
-2. **自动标记**：
-   - `pytest_collection_modifyitems` hook 在测试收集阶段运行
-   - 扫描每个测试文件，检查是否导入 `dify_plugin` 相关模块
-   - 自动为需要隔离的测试添加标记
-
-3. **并行执行**：
-   - 注意：`--forked` 和 `-n auto`（pytest-xdist）通常不一起使用
-   - `--forked` 本身已经在独立进程中运行，提供了隔离
-   - 如果需要并行执行，可以考虑只使用 `-n auto`（不使用 `--forked`），但需要确保没有 gevent 冲突
-
-### 优势对比
-
-#### 之前（standalone 方案）
-- ❌ 需要复制代码，违反 DRY 原则
-- ❌ 维护成本高（两处代码需要同步）
-- ❌ 无法直接测试 `dify_plugin.Tool` 的集成
-
-#### 现在（fork 模式）
-- ✅ 完全隔离，不影响其他测试
-- ✅ 不需要修改测试代码
-- ✅ 可以正常导入 `dify_plugin`
-- ✅ 不需要复制代码
-- ✅ 自动检测和标记
-- ✅ 支持并行执行
-
-### 注意事项
-
-1. **性能影响**：
-   - Fork 模式会在独立进程中运行测试，启动时间稍长
-   - 但完全隔离，避免了 gevent 冲突问题
-
-2. **依赖要求**：
-   - 需要安装 `pytest-forked`
-   - 已在 `pyproject.toml` 中配置
-
-3. **迁移完成**：
-   - `test_e2e_session_memory.py` 已使用 fork 模式，可以直接导入 `dify_plugin`
-   - 不再需要 standalone 版本
-
-4. **⚠️ 输出捕获限制**：
-   - **Fork 模式下，所有输出（包括 stdout 和 stderr）都会被捕获**
-   - 即使使用 `-s` 选项，测试通过时也不会显示输出
-   - **解决方法**：
-     - **查看失败测试的输出**：测试失败时会自动显示捕获的输出
-     - **使用 `--tb=short` 查看简短输出**
-     - **临时禁用 fork 模式调试**：去掉 `--forked` 参数（但会看到 gevent 警告）
-     - **使用断言失败查看中间状态**：在需要查看输出的地方添加 `assert False, "调试点"`
-
-## 其他解决方案（已废弃）
-
-### 方案2：延迟导入 + 环境变量控制
-
-**原理**：在测试中延迟导入 `dify_plugin`，并在导入前设置环境变量控制 gevent 行为。
-
-**缺点**：
-- ⚠️ 仍然可能在某些情况下冲突（如果 pytest 已经导入了 ssl）
-- ⚠️ 需要修改测试代码
-
-**状态**: 已废弃，使用 fork 模式替代
-
-### 方案3：使用 subprocess 运行测试
-
-**原理**：将需要导入 `dify_plugin` 的测试放在独立的子进程中运行。
-
-**缺点**：
-- ⚠️ 测试输出和调试困难
-- ⚠️ 无法使用 pytest 的高级功能（fixtures、参数化等）
-
-**状态**: 已废弃，使用 fork 模式替代
-
-### 方案4：Mock dify_plugin 模块
-
-**原理**：对于不需要真正 `dify_plugin` 功能的测试，使用 mock 替代。
-
-**适用场景**：
-- ✅ 单元测试（不需要真实 `dify_plugin` 行为）
-- ❌ 集成测试（需要真实 `dify_plugin` 行为）
-
-**状态**: 仍可用于单元测试
-
-## 最佳实践建议
-
-### 对于集成测试（需要真实 dify_plugin）
-
-**推荐使用 fork 模式**：
-
-1. 确保 `pytest-forked` 已安装
-2. 测试会自动标记为 `dify_plugin`
-3. 使用 `pytest --forked` 运行测试
-
-### 对于单元测试（不需要真实 dify_plugin）
-
-**推荐使用 Mock**：
-
-```python
-from unittest.mock import patch
-
-@patch("dify_plugin.Tool")
-def test_something(mock_tool):
-    # 测试代码
-    pass
+```bash
+cd /Users/beersoccer/workspace/mem0_dify_plugin
+source .venv/bin/activate
+uv sync --group dev
 ```
 
-### 混合方案
+---
 
-可以同时使用两种方案：
-- 单元测试：使用 mock，快速且稳定
-- 集成测试：使用 fork 模式，测试真实集成
+## 扩展新真实环境测试时的约束清单
 
-## 故障排除
+新增任何真实环境测试，请同时满足：
 
-### 问题1: 仍然看到 gevent 警告
+1. 使用 `dify_env` 做 preflight，不直接裸连客户端。
+2. 全程有 timeout（请求 + 轮询 + pytest）。
+3. 必须带 cleanup（Dify 或 Mem0）。
+4. 失败路径写 artifact（至少包含输入和错误摘要）。
+5. 在 `run_tests.sh` 可通过 `--suite` 或明确路径运行。
 
-正常情况下警告已被抑制（`pyproject.toml` + `conftest.py` 双层防护）。若仍出现，按顺序检查：
+---
 
-1. 确认在项目根目录运行 pytest（需要 `pyproject.toml` 生效）：`cd /path/to/mem0_dify_plugin`
-2. 确认 `pyproject.toml` 中 `addopts` 包含 `-p no:warnings`
-3. 确认使用的是项目虚拟环境：`source .venv/bin/activate`
-4. 如仍无法消除，使用 `--forked` 彻底隔离：
-   ```bash
-   export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-   pytest --forked -m dify_plugin -v
-   ```
-5. 检查 `pytest-forked` 是否已安装：`pip list | grep pytest-forked`
+## 最近补充的 forget_memories 工具测试
 
-### 问题2: 测试没有被自动标记
+对应文件：`tests/unit/tools/test_forget_memories.py`
 
-**解决方案**：
-- 检查 `tests/conftest.py` 中的检测逻辑
-- 手动添加 `@pytest.mark.dify_plugin` 标记
-- 检查测试文件是否在 `_DIFY_PLUGIN_TEST_FILES` 列表中
+覆盖点：
 
-### 问题3: Fork 模式运行很慢
+1. `dry_run=true` 时只预览，不执行 `mem.delete`，也不保存 access log。
+2. 记忆删除存在失败时，仅按“实际成功删除的 memory_id”更新 access log，避免误删未成功删除条目的访问记录。
+3. 真实执行下 checkpoint 清理遵循“保留最新，删除旧副本；最新未过期则不删最新”。
 
-**原因**：
-- Fork 进程有启动开销
-- 每个测试在独立进程中运行
+这组用例对应 `tools/forget_memories.py` 的关键风险路径，属于工具层回归保护，建议在改动遗忘/清理逻辑后优先执行。
 
-**优化建议**：
-- 使用 `-n auto` 并行执行（但注意 fork 模式本身已经隔离）
-- 减少测试数量或优化测试代码
-
-### 问题4: Fork 模式下看不到测试输出（重要！）
-
-**现象**：
-- 使用 `--forked` 运行测试时，即使使用 `-s` 选项，测试通过时也看不到 print 输出
-- 去掉 `--forked` 后输出正常
-
-**原因**：
-- `pytest-forked` 在子进程中运行测试并捕获所有输出（stdout/stderr）
-- 只有测试失败时才显示捕获的输出
-- 这是 pytest-forked 的设计行为
-
-**解决方法**：
-
-1. **✅ 将输出保存到文件（推荐）**：
-   ```bash
-   # 方法1: 使用统一脚本的 --output-file 选项
-   ./tests/run_tests.sh --e2e test_01_verify_dify_connectivity --output-file test_output.log
-   
-   # 方法2: 使用 shell 重定向（同时显示在终端和保存到文件）
-   source .venv/bin/activate
-   pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s 2>&1 | tee test_output.log
-   
-   # 方法3: 在 .env 文件中设置 TEST_LOG_FILE 环境变量（自动保存）
-   # 在 tests/.env 中添加: TEST_LOG_FILE=tests/test_output.log
-   pytest --forked tests/test_e2e_session_memory.py -v -s
-   ```
-
-2. **调试时临时去掉 `--forked`**（快速查看输出）：
-   ```bash
-   # 会看到 gevent 警告，但能看到输出
-   pytest tests/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
-   ```
-
-3. **使用断言查看中间状态**：
-   ```python
-   # 在需要查看输出的地方
-   assert False, f"调试: user_ids = {test_user_ids}"
-   ```
-
-4. **让测试失败以查看输出**：
-   ```python
-   # 临时添加
-   pytest.fail(f"调试输出: 处理了 {count} 个用户")
-   ```
-
-## 相关文档
-
-- [TESTING_README.md](TESTING_README.md) — 测试运行方法、环境配置、E2E 测试详情、故障排除
-- [TESTING_COVERAGE.md](TESTING_COVERAGE.md) — 模块级覆盖分析、测试文件速查表、覆盖缺口与优先级
-
-## 外部参考资料
-
-- [Gevent Monkey Patching 文档](http://www.gevent.org/api/gevent.monkey.html)
-- [Pytest-forked 文档](https://pytest-forked.readthedocs.io/)
-- [Gevent 与 Pytest 兼容性问题](https://github.com/gevent/gevent/issues/1016)
 

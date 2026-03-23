@@ -83,7 +83,7 @@ class SyncCheckpointManager:
         Returns:
             (checkpoint_id, checkpoint): Tuple of checkpoint ID and checkpoint object
         """
-        items = self._load_items(user_id=user_id)
+        items = self._load_items(user_id=user_id, app_id=app_id)
         if not items:
             return None, None
 
@@ -124,12 +124,15 @@ class SyncCheckpointManager:
                 )
         return mem_id, cp
 
-    def _load_items(self, *, user_id: str) -> list[dict[str, Any]]:
-        result = self.mem.get_all(
-            user_id=user_id,
-            limit=5,
-            filters=checkpoint_filters(),
-        )
+    def _load_items(self, *, user_id: str, app_id: str | None = None) -> list[dict[str, Any]]:
+        kwargs: dict[str, Any] = {
+            "user_id": user_id,
+            "limit": 5,
+            "filters": checkpoint_filters(),
+        }
+        if app_id:
+            kwargs["agent_id"] = app_id
+        result = self.mem.get_all(**kwargs)
         items = result.get("results", []) if isinstance(result, dict) else []
         if isinstance(items, list) and items:
             return [x for x in items if isinstance(x, dict)]
@@ -294,7 +297,7 @@ class AsyncCheckpointManager:
         Returns:
             (checkpoint_id, checkpoint): Tuple of checkpoint ID and checkpoint object
         """
-        items = await self._load_items(user_id=user_id)
+        items = await self._load_items(user_id=user_id, app_id=app_id)
         if not items:
             return None, None
 
@@ -332,12 +335,15 @@ class AsyncCheckpointManager:
                 )
         return mem_id, cp
 
-    async def _load_items(self, *, user_id: str) -> list[dict[str, Any]]:
-        result = await self.mem.get_all(
-            user_id=user_id,
-            limit=5,
-            filters=checkpoint_filters(),
-        )
+    async def _load_items(self, *, user_id: str, app_id: str | None = None) -> list[dict[str, Any]]:
+        kwargs: dict[str, Any] = {
+            "user_id": user_id,
+            "limit": 5,
+            "filters": checkpoint_filters(),
+        }
+        if app_id:
+            kwargs["agent_id"] = app_id
+        result = await self.mem.get_all(**kwargs)
         items = result.get("results", []) if isinstance(result, dict) else []
         if isinstance(items, list) and items:
             return [x for x in items if isinstance(x, dict)]

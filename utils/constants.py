@@ -44,9 +44,12 @@ MAX_REQUEST_TIMEOUT: int = 60
 
 # Operation timeouts (in seconds) for individual Mem0 operations
 # These should be less than MAX_REQUEST_TIMEOUT to allow for error handling
-# Read operations: unified timeout for all read operations (search, get, get_all, history)
+# Read operations: unified timeout for all read operations (search, get, get_all, history).
+# Covers: semaphore wait + embedding call + vector DB query (pgvector/Pinecone/Qdrant/etc.).
+# 15 s is the safe default for most self-hosted and cloud vector backends.
+# Users on fast local-only stacks can lower this via the tool's `timeout` parameter.
 # NOTE: This is the default for tools unless overridden by tool parameter `timeout`.
-READ_OPERATION_TIMEOUT: int = 5
+READ_OPERATION_TIMEOUT: int = 15
 # Write operations: default timeout for all write operations (add/update/delete/delete_all)
 # NOTE: In async_mode, write tools enqueue work and return immediately, but the background
 # operation still uses this timeout as a safeguard.
@@ -129,3 +132,54 @@ EXTRACTION_DEFAULT_MAX_TOKENS: int = 64  # 64K tokens (value is in K)
 # - text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
 # This is accurate for most OpenAI and compatible models
 EXTRACTION_DEFAULT_ENCODING: str = "cl100k_base"
+
+# ---------------------------------------------------------------------------
+# Forgetting algorithm default parameters (Ebbinghaus-inspired)
+# These are used by both search_memory (access log updates) and
+# forget_memories (forgetting/cleanup), ensuring consistent strategy.
+# All can be overridden via provider credentials (forget_* keys).
+# ---------------------------------------------------------------------------
+
+# Minimum recall quality score required to strengthen a memory.
+# Recalls below this threshold are ignored.
+FORGET_Q_MIN: float = 0.50
+
+# EWMA decay factor for quality score smoothing (≈ last 3 recalls at 0.30).
+FORGET_ALPHA: float = 0.30
+
+# Maximum effective recall count (caps recall_strength growth).
+FORGET_N_MAX: int = 6
+
+# Base stability in days for a brand-new memory that has never been recalled.
+# Used as the fallback when memory_subtype is unknown or absent.
+FORGET_S0: float = 30.0
+
+# Per-subtype base stability overrides (days).
+# A memory survives approximately 3 × S0 days without any recall.
+# Design rationale:
+#   episodic  (14d) – event memories are time-bound; "Met John yesterday" is
+#                     irrelevant after ~6 weeks without follow-up.
+#   semantic  (45d) – stable user traits; a preference unseen for 4-5 months
+#                     in an active assistant is suspicious but still plausible.
+#   procedural(90d) – workflow memories surface only in specific contexts; a
+#                     3-month gap between relevant queries is normal, so they
+#                     need a longer grace period before being considered stale.
+# Memories without a recognised subtype fall back to FORGET_S0.
+FORGET_S0_BY_SUBTYPE: dict[str, float] = {
+    "episodic": 14.0,
+    "semantic": 45.0,
+    "procedural": 90.0,
+}
+
+# Stability growth factor per unit of recall_strength.
+# S = FORGET_S0 * FORGET_G ** recall_strength
+# At defaults: S_max ≈ 30 × 1.8^(6×1.0) ≈ 1020 days (~2.8 years)
+FORGET_G: float = 1.8
+
+# Retention threshold below which a memory is deleted.
+# Retention = exp(-age_days / S); memory is forgotten when Retention < FORGET_THETA.
+FORGET_THETA: float = 0.05
+
+# Maximum age (in days) for an extraction checkpoint before it is deleted
+# by the forget_memories tool.
+FORGET_CHECKPOINT_TTL_DAYS: int = 90

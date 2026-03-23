@@ -85,7 +85,10 @@ class Mem0Provider(ToolProvider):
                 loop = client.ensure_bg_loop()
                 # Perform a small no-op search to validate providers
                 _ = asyncio.run_coroutine_threadsafe(
-                    client.search({"query": "test", "user_id": "validation_test"}),
+                    client.search(
+                        {"query": "test", "user_id": "validation_test"},
+                        timeout_s=validation_timeout,
+                    ),
                     loop,
                 ).result(timeout=validation_timeout)
             else:

@@ -1,0 +1,29 @@
+smoke:
+  - name: smoke_case
+    enabled: true
+    user_id_template: "workflow-smoke-{short_run_id}"
+    # `users` is a JSON array string of user IDs to process.
+    # For smoke we pass a single transient user; no memory assertions needed.
+    inputs:
+      users: '["workflow-smoke-{short_run_id}"]'
+    expected_status: succeeded
+    expected_output_keys: []
+    expected_output_contains: {}
+
+memory_lifecycle:
+  - name: memory_lifecycle_case
+    enabled: true
+    # user_id_template is only used for cleanup tracking; the actual `users`
+    # input is overridden at runtime by test_workflow_memory_lifecycle.py with
+    # the full list of user IDs produced by the acceptance seed fixture.
+    user_id_template: "workflow-memory-{short_run_id}"
+    inputs:
+      # Placeholder — overridden at runtime with seeded user IDs.
+      users: "[]"
+    expected_status: succeeded
+    expected_output_keys: []
+    expected_output_contains: {}
+    memory_assertions:
+      # Each seeded user has 3 turns of clear, extractable content.
+      # Require at least 1 memory per user to confirm end-to-end extraction.
+      min_memories: 1

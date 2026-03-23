@@ -29,9 +29,18 @@ from .constants import (
 from .helpers import parse_positive_int
 from .logger import get_logger
 from .resource_cleanup import close_memory_resources
+from .score_utils import get_score_mode
 from .task_tracker import TaskTracker
 
 logger = get_logger(__name__)
+
+# Process-level lock that serialises all Memory.from_config() / AsyncMemory.from_config()
+# calls. pgvector's create_col() issues "CREATE EXTENSION IF NOT EXISTS vector" which is
+# not fully idempotent under concurrent PostgreSQL sessions — two concurrent executions
+# can race on registering the extension's internal pg_type entries, producing a
+# UniqueViolation on "pg_type_typname_nsp_index". Serialising initialisation within
+# the process eliminates this race without patching the third-party library.
+_mem0_init_lock = threading.Lock()
 
 
 def _patch_llm_compat(llm: Any) -> None:
@@ -75,7 +84,10 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-def normalize_search_results(results: object) -> list[dict[str, Any]]:
+def normalize_search_results(
+    results: object,
+    score_mode: str = "distance",
+) -> list[dict[str, Any]]:
     """Normalize Mem0 search results into a list of dicts.
 
     Args:
@@ -83,9 +95,30 @@ def normalize_search_results(results: object) -> list[dict[str, Any]]:
             - A list of dicts
             - A dict with "results" key containing a list
             - None or empty
+        score_mode: How to interpret the raw ``score`` field returned by the
+            vector store.  Use ``'distance'`` when the raw score is a
+            distance value (lower = more similar, e.g. pgvector cosine
+            distance, Milvus L2, FAISS euclidean).  Use ``'similarity'``
+            when the raw score already represents relevance (higher =
+            better, e.g. Elasticsearch _score, Azure AI Search
+            @search.score, Qdrant, Milvus COSINE/IP, FAISS inner-product).
+            Determined at client init time via ``get_score_mode()``.
+            Defaults to ``'distance'`` for backward compatibility.
 
     Returns:
-        list[dict]: Normalized list of memory search results with consistent structure.
+        list[dict]: Normalized list of memory search results with consistent
+            structure.  Each entry includes:
+            - id, memory, metadata, created_at: standard fields
+            - score: 0–1 similarity signal; higher = more relevant.
+              Equals ``rerank_score`` when a reranker is active, otherwise
+              derived from the raw vector store score according to
+              *score_mode*.
+            - vector_distance: 0–1 distance value; lower = more similar.
+              For distance-type backends this is the raw score (clamped to
+              [0, 1]).  For similarity-type backends and reranker results
+              this is the synthetic complement ``1 - score``.
+            - rerank_score: relevance score added by the reranker (0–1,
+              higher = more relevant); None when no reranker is configured.
 
     """
     normalized: list[dict[str, Any]] = []
@@ -99,11 +132,54 @@ def normalize_search_results(results: object) -> list[dict[str, Any]]:
     for r in items or []:
         if not isinstance(r, dict):
             continue
+        raw_score = float(r.get("score") or r.get("similarity", 0.0))
+        rerank_score = r.get("rerank_score")  # None when reranker is not used
+
+        if rerank_score is not None:
+            raw_rerank = float(rerank_score)
+            if raw_rerank < 0.0 or raw_rerank > 1.0:
+                logger.warning(
+                    "mem0_client.normalize_search_results: rerank_score %.6f is "
+                    "outside [0, 1]; clamping to [0, 1]. score_mode=%s, raw_score=%.6f",
+                    raw_rerank,
+                    score_mode,
+                    raw_score,
+                )
+            # Reranker always produces 0-1 similarity; highest priority.
+            score = max(0.0, min(1.0, raw_rerank))
+            vector_distance = max(0.0, 1.0 - score)
+        elif score_mode == "distance":
+            # pgvector / Milvus-L2 / FAISS-euclidean: raw score is a distance.
+            vector_distance = float(raw_score)
+            if vector_distance < 0.0 or vector_distance > 1.0:
+                logger.warning(
+                    "mem0_client.normalize_search_results: distance score %.6f is "
+                    "outside [0, 1]; downstream logic will clamp derived similarity. "
+                    "score_mode=%s",
+                    vector_distance,
+                    score_mode,
+                )
+            score = max(0.0, 1.0 - vector_distance)
+        else:
+            # Elasticsearch / Azure AI Search / Qdrant / Milvus-COSINE / etc.:
+            # raw score is already a relevance/similarity value.
+            if raw_score < 0.0 or raw_score > 1.0:
+                logger.warning(
+                    "mem0_client.normalize_search_results: similarity score %.6f is "
+                    "outside [0, 1]; clamping to [0, 1]. score_mode=%s",
+                    raw_score,
+                    score_mode,
+                )
+            score = max(0.0, min(1.0, float(raw_score)))
+            vector_distance = max(0.0, 1.0 - score)
+
         normalized.append(
             {
                 "id": r.get("id") or r.get("memory_id") or "",
                 "memory": r.get("memory") or r.get("text") or "",
-                "score": r.get("score") or r.get("similarity", 0.0),
+                "score": score,
+                "vector_distance": vector_distance,
+                "rerank_score": rerank_score,
                 "metadata": r.get("metadata") or {},
                 "created_at": r.get("created_at") or r.get("timestamp") or "",
             },
@@ -194,11 +270,32 @@ class SyncMem0Client:
                                     Defaults to True.
             config_override (dict | None): Optional prebuilt Mem0 config. When set,
                 it bypasses build_local_mem0_config() and is used directly.
+                The caller is responsible for ensuring the config already contains
+                a connection pool if one is desired (e.g. via attach_pgvector_pool).
 
         """
-        config = config_override or build_local_mem0_config(credentials)
-        self.memory = Memory.from_config(config)
+        import copy
+
+        from .pgvector_config import attach_pgvector_pool
+
+        if config_override is not None:
+            config = config_override
+        else:
+            # The global config cache stores static parameters only (no pool).
+            # Deep-copy so we can attach an independent pool without touching the cache.
+            config = copy.deepcopy(build_local_mem0_config(credentials))
+            if "vector_store" in config and isinstance(config["vector_store"], dict):
+                vs_cfg = config["vector_store"].get("config")
+                if isinstance(vs_cfg, dict):
+                    attach_pgvector_pool(vs_cfg)
+
+        with _mem0_init_lock:
+            self.memory = Memory.from_config(config)
         _patch_llm_compat(getattr(self.memory, "llm", None))
+
+        # Determine how raw vector store scores should be interpreted.
+        self.score_mode: str = get_score_mode(credentials)
+        logger.debug("SyncMem0Client score_mode=%s", self.score_mode)
 
         # Initialize connection keep-alive
         if enable_keepalive:
@@ -242,25 +339,15 @@ class SyncMem0Client:
                 logger.exception("Error stopping connection keep-alive")
         
         # Close vector store connection pool
-        # Skip if this client is sharing the pool (it will be closed by the owner)
         if self.memory is not None:
             try:
                 vs = getattr(self.memory, "vector_store", None)
                 if vs and hasattr(vs, "connection_pool") and vs.connection_pool is not None:
-                    # Check if this client is sharing the connection pool
-                    # If so, don't close it (it will be closed by the owner)
-                    if hasattr(self, "_is_sharing_pool") and getattr(
-                        self, "_is_sharing_pool", False
-                    ):
-                        logger.debug(
-                            "Skipping connection pool close (sharing pool from base_client)"
-                        )
-                    else:
-                        pool = vs.connection_pool
-                        if hasattr(pool, "close"):
-                            pool.close()
-                        elif hasattr(pool, "closeall"):
-                            pool.closeall()
+                    pool = vs.connection_pool
+                    if hasattr(pool, "close"):
+                        pool.close()
+                    elif hasattr(pool, "closeall"):
+                        pool.closeall()
             except Exception:
                 logger.exception("Error closing vector store connection pool")
             
@@ -269,10 +356,8 @@ class SyncMem0Client:
                 graph = getattr(self.memory, "graph", None)
                 if graph:
                     graph_close = getattr(graph, "close", None)
-                    if graph_close and not callable(
-                        getattr(graph_close, "__self__", None)
-                    ):
-                        graph.close()
+                    if callable(graph_close):
+                        graph_close()
                     elif hasattr(graph, "driver") and hasattr(graph.driver, "close"):
                         graph.driver.close()
             except Exception:
@@ -340,7 +425,7 @@ class SyncMem0Client:
 
         try:
             results = self.memory.search(query, **kwargs)
-            normalized = normalize_search_results(results)
+            normalized = normalize_search_results(results, score_mode=self.score_mode)
         except Exception:
             logger.exception("Error during memory search")
             raise
@@ -600,7 +685,11 @@ class AsyncMem0Client:
     """Asynchronous Mem0 client using configured providers."""
 
     def __init__(
-        self, credentials: dict[str, Any], enable_keepalive: bool = True
+        self,
+        credentials: dict[str, Any],
+        enable_keepalive: bool = True,
+        *,
+        config_override: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the AsyncMem0Client.
 
@@ -608,12 +697,28 @@ class AsyncMem0Client:
             credentials (dict): Configuration for the AsyncMem0Client.
             enable_keepalive (bool): Whether to enable connection keep-alive.
                                     Defaults to True.
+            config_override (dict | None): Optional prebuilt Mem0 config. When set,
+                it bypasses build_local_mem0_config() and is used directly.
+                The caller is responsible for ensuring the config already contains
+                a connection pool if one is desired (e.g. via attach_pgvector_pool).
+                Pool creation is skipped inside create() when a pool is already present.
 
         """
-        self.config = build_local_mem0_config(credentials)
+        import copy
+
+        if config_override is not None:
+            self.config = config_override
+        else:
+            # Deep-copy the cached static config so each AsyncMem0Client instance owns
+            # its own independent pool (created lazily in create()).
+            self.config = copy.deepcopy(build_local_mem0_config(credentials))
         self.memory = None
         # Async lock to protect one-time asynchronous initialization.
         self._create_lock = asyncio.Lock()
+
+        # Determine how raw vector store scores should be interpreted.
+        self.score_mode: str = get_score_mode(credentials)
+        logger.debug("AsyncMem0Client score_mode=%s", self.score_mode)
 
         # Parse config value
         self.max_ops = parse_positive_int(
@@ -711,7 +816,27 @@ class AsyncMem0Client:
             return self.memory
         async with self._create_lock:
             if self.memory is None:
-                self.memory = await AsyncMemory.from_config(self.config)
+                # Attach an independent connection pool to this instance's config copy
+                # before handing it to AsyncMemory.from_config().  The pool is owned
+                # exclusively by this client instance and is closed in aclose().
+                from .pgvector_config import attach_pgvector_pool
+
+                if "vector_store" in self.config and isinstance(
+                    self.config["vector_store"], dict
+                ):
+                    vs_cfg = self.config["vector_store"].get("config")
+                    if isinstance(vs_cfg, dict):
+                        attach_pgvector_pool(vs_cfg)
+
+                # Acquire the process-level init lock in a thread to avoid blocking
+                # the event loop. This serialises concurrent from_config() calls and
+                # prevents pgvector's CREATE EXTENSION from racing across sessions.
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, _mem0_init_lock.acquire)
+                try:
+                    self.memory = await AsyncMemory.from_config(self.config)
+                finally:
+                    _mem0_init_lock.release()
                 _patch_llm_compat(getattr(self.memory, "llm", None))
                 logger.debug("AsyncMemory instance created")
 
@@ -740,18 +865,34 @@ class AsyncMem0Client:
         `asyncio.run_coroutine_threadsafe()`.
 
         """
-        if self.memory is None:
-            return
-
-        logger.debug("Closing AsyncMemory resources")
-        
-        # Stop connection keep-alive first to prevent accessing closed resources
+        # Stop connection keep-alive first regardless of whether memory was created.
         if hasattr(self, "_keepalive") and self._keepalive is not None:
             try:
                 self._keepalive.stop()
             except Exception:
                 logger.exception("Error stopping connection keep-alive")
-        
+
+        if self.memory is None:
+            # Memory was never successfully created, but a connection pool may have
+            # been attached to self.config already (via config_override or create()).
+            # Close it explicitly; psycopg3 ConnectionPool owns background threads that
+            # should not be left running when the client is discarded.
+            try:
+                vs_cfg = (self.config.get("vector_store") or {}).get("config") or {}
+                pool = vs_cfg.get("connection_pool")
+                if pool is not None:
+                    loop = asyncio.get_running_loop()
+                    if hasattr(pool, "close"):
+                        await loop.run_in_executor(None, pool.close)
+                    elif hasattr(pool, "closeall"):
+                        await loop.run_in_executor(None, pool.closeall)
+            except Exception:
+                logger.exception(
+                    "Error closing connection pool (AsyncMemory was not initialized)"
+                )
+            return
+
+        logger.debug("Closing AsyncMemory resources")
         try:
             await close_memory_resources(self.memory, client=self)
         except Exception:
@@ -871,7 +1012,7 @@ class AsyncMem0Client:
             timeout_s=timeout,
             check_queue=True,  # Read operations check queue
         )
-        return normalize_search_results(results)
+        return normalize_search_results(results, score_mode=self.score_mode)
 
     async def add(
         self,
@@ -906,7 +1047,6 @@ class AsyncMem0Client:
             and possibly "relations" if graph store is enabled.
 
         """  # noqa: E501
-        await self.create()
         metadata = payload.get("metadata")
         if isinstance(metadata, str):
             try:
