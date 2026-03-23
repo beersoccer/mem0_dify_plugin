@@ -121,7 +121,10 @@ def test_run_workflow_blocking_posts_expected_payload(
     assert response["workflow_run_id"] == "wf-1"
     assert captured["url"] == "http://localhost/v1/workflows/run"
     assert captured["method"] == "POST"
-    assert captured["body"] == b'{"inputs": {"query": "hello"}, "response_mode": "blocking", "user": "workflow-user"}'
+    assert captured["body"] == (
+        b'{"inputs": {"query": "hello"}, "response_mode": "blocking", '
+        b'"user": "workflow-user"}'
+    )
 
 
 def test_get_workflow_run_detail_uses_expected_path(

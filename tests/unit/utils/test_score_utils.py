@@ -14,7 +14,6 @@ import pytest
 
 from utils.score_utils import _safe_parse, get_score_mode
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -136,7 +135,10 @@ class TestGetScoreModeSimilarity:
 
     # FAISS alternative strategies
     def test_faiss_inner_product(self):
-        assert get_score_mode(_creds("faiss", {"distance_strategy": "inner_product"})) == "similarity"
+        assert (
+            get_score_mode(_creds("faiss", {"distance_strategy": "inner_product"}))
+            == "similarity"
+        )
 
     def test_faiss_cosine(self):
         assert get_score_mode(_creds("faiss", {"distance_strategy": "cosine"})) == "similarity"

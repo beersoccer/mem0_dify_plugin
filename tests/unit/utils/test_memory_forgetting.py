@@ -476,7 +476,6 @@ class TestSubtypeS0ShouldForget:
         """After one recall, procedural memory should outlast episodic
         by the same proportional factor (S0_procedural / S0_episodic = 90/14).
         """
-        entry = {"recall_count": 1, "quality_ema": 0.8, "last_recalled_at": _iso(0)}
         created = _iso(days_ago=30)
 
         # At 600 days since last recalled (well past episodic survival window):
@@ -490,8 +489,18 @@ class TestSubtypeS0ShouldForget:
             "quality_ema": 0.8,
             "last_recalled_at": _iso(400),
         }
-        assert should_forget(long_lived_entry, created, PARAMS, memory_subtype="episodic")   is True
-        assert should_forget(long_lived_entry, created, PARAMS, memory_subtype="procedural") is False
+        assert (
+            should_forget(
+                long_lived_entry, created, PARAMS, memory_subtype="episodic"
+            )
+            is True
+        )
+        assert (
+            should_forget(
+                long_lived_entry, created, PARAMS, memory_subtype="procedural"
+            )
+            is False
+        )
 
 
 # ===========================================================================

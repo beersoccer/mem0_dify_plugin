@@ -25,7 +25,13 @@ def _extract_results(result: Any) -> list[dict[str, Any]]:
     return [item for item in items if isinstance(item, dict)]
 
 
-def _delete_items(mem: Any, *, user_id: str, filters: dict[str, Any], agent_id: str | None = None) -> int:
+def _delete_items(
+    mem: Any,
+    *,
+    user_id: str,
+    filters: dict[str, Any],
+    agent_id: str | None = None,
+) -> int:
     kwargs: dict[str, Any] = {
         "user_id": user_id,
         "limit": 100,
