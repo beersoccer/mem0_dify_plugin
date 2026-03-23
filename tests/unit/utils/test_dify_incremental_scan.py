@@ -455,3 +455,19 @@ def test_scan_user_conversations_with_start_time() -> None:
     all_msgs = segs["c1"]
     assert len(all_msgs) == 1
     assert all_msgs[0]["id"] == "m_new"
+
+
+def test_extraction_accepts_start_time_parameter() -> None:
+    """Verify scan_new_messages_for_conversation accepts start_time parameter."""
+    import inspect
+
+    from utils.extraction import scan_new_messages_for_conversation
+
+    sig = inspect.signature(scan_new_messages_for_conversation)
+    assert "start_time" in sig.parameters, (
+        "scan_new_messages_for_conversation should accept start_time parameter"
+    )
+    param = sig.parameters["start_time"]
+    assert param.default is not inspect.Parameter.empty or param.annotation == "str | None", (
+        "start_time should be optional"
+    )

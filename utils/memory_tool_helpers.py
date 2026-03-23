@@ -25,13 +25,21 @@ logger = get_logger(__name__)
 
 
 def _is_internal_metadata(metadata: object) -> bool:
+    """Return True if the metadata dict marks an internal (non-user) memory.
+
+    Accepts both the legacy boolean True and the current string "true" value
+    so that records written by older plugin versions are still filtered out.
+    """
     if not isinstance(metadata, dict):
         return False
-    return bool(metadata.get("__internal") is True)
+    val = metadata.get("__internal")
+    return val is True or val == "true"
 
 
 def _default_exclude_internal_filter() -> dict[str, Any]:
-    return {"NOT": [{"__internal": {"eq": True}}]}
+    # Exclude both boolean True (legacy) and string "true" (current) variants
+    # so that users never see internal records regardless of which plugin version wrote them.
+    return {"NOT": [{"OR": [{"__internal": {"eq": True}}, {"__internal": {"eq": "true"}}]}]}
 
 
 def _merge_filters_excluding_internal(user_filters: object) -> dict[str, Any]:

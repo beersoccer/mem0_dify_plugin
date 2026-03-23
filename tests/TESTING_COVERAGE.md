@@ -1,365 +1,139 @@
-# 测试覆盖分析
-
-## 概述
-
-本文档详细分析会话级长期记忆工具的测试覆盖度，包括已有测试和需要补充的测试场景。
-
-## 核心实现逻辑
-
-### 主要功能模块
-
-1. **时间范围计算** (`_get_time_range_from_days`)
-   - 根据days_back参数计算时间范围
-   - 支持1-7天的回溯
-
-2. **消息Token计数** (`_count_message_tokens`, `_truncate_to_recent_messages`)
-   - 使用tiktoken精确计算Token数
-   - 支持Token限制下的消息截断
-   - 优先保留最新的消息
-
-3. **Dify消息格式转换** (`_dify_msg_to_mem0_messages`)
-   - 支持query/answer格式
-   - 支持role/content格式
-   - 过滤空消息
-
-4. **记忆结果统计** (`_count_add_results`)
-   - 统计ADD/UPDATE事件
-   - 排除NONE事件
-
-5. **单用户处理** (`_process_single_user`)
-   - 分布式锁管理
-   - Checkpoint加载和保存
-   - 幂等性检查
-   - 会话级Token限制
-   - 记忆分类和抽取
-
-6. **异步任务执行** (`_execute_extraction_async`)
-   - 并发处理多个用户（最多5个）
-   - 时间预算控制
-   - 任务状态跟踪
-
-7. **工具入口** (`ExtractLongTermMemoryTool._invoke`)
-   - 参数验证
-   - 任务创建和提交
-   - 后台执行
-
-## 支持模块测试覆盖
-
-### 1. `utils/extraction.py` - 增量扫描
-
-**功能:**
-- 会话增量扫描
-- 消息增量扫描
-- Checkpoint管理
-- 时间范围过滤
-- Token限制支持
-
-**测试覆盖:**
-- ✅ `test_dify_incremental_scan.py` - 完整的单元测试
-  - 会话updated_at停止逻辑
-  - 消息checkpoint停止逻辑
-  - 未来消息过滤
-  - 时间范围过滤
-  - 分页处理
-  - App ID过滤
-  - 消息时间排序
-
-### 2. `utils/dify_client.py` - Dify API客户端
-
-**功能:**
-- 会话列表获取（带分页）
-- 消息列表获取（带分页）
-- 自动重试机制
-- 错误处理
-
-**测试覆盖:**
-- ✅ `test_dify_integration.py` - 集成测试
-  - API连接测试
-  - 分页测试
-  - 错误处理测试
-
-### 3. `utils/checkpoint.py` - Checkpoint持久化
-
-**功能:**
-- Checkpoint加载
-- Checkpoint保存（原子性）
-- Checkpoint更新
-- 回滚机制
-
-**测试覆盖:**
-- ✅ `test_checkpoint.py` - 单元测试
-  - Checkpoint元数据格式
-  - 保存和加载
-  - 更新逻辑
-- ✅ `test_idempotency.py` - 幂等性测试
-
-### 4. `utils/mem0_extraction.py` - 记忆抽取
-
-**功能:**
-- 会话分类（semantic/episodic/procedural）
-- 记忆元数据构建
-- 子类型Memory实例创建
-
-**测试覆盖:**
-- ⚠️ **部分覆盖** - 需要补充测试
-  - ✅ `test_mem0_extraction_logging.py` - 验证 `SyncMemoryClassificationManager` 的分类日志等级
-  - ❌ 会话分类逻辑（`classify_conversation_memory_type`）未有功能性单元测试
-  - ❌ 元数据构建（`build_memory_metadata`）未测试
-  - ✅ Memory实例创建（通过集成测试间接覆盖）
-
-### 5. `utils/distributed_lock.py` - 分布式锁
-
-**功能:**
-- 用户级锁获取
-- 锁释放
-- TTL管理
-
-**测试覆盖:**
-- ✅ `test_distributed_lock.py` - 单元测试
-
-### 6. `utils/task_status.py` - 任务状态管理
-
-**功能:**
-- 任务状态持久化
-- 进度更新
-- 最终报告保存
-
-**测试覆盖:**
-- ✅ **已有专门单元测试**
-  - ✅ `test_task_status_async.py` - 任务状态异步更新（`processed_counts` 参数）
-  - ✅ `test_task_status_filters.py` - `task_status_filters` 内部标记格式验证
-
-## 现有测试文件总结
-
-### 单元测试
-
-#### 工具类单元测试（tests/unit/tools）— 10 个文件
-
-1. ✅ `test_check_extraction_status.py` - 任务状态展示与格式化（11个测试）
-2. ✅ `test_extract_long_term_memory.py` - 辅助函数与去重逻辑（7个测试）
-3. ✅ `test_extraction_async.py` - 异步抽取核心逻辑（13个测试）
-4. ✅ `test_extraction_parameters.py` - 参数验证与报告结构（26个测试）
-5. ✅ `test_search_with_filters.py` - 搜索过滤器回归（1个测试）
-6. ✅ `test_time_range_expansion.py` - 时间范围扩展（3个测试）
-7. ✅ `test_token_truncation.py` - Token 截断（8个测试）
-8. ✅ `test_add_memory_overload_guard.py` - 记忆添加过载保护（1个测试）
-9. ✅ `test_get_user_checkpoint.py` - 用户 Checkpoint 查询（2个测试）
-10. ✅ `test_update_memory.py` - 记忆更新 UUID 校验（1个测试）
-
-#### 工具支撑单元测试（tests/unit/utils）— 18 个文件
-
-11. ✅ `test_async_local_client_read_timeout.py` - 异步客户端超时（2个测试）
-12. ✅ `test_bg_task_tracking.py` - 后台任务跟踪（3个测试）
-13. ✅ `test_checkpoint.py` - Checkpoint 持久化（3个测试）
-14. ✅ `test_dify_client.py` - Dify 客户端基础行为（2个测试）
-15. ✅ `test_dify_incremental_scan.py` - 增量扫描与分页（13个测试）
-16. ✅ `test_distributed_lock.py` - 分布式锁（11个测试）
-17. ✅ `test_idempotency.py` - 幂等性验证
-18. ✅ `test_mem0_client_config_override.py` - Mem0 配置覆盖（1个测试）
-19. ✅ `test_mem0_client_llm_compat.py` - LLM 兼容补丁（2个测试）
-20. ✅ `test_mem0_extraction_logging.py` - 分类日志等级（1个测试）
-21. ✅ `test_message_utils.py` - 消息规范化与统计（12个测试）
-22. ✅ `test_overload_guard_preenqueue.py` - 过载保护预入队拒绝（1个测试）
-23. ✅ `test_performance_user_ids.py` - 用户ID列表构建性能（3个测试）
-24. ✅ `test_pgvector_config_defaults.py` - pgvector 索引默认值（1个测试）
-25. ✅ `test_pgvector_pool_max_waiting_default.py` - 连接池等待上限默认值（1个测试）
-26. ✅ `test_prompts.py` - Prompt 约束（2个测试）
-27. ✅ `test_retry.py` - 重试机制（8个测试）
-28. ✅ `test_task_status_async.py` - 任务状态异步更新（2个测试）
-29. ✅ `test_task_status_filters.py` - 任务状态过滤器（1个测试）
-
-### 集成测试
-
-1. ✅ `test_dify_integration.py` - Dify API 集成（20+个测试）
-2. ✅ `test_time_range_filtering.py` - 时间范围过滤（真实 Dify 数据）
-
-### 端到端测试
-
-1. ✅ `test_e2e_session_memory.py` - 端到端验证（使用 fork 模式）
-
-## 测试覆盖度评估
-
-### ✅ 已充分测试的模块
-
-1. **Dify API客户端** - 单元测试 + 集成测试
-2. **增量扫描逻辑** - 完整的单元测试覆盖（13个测试）
-3. **Checkpoint管理** - 单元测试 + 幂等性测试
-4. **分布式锁** - 单元测试（11个测试）
-5. **时间范围过滤** - 专门的测试文件
-6. **Token截断** - 专门的测试文件（8个测试）
-7. **消息格式转换** - 单元测试（12个测试）
-8. **任务状态管理** - 专门的单元测试（test_task_status_async.py + test_task_status_filters.py）
-9. **参数验证** - 专门的测试文件（26个测试）
-10. **pgvector 配置** - 专门的单元测试（默认值、连接池参数）
-
-### ⚠️ 需要补充测试的模块
-
-#### 1. 会话分类逻辑 (`classify_conversation_memory_type`)
-
-**当前状态:** 未测试  
-**风险等级:** 中等  
-**建议补充:**
-```python
-# tests/test_memory_classification.py
-def test_classify_semantic_conversation():
-    """测试语义记忆分类（个人信息、偏好等）"""
-    
-def test_classify_episodic_conversation():
-    """测试情景记忆分类（事件、经历等）"""
-    
-def test_classify_procedural_conversation():
-    """测试程序记忆分类（操作步骤等）"""
-    
-def test_classify_no_significant_content():
-    """测试无意义内容返回None"""
-```
-
-#### 2. 元数据构建逻辑 (`build_memory_metadata`)
-
-**当前状态:** 未测试  
-**风险等级:** 低  
-**建议补充:**
-```python
-# tests/test_memory_metadata.py
-def test_metadata_structure():
-    """验证元数据结构完整性"""
-    
-def test_metadata_categories():
-    """验证不同类型的分类标签"""
-```
-
-#### 3. 并发用户处理 (`_execute_extraction_async`)
-
-**当前状态:** 部分测试（test_extraction_async.py）  
-**风险等级:** 中等  
-**建议补充:**
-```python
-# tests/test_concurrent_extraction.py
-def test_concurrent_user_processing():
-    """测试多用户并发处理"""
-    
-def test_semaphore_limiting():
-    """测试并发限制（5个用户）"""
-    
-def test_time_budget_enforcement():
-    """测试时间预算控制"""
-```
-
-#### 4. 错误处理和恢复
-
-**当前状态:** 部分测试  
-**风险等级:** 高  
-**建议补充:**
-```python
-# tests/test_error_handling.py
-def test_dify_api_timeout():
-    """测试Dify API超时"""
-    
-def test_mem0_add_failure():
-    """测试Mem0添加失败"""
-    
-def test_checkpoint_save_failure():
-    """测试Checkpoint保存失败"""
-    
-def test_partial_success_handling():
-    """测试部分成功场景"""
-```
-
-#### 5. 边界条件测试
-
-**当前状态:** 部分测试  
-**风险等级:** 中等  
-**建议补充:**
-```python
-# tests/test_edge_cases.py
-def test_empty_conversation():
-    """测试空会话处理"""
-    
-def test_very_long_conversation():
-    """测试超长会话（>64K tokens）"""
-    
-def test_conversation_with_only_future_messages():
-    """测试只有未来消息的会话"""
-    
-def test_max_conversations_limit():
-    """测试会话数量限制"""
-```
-
-## 测试缺口总结
-
-### 高优先级
-
-1. **会话分类逻辑测试** - 核心功能，影响记忆质量
-2. **错误处理测试** - 确保系统稳定性
-
-### 中优先级
-
-3. **并发处理测试** - 验证性能优化
-4. **边界条件测试** - 确保鲁棒性
-
-### 低优先级
-
-5. **元数据构建测试** (`build_memory_metadata`) - 结构简单，风险低
-
-## 代码质量指标
-
-### 当前估算覆盖率
-
-- **核心逻辑覆盖率:** ~75%
-- **边界条件覆盖率:** ~60%
-- **错误处理覆盖率:** ~50%
-- **集成测试覆盖率:** ~80%
-
-### 目标覆盖率
-
-- **核心逻辑:** >90%
-- **边界条件:** >80%
-- **错误处理:** >85%
-- **集成测试:** >90%
-
-## 时间范围测试配置
-
-### days_back 参数
-
-`extract_long_term_memory` 工具使用简化的 `days_back` 参数：
-
-- **days_back**: 回看天数（1-7，默认: 1）
-- **start_time**: 自动计算为 `(today - days_back) 00:00:00`
-- **end_time**: 自动计算为 `today 00:00:00`
-
-### 示例
-
-如果今天是 2026年1月25日：
-
-```python
-# days_back=1: 提取昨天的会话
-# 时间范围: [Jan 24 00:00:00, Jan 25 00:00:00)
-start_time, end_time = _get_time_range_from_days(1)
-
-# days_back=3: 提取最近3天
-# 时间范围: [Jan 22 00:00:00, Jan 25 00:00:00)
-start_time, end_time = _get_time_range_from_days(3)
-
-# days_back=7: 提取最近一周的会话
-# 时间范围: [Jan 18 00:00:00, Jan 25 00:00:00)
-start_time, end_time = _get_time_range_from_days(7)
-```
-
-### 限制规则
-
-- 最小值: 1天（如果 days_back < 1，限制为 1）
-- 最大值: 7天（如果 days_back > 7，限制为 7）
-- 默认值: 1天（如果未指定）
-
-## 下一步行动
-
-1. ✅ 创建端到端验证脚本 (`test_e2e_session_memory.py`)
-2. ⏳ 补充缺失的单元测试（按优先级）
-3. ⏳ 运行端到端测试并验证结果
-4. ⏳ 根据测试结果修复发现的问题
-
-## 相关文档
-
-- [TESTING_README.md](TESTING_README.md) — 测试运行方法、环境配置、E2E 测试详情、故障排除
-- [TESTING_TECHNICAL_GUIDE.md](TESTING_TECHNICAL_GUIDE.md) — Gevent / fork 模式的根本原因、实现细节与高级故障排除
+# 测试覆盖现状（可用于评审与新人理解）
+
+## 如何阅读本文件
+
+本文件回答三个问题：
+
+1. **测了什么**：当前已经覆盖到哪些代码和场景。
+2. **怎么测的**：每一层测试验证哪些行为。
+3. **还缺什么**：已知风险和后续补齐建议。
+
+---
+
+## 覆盖模型总览
+
+当前测试体系按三层组织：
+
+- `unit`
+  - 覆盖纯逻辑模块与边界处理。
+- `integration`
+  - 覆盖 Dify 数据面连通、增量扫描、时间窗口、seed 与 cleanup。
+- `acceptance.workflow`
+  - 覆盖真实 workflow 调用、轮询与副作用验证。
+
+---
+
+## 文件到能力映射
+
+### Integration（Dify API 能力）
+
+- `tests/integration/test_dify_seed_api.py`
+  - 读取 `conversation_seed_cases.yaml`
+  - 执行 seed -> cleanup 一体化流程
+  - 断言 manifest 字段完整、删除后不可见
+  - 写出 `integration-seed-*` 与 `integration-cleanup-summary-*` artifact
+- `tests/integration/test_dify_integration.py`
+  - 覆盖会话与消息列表读取、分页、鉴权异常
+  - 覆盖增量扫描与 checkpoint 的核心行为
+- `tests/integration/test_time_range_filtering.py`
+  - 覆盖时间窗口过滤、边界条件和统计一致性
+
+### Acceptance（workflow 验收）
+
+- `tests/acceptance/test_workflow_plugin_smoke.py`
+  - 加载 `workflow_cases.yaml:smoke`
+  - 执行 workflow run
+  - 轮询 run detail 到终态
+  - 输出断言（key/contains/status）
+
+- `tests/acceptance/test_workflow_memory_lifecycle.py`
+  - 加载 `workflow_cases.yaml:memory_lifecycle`
+  - 执行 workflow case
+  - 按 case 断言最小 memory 数量
+  - finally 中进行 Mem0 清理并输出 artifact
+
+---
+
+## Helper 能力覆盖（测试基础设施）
+
+- `tests/helpers/dify_env.py`
+  - profile 解析：`local|remote|ci`
+  - preflight 探测：chat/workflow
+  - skip/fail 策略：localhost 与网络策略
+
+- `tests/helpers/dify_seed.py`
+  - seed case 模板渲染
+  - seed manifest 生成
+
+- `tests/helpers/dify_cleanup.py`
+  - conversation 删除
+  - 删除后可见性验证
+
+- `tests/helpers/mem0_cleanup.py`
+  - memories/checkpoint/access_log/lock/task_status 清理
+
+- `tests/helpers/workflow_runner.py`
+  - workflow run + polling + timeout/stall
+  - initial/final/failure artifact
+
+---
+
+## 单元测试覆盖摘要
+
+`tests/unit/` 对核心逻辑保持高覆盖，重点包括：
+
+- `utils/score_utils.py` -> `tests/unit/utils/test_score_utils.py`
+- `normalize_search_results` -> `tests/unit/utils/test_normalize_search_results.py`
+- `utils/memory_forgetting.py` -> `tests/unit/utils/test_memory_forgetting.py`
+- `utils/dify_client.py` -> `tests/unit/utils/test_dify_client.py`
+- `tools/forget_memories.py` -> `tests/unit/tools/test_forget_memories.py`
+  - 覆盖 `dry_run` 行为（不执行删除/不落 access log）
+  - 覆盖“部分删除失败”时仅按成功删除 ID 更新 access log
+  - 覆盖真实执行下 checkpoint 去重清理逻辑
+- 以及 extraction、checkpoint、retry、task_status、distributed_lock 等模块
+
+---
+
+## 目前已知缺口与风险
+
+### 1) workflow fixtures 与环境配置一致性
+
+- 当前 `tests/fixtures/workflow_cases.yaml` 中 smoke 与 memory_lifecycle 为启用状态
+- 若在目标环境改为 `enabled: false` 或缺少必要环境变量，acceptance 仍会 skip
+
+建议：在目标环境维护一份启用版 case（不要提交敏感数据）。
+
+### 2) 真实环境稳定性依赖外部服务
+
+- Dify/Mem0 可用性
+- 网络抖动和响应时间
+- 权限和数据隔离策略
+
+建议：在 CI 使用固定测试窗口和专用测试用户。
+
+### 3) 静态 lint 的 GitHub context 告警
+
+- 编辑器可能提示 `vars/secrets` 相关 warning
+- 这类告警通常不影响 Actions 真实执行
+
+---
+
+## 覆盖结论
+
+- 蓝图要求的三层测试结构已落地。
+- seed/cleanup 生命周期、preflight、超时治理已覆盖关键路径。
+- artifact 机制已接入，满足失败定位与回放分析需求。
+
+---
+
+## 新人建议补测顺序
+
+1. 先跑 `unit`
+2. 再跑 `integration`
+3. 最后 `acceptance`
+
+如果新增功能跨层改动，至少新增：
+
+- 1 个 unit（逻辑）
+- 1 个 integration 或 acceptance（真实行为）
 

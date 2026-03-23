@@ -24,7 +24,13 @@ MANIFEST
 *.difypkg
 
 # Environments
-.env*
+# Ignore real env files (sensitive), but allow committed examples.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 .venv
 env/
 venv/
@@ -64,6 +70,7 @@ mem0-api-docs/
 # Testing and linting cache
 .pytest_cache/
 .ruff_cache/
+tests/artifacts/
 
 # Local development files
 .verification.dify.json

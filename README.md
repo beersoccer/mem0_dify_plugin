@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.2.9
+# Mem0 Dify Plugin v0.2.10
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-03-04
+Last updated: 2026-03-23
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -12,7 +12,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 
 ## 🌟 Features
 
-### Complete Memory Management (11 Tools)
+### Complete Memory Management (12 Tools)
 - ✅ **Add Memory** - Intelligently add, update, or delete memories based on user interactions
 - ✅ **Search Memory** - Search with advanced filters (AND/OR logic) and top_k limiting, returns timestamp field (most recent created_at/updated_at)
 - ✅ **Get All Memories** - List memories with pagination
@@ -24,6 +24,7 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - ✅ **Extract Long-Term Memory** - Automatically extract semantic/episodic/procedural memories from Dify conversation history
 - ✅ **Check Extraction Status** - Check the status and progress of async extraction tasks
 - ✅ **Get User Checkpoint** - Inspect extraction checkpoint state for a user/app
+- ✅ **Forget Memories** - Periodically forget low-retention memories and clean up stale extraction checkpoints
 
 ### Advanced Capabilities
 - 🖥️ **Self-Hosted Mode** - Run with Local Mem0 (JSON-based config)
@@ -31,10 +32,25 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🎯 **Entity Scoping** - user_id (required for add), agent_id, run_id
 - 📊 **Metadata System** - Custom JSON metadata for rich context
 - 🔍 **Filters** - JSON filters supported by Mem0 self-hosted mode
+- 📈 **Score Normalization** - Automatically adapts to distance/similarity backends and returns unified 0-1 similarity
+- 🧠 **Memory Lifecycle** - Access-log-driven forgetting curve with optional hard TTL for controlled memory retention
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.9) - Extraction Worker Pool Optimization ✅
+### What's New (v0.2.10) - Score Adaptation & Memory Evolution ✅
+- **Cross-backend score semantics**:
+  - Added automatic score mode inference (`distance` vs `similarity`) by vector provider/metric and normalized search outputs to stable 0-1 similarity
+  - `search_memory` results now consistently expose `score` (similarity), `vector_distance`, and `rerank_score`
+- **Access-log-driven forgetting**:
+  - Search now updates per-user/per-app access logs from raw recall results (sync and async paths)
+  - Forgetting uses EWMA quality + Ebbinghaus-style retention curve, with subtype-aware base stability
+- **Operational cleanup controls**:
+  - Added new `forget_memories` tool with `dry_run` preview support
+  - Added credentials: `memory_ttl_days` (optional hard memory TTL) and `checkpoint_ttl_days` (checkpoint cleanup TTL, default 90)
+
+These changes improve cross-backend retrieval consistency and establish a controllable memory lifecycle for long-term operation.
+
+### Previous Updates (v0.2.9) - Extraction Worker Pool Optimization ✅
 - **Sliding-window concurrency**:
   - Extraction uses `asyncio.as_completed` with a true Semaphore sliding window; a slow user no longer blocks the next one from starting (straggler problem eliminated)
 - **Precise time budget enforcement**:
@@ -102,13 +118,13 @@ Details (including batch processing behavior) are in `CONFIG.md` under **Extract
 
 ### Start Using
 
-Once configured, all 11 tools are available in your workflows!
+Once configured, all 12 tools are available in your workflows!
 
 ---
 
 ## 📖 Quick Examples
 
-> 📖 **For complete usage examples with all 11 tools, see [CONFIG.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#usage-examples)**
+> 📖 **For complete usage examples with all 12 tools, see [CONFIG.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CONFIG.md#usage-examples)**
 
 ### Add Memory
 
@@ -164,6 +180,8 @@ In Dify workflow, add the `search_memory` tool and configure the following param
 | `get_memory_history` | View change history |
 | `extract_long_term_memory` | Extract semantic/episodic/procedural memories from Dify conversation history |
 | `check_extraction_status` | Check the status and progress of async extraction tasks |
+| `get_user_checkpoint` | Inspect extraction checkpoint state for a user/app |
+| `forget_memories` | Forget stale memories and clean old checkpoints (supports dry_run) |
 
 Note: `extract_long_term_memory` uses `conversations_limit` as the per-user total conversation cap within the configured `days_back` time range.
 
@@ -351,6 +369,8 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.10 | 2026-03-23 | Score semantics unification, memory evolution lifecycle, and new forget_memories maintenance controls |
+| v0.2.9 | 2026-03-04 | Extraction worker-pool sliding-window optimization with tighter time-budget and progress flushing behavior |
 | v0.2.8 | 2026-02-12 | Stability under load: pre-enqueue overload guard, conservative defaults, pgvector pool/DSN hardening |
 | v0.2.7 | 2026-02-08 | Checkpoint windowing, resume cursor accuracy, normalized message timestamps |
 | v0.2.6 | 2026-02-07 | Extraction resume safeguards, richer status metrics, local-time task timestamps |

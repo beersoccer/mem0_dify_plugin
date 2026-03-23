@@ -6,14 +6,13 @@ attach required metadata.
 
 from __future__ import annotations
 
-import copy
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from mem0 import AsyncMemory
 
-from .config_builder import build_local_mem0_config
+from .config_builder import build_local_mem0_config_without_pool
 from .logger import get_logger
 from .mem0_client import AsyncMem0Client, Memory, SyncMem0Client
 from .prompts import (
@@ -38,101 +37,43 @@ def _subtype_extraction_prompt(subtype: MemorySubtype) -> str:
     return PROCEDURAL_FACT_EXTRACTION_PROMPT
 
 
-def _is_pool_closed(pool: object) -> bool:
-    """Check if a connection pool is closed.
-    
-    Args:
-        pool: Connection pool object (psycopg3 ConnectionPool or psycopg2 ThreadedConnectionPool)
-        
-    Returns:
-        True if pool is closed or cannot be determined, False if pool is open.
-    """
-    if pool is None:
-        return True
-    
-    try:
-        # Check for psycopg3 ConnectionPool
-        if hasattr(pool, "closed"):
-            return pool.closed
-        # For psycopg2 ThreadedConnectionPool, there's no direct closed property
-        # We can't easily check, so assume it's open if it exists
-        # The actual check will happen when trying to use it
-        return False
-    except Exception:
-        # If we can't check, assume it's closed to be safe
-        logger.debug("Could not check pool status, assuming closed")
-        return True
-
-
 def build_subtype_sync_clients(
     credentials: dict[str, Any],
     base_client: SyncMem0Client | None = None,
 ) -> dict[MemorySubtype, SyncMem0Client]:
     """Create 3 SyncMem0Client instances with subtype-specific prompts.
-    
-    Subtype clients share connection pool from base_client for resource isolation.
-    Each client has its own Memory instance with custom prompts.
-    
+
+    Each subtype client gets its own independent connection pool via
+    ``build_local_mem0_config_without_pool``.  The ``base_client`` parameter is
+    kept for API compatibility but is no longer used for pool sharing — each
+    client owns its pool exclusively and must be closed by the caller when done.
+
     Args:
         credentials: Configuration dictionary for Mem0 clients.
-        base_client: Base client to share connection pool from (required for
-            resource isolation). If None, each subtype client will create its
-            own connection pool.
-        
+        base_client: Unused; kept for API compatibility.
+
     Returns:
         Dictionary mapping subtype to SyncMem0Client instance.
     """
-    base = build_local_mem0_config(credentials)
-    
-    # Remove connection_pool from base config before deepcopy (pools contain locks)
-    if "vector_store" in base and isinstance(base["vector_store"], dict):
-        vs_config = base["vector_store"].get("config", {})
-        if isinstance(vs_config, dict) and "connection_pool" in vs_config:
-            vs_config.pop("connection_pool")
-    
-    # Get connection pool from base_client (required for resource isolation)
-    connection_pool = None
-    if base_client is not None:
-        try:
-            base_mem = base_client.memory
-            if hasattr(base_mem, "vector_store"):
-                vs = base_mem.vector_store
-                if hasattr(vs, "connection_pool") and vs.connection_pool is not None:
-                    pool = vs.connection_pool
-                    if not _is_pool_closed(pool):
-                        connection_pool = pool
-        except Exception:
-            pass
-    
     clients: dict[MemorySubtype, SyncMem0Client] = {}
     for subtype in ("semantic", "episodic", "procedural"):
-        cfg = copy.deepcopy(base)
-        
-        if connection_pool is not None:
-            cfg["vector_store"]["config"]["connection_pool"] = connection_pool  # type: ignore[index]
-        
+        cfg = build_local_mem0_config_without_pool(credentials)
         cfg["custom_fact_extraction_prompt"] = _subtype_extraction_prompt(subtype)  # type: ignore[index]
         cfg["custom_update_memory_prompt"] = build_update_memory_prompt(subtype=subtype)  # type: ignore[index]
-        
+
         client = SyncMem0Client(
             credentials,
             enable_keepalive=False,
             config_override=cfg,
         )
-        memory_instance = client.memory
-        
-        if connection_pool is not None and base_client is not None:
-            client._is_sharing_pool = True  # type: ignore[attr-defined]
-        else:
-            client._is_sharing_pool = False  # type: ignore[attr-defined]
-        
-        if not memory_instance.config.custom_fact_extraction_prompt:
+
+        if not client.memory.config.custom_fact_extraction_prompt:
             raise ValueError(
                 f"Failed to load custom_fact_extraction_prompt for {subtype} memory"
             )
-        
+
         clients[subtype] = client
-    
+
     return clients
 
 
@@ -519,63 +460,33 @@ async def build_subtype_async_clients(
     base_client: AsyncMem0Client | None = None,
 ) -> dict[MemorySubtype, AsyncMem0Client]:
     """Create 3 AsyncMem0Client instances with subtype-specific prompts.
-    
-    Subtype clients share connection pool from base_client for resource isolation.
-    Each client is immediately initialized (not lazy) since extraction tasks always execute.
-    
+
+    Each subtype client gets its own independent connection pool via
+    ``build_local_mem0_config_without_pool``.  The ``base_client`` parameter is
+    kept for API compatibility but is no longer used — each client owns its pool
+    exclusively and must be closed by the caller when done.
+
+    Each client is eagerly initialised (``await client.create()``) since extraction
+    tasks always use all three subtypes.
+
     Args:
         credentials: Configuration dictionary for Mem0 clients.
-        base_client: Base client to share connection pool from (required for
-            resource isolation). If None, each subtype client will create its
-            own connection pool.
-        
+        base_client: Unused; kept for API compatibility.
+
     Returns:
         Dictionary mapping subtype to AsyncMem0Client instance.
     """
-    base = build_local_mem0_config(credentials)
-    
-    # Remove connection_pool from base config before deepcopy (pools contain locks)
-    if "vector_store" in base and isinstance(base["vector_store"], dict):
-        vs_config = base["vector_store"].get("config", {})
-        if isinstance(vs_config, dict) and "connection_pool" in vs_config:
-            vs_config.pop("connection_pool")
-    
-    # Get connection pool from base_client (required for resource isolation)
-    connection_pool = None
-    if base_client is not None and base_client.memory is not None:
-        try:
-            base_mem = base_client.memory
-            if hasattr(base_mem, "vector_store"):
-                vs = base_mem.vector_store
-                if hasattr(vs, "connection_pool") and vs.connection_pool is not None:
-                    pool = vs.connection_pool
-                    if not _is_pool_closed(pool):
-                        connection_pool = pool
-        except Exception:
-            pass
-    
     clients: dict[MemorySubtype, AsyncMem0Client] = {}
     for subtype in ("semantic", "episodic", "procedural"):
-        cfg = copy.deepcopy(base)
-        
-        if connection_pool is not None:
-            cfg["vector_store"]["config"]["connection_pool"] = connection_pool  # type: ignore[index]
-        
+        cfg = build_local_mem0_config_without_pool(credentials)
         cfg["custom_fact_extraction_prompt"] = _subtype_extraction_prompt(subtype)  # type: ignore[index]
         cfg["custom_update_memory_prompt"] = build_update_memory_prompt(subtype=subtype)  # type: ignore[index]
-        
-        client = AsyncMem0Client(credentials, enable_keepalive=False)
-        client.config = cfg
-        
+
+        client = AsyncMem0Client(credentials, enable_keepalive=False, config_override=cfg)
         await client.create()
-        
-        if connection_pool is not None and base_client is not None:
-            client._is_sharing_pool = True  # type: ignore[attr-defined]
-        else:
-            client._is_sharing_pool = False  # type: ignore[attr-defined]
-        
+
         clients[subtype] = client
-    
+
     return clients
 
 

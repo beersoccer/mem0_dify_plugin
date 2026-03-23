@@ -21,6 +21,8 @@ This project is a **Dify plugin** written in **Python 3.12** that provides Mem0 
 
 ### Planning & Execution
 - **Plan-first for multi-file changes**: Before editing, propose a plan (≤ 8 bullets) and list files to touch. Save plans to `.cursor/plans/`
+- **Project-local plan storage**: Save all project-level plans under this project's own `.cursor/plans/` directory, not a global Cursor plans directory or another project's plans folder
+- **Plan file naming**: Save plan files as `.cursor/plans/YYYY-MM-DD-short-kebab-summary.md` using a concise lowercase kebab-case topic that matches the main change. Avoid generic names like `plan.md`, `summary.md`, `notes.md`, or `implementation.md`
 - **Small diffs**: Prefer multiple small commits/PRs over one large change
 - **Tests for behavior changes**: Any functional change must include/adjust pytest tests (see `06-cursor-collaboration.mdc` for test execution policy)
 - **No guessing**: 

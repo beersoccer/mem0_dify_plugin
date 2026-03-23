@@ -1,47 +1,42 @@
 #!/bin/bash
-# 统一的测试运行脚本
-# 主要用于验证虚拟环境和提供便捷的测试运行方式
-# 推荐方式：手动激活虚拟环境后直接使用 pytest 命令
-#
-# 用法:
-#   ./tests/run_tests.sh [选项] [pytest参数...]
-#
-# 选项:
-#   --check-env         仅检查虚拟环境（不运行测试）
-#   --forked            使用 fork 模式运行（避免 gevent monkey patching 冲突）
-#   --e2e               运行端到端测试
-#   --output-file FILE  将输出保存到文件（同时输出到终端）
-#   --help              显示帮助信息
-#
-# 示例:
-#   ./tests/run_tests.sh --check-env                    # 仅检查虚拟环境
-#   ./tests/run_tests.sh tests/unit/ -v                 # 运行单元测试
-#   ./tests/run_tests.sh --forked tests/e2e/ -v         # 使用 fork 模式运行 e2e 测试
-#   ./tests/run_tests.sh --forked -m dify_plugin -v     # 运行标记为 dify_plugin 的测试
-#   ./tests/run_tests.sh --e2e test_01 --output-file log.txt  # 运行 e2e 测试并保存输出
+# Unified test runner for local and CI profiles.
+# Recommended: activate venv manually, then run pytest directly.
 
 set -e
 
-# 获取脚本所在目录的父目录（项目根目录）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# 切换到项目根目录
 cd "$PROJECT_ROOT"
 
-# 默认选项
 CHECK_ENV_ONLY=false
 USE_FORKED=false
 E2E_MODE=false
+SUITE=""
+FORCE_NETWORK=false
+PYTEST_TIMEOUT_OVERRIDE=""
 OUTPUT_FILE=""
+ENV_FILE=""
+CLEANUP_MODE="none"
 PYTEST_ARGS=()
+HAS_PYTEST_TIMEOUT=false
 
-# 解析参数
 while [[ $# -gt 0 ]]; do
     case $1 in
         --check-env)
             CHECK_ENV_ONLY=true
             shift
+            ;;
+        --suite)
+            SUITE="$2"
+            shift 2
+            ;;
+        --require-network)
+            FORCE_NETWORK=true
+            shift
+            ;;
+        --timeout)
+            PYTEST_TIMEOUT_OVERRIDE="$2"
+            shift 2
             ;;
         --forked)
             USE_FORKED=true
@@ -55,32 +50,40 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_FILE="$2"
             shift 2
             ;;
+        --env-file)
+            ENV_FILE="$2"
+            shift 2
+            ;;
+        --cleanup)
+            CLEANUP_MODE="$2"
+            shift 2
+            ;;
         --help)
             cat << EOF
-统一的测试运行脚本
+Unified test runner for mem0_dify_plugin.
 
-用法:
-  ./tests/run_tests.sh [选项] [pytest参数...]
+Usage:
+  ./tests/run_tests.sh [options] [pytest args...]
 
-选项:
-  --check-env         仅检查虚拟环境（不运行测试）
-  --forked            使用 fork 模式运行（避免 gevent monkey patching 冲突）
-  --e2e               运行端到端测试（自动使用 fork 模式）
-  --output-file FILE  将输出保存到文件（同时输出到终端）
-  --help              显示帮助信息
+Options:
+  --check-env         Check virtual environment only
+  --suite NAME        unit | integration | acceptance
+  --require-network   Export REQUIRE_DIFY_NETWORK=1
+  --timeout SECONDS   Override pytest-timeout seconds
+  --forked            Run pytest with --forked
+  --e2e               Backward-compatible alias for --suite e2e
+  --output-file FILE  Tee output to file
+  --env-file FILE     Explicit env file for real suites (e.g. tests/.env.local)
+  --cleanup MODE      post-test cleanup mode: none | manifest | force-all
+  --help              Show help
 
-示例:
-  ./tests/run_tests.sh --check-env
-  ./tests/run_tests.sh tests/unit/ -v
-  ./tests/run_tests.sh --forked tests/e2e/ -v
-  ./tests/run_tests.sh --forked -m dify_plugin -v
-  ./tests/run_tests.sh --e2e test_01_verify_dify_connectivity --output-file log.txt
-
-推荐方式:
-  手动激活虚拟环境后直接使用 pytest 命令：
-    source .venv/bin/activate
-    pytest tests/unit/ -v
-    pytest --forked tests/e2e/ -v
+Examples:
+  ./tests/run_tests.sh --suite unit -v
+  ./tests/run_tests.sh --suite integration --env-file tests/.env.remote --require-network
+  ./tests/run_tests.sh --suite acceptance --env-file tests/.env.local
+  ./tests/run_tests.sh --suite integration --env-file tests/.env.local --cleanup manifest
+  ./tests/run_tests.sh --suite integration --env-file tests/.env.local --cleanup force-all
+  ./tests/run_tests.sh --suite acceptance --env-file tests/.env.remote --timeout 240
 EOF
             exit 0
             ;;
@@ -91,161 +94,398 @@ EOF
     esac
 done
 
-# 检查虚拟环境
 check_venv() {
     if [ ! -d ".venv" ]; then
-        echo "❌ 错误: 虚拟环境 .venv 不存在"
-        echo ""
-        echo "请先创建虚拟环境:"
-        echo "  uv venv"
-        echo "  或"
-        echo "  python -m venv .venv"
-        echo ""
+        echo "❌ Error: virtual environment .venv not found"
+        echo "Create one with: uv venv"
         return 1
     fi
-    
-    # 检查是否已激活
     if [[ -z "$VIRTUAL_ENV" ]]; then
-        echo "⚠️  虚拟环境未激活"
-        echo "   虚拟环境路径: $PROJECT_ROOT/.venv"
-        echo ""
-        echo "建议手动激活虚拟环境:"
-        echo "  source .venv/bin/activate"
-        echo ""
+        echo "⚠️  Virtualenv not activated: $PROJECT_ROOT/.venv"
     else
-        echo "✅ 虚拟环境已激活: $VIRTUAL_ENV"
-        echo ""
+        echo "✅ Virtualenv active: $VIRTUAL_ENV"
     fi
-    
-    # 检查 pytest 是否可用
-    if [ -f ".venv/bin/pytest" ]; then
-        echo "✅ pytest 已安装: .venv/bin/pytest"
-    else
-        echo "⚠️  pytest 未找到，请安装依赖:"
-        echo "  source .venv/bin/activate"
-        echo "  uv sync"
-        echo "  或"
-        echo "  pip install -r requirements-dev.txt"
-        echo ""
+    if [ ! -f ".venv/bin/pytest" ]; then
+        echo "❌ pytest not found in .venv"
         return 1
     fi
-    
-    # 如果使用 fork 模式，检查 pytest-forked
-    if [ "$USE_FORKED" = true ] || [ "$E2E_MODE" = true ]; then
+    if .venv/bin/python -c "import pytest_timeout" 2>/dev/null; then
+        HAS_PYTEST_TIMEOUT=true
+    fi
+    if [ "$USE_FORKED" = true ] || [ "$E2E_MODE" = true ] || [[ "$SUITE" =~ ^(e2e|acceptance)$ ]]; then
         if ! .venv/bin/python -c "import pytest_forked" 2>/dev/null; then
-            echo "⚠️  pytest-forked 未安装（fork 模式需要）"
-            echo "   请运行: uv add --dev pytest-forked"
-            echo "   或: pip install pytest-forked"
-            echo ""
+            echo "❌ pytest-forked not installed"
             return 1
-        else
-            echo "✅ pytest-forked 已安装"
         fi
     fi
-    
-    echo ""
     return 0
 }
 
-# 如果仅检查环境，执行检查后退出
+normalize_artifacts_dir() {
+    local raw_dir="$1"
+    if [ -z "$raw_dir" ]; then
+        return 0
+    fi
+    if [[ "$raw_dir" = /* ]]; then
+        echo "$raw_dir"
+    elif [[ "$raw_dir" == tests/* ]]; then
+        echo "$raw_dir"
+    else
+        echo "tests/$raw_dir"
+    fi
+}
+
+infer_profile_from_env_file() {
+    local env_file="$1"
+    local profile
+
+    if [ -z "$env_file" ] || [ ! -f "$env_file" ]; then
+        if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+            echo "ci"
+        else
+            echo "local"
+        fi
+        return 0
+    fi
+
+    profile="$(
+        python3 - "$env_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+value = ""
+for line in path.read_text(encoding="utf-8").splitlines():
+    raw = line.strip()
+    if not raw or raw.startswith("#") or "=" not in raw:
+        continue
+    key, _, val = raw.partition("=")
+    if key.strip() == "TEST_PROFILE":
+        value = val.strip().strip('"').strip("'").lower()
+        break
+print(value)
+PY
+)"
+
+    case "$profile" in
+        local|remote|ci)
+            echo "$profile"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
 if [ "$CHECK_ENV_ONLY" = true ]; then
-    echo "======================================"
-    echo "检查虚拟环境"
-    echo "======================================"
-    echo ""
     check_venv
     exit $?
 fi
 
-# 执行环境检查
 if ! check_venv; then
     exit 1
 fi
 
-# E2E 模式自动启用 fork 模式
+if [ "$FORCE_NETWORK" = true ]; then
+    export REQUIRE_DIFY_NETWORK=1
+fi
+
 if [ "$E2E_MODE" = true ]; then
-    USE_FORKED=true
-    # 如果没有指定测试文件，默认使用 e2e 测试文件
-    if [[ ${#PYTEST_ARGS[@]} -eq 0 ]] || [[ ! "${PYTEST_ARGS[*]}" =~ tests/e2e/ ]]; then
-        # 检查是否有测试名称参数
-        if [[ ${#PYTEST_ARGS[@]} -gt 0 ]] && [[ "${PYTEST_ARGS[0]}" =~ ^test_ ]]; then
-            # 第一个参数是测试名称
-            TEST_NAME="${PYTEST_ARGS[0]}"
-            PYTEST_ARGS=("tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::$TEST_NAME" "${PYTEST_ARGS[@]:1}")
-        else
-            PYTEST_ARGS=("tests/e2e/test_e2e_session_memory.py" "${PYTEST_ARGS[@]}")
+    echo "⚠️  The --e2e flag has been removed. Use --suite integration or --suite acceptance instead."
+    exit 1
+fi
+
+case "$CLEANUP_MODE" in
+    none|manifest|force-all) ;;
+    *)
+        echo "❌ Invalid cleanup mode: $CLEANUP_MODE (expected: none|manifest|force-all)"
+        exit 1
+        ;;
+esac
+
+ACTIVE_PROFILE=""
+if [ -n "$ENV_FILE" ]; then
+    ACTIVE_PROFILE="$(infer_profile_from_env_file "$ENV_FILE")"
+    if [ -z "$ACTIVE_PROFILE" ]; then
+        echo "❌ Invalid or missing TEST_PROFILE in env file: $ENV_FILE (expected: local|remote|ci)"
+        exit 1
+    fi
+fi
+if [ -z "$ACTIVE_PROFILE" ]; then
+    if [ -f "tests/.env.local" ]; then
+        ENV_FILE="tests/.env.local"
+    elif [ -f "tests/.env.remote" ]; then
+        ENV_FILE="tests/.env.remote"
+    fi
+fi
+if [ -z "$ACTIVE_PROFILE" ] && [ -n "$ENV_FILE" ]; then
+    ACTIVE_PROFILE="$(infer_profile_from_env_file "$ENV_FILE")"
+    if [ -z "$ACTIVE_PROFILE" ]; then
+        echo "❌ Invalid or missing TEST_PROFILE in env file: $ENV_FILE (expected: local|remote|ci)"
+        exit 1
+    fi
+fi
+if [ -z "$ACTIVE_PROFILE" ]; then
+    ACTIVE_PROFILE="$(infer_profile_from_env_file "")"
+fi
+
+# Artifact directory can be configured in environment/.env.
+# If absent, fallback to deterministic default under tests/.
+if [ -z "${TEST_ARTIFACTS_DIR:-}" ]; then
+    ARTIFACT_ENV_FILE="$ENV_FILE"
+    if [ -z "$ARTIFACT_ENV_FILE" ]; then
+        case "$ACTIVE_PROFILE" in
+            local)
+                ARTIFACT_ENV_FILE="tests/.env.local"
+                ;;
+            remote|ci)
+                ARTIFACT_ENV_FILE="tests/.env.remote"
+                ;;
+        esac
+    fi
+    if [ -n "$ARTIFACT_ENV_FILE" ] && [ -f "$ARTIFACT_ENV_FILE" ]; then
+        TEST_ARTIFACTS_DIR_FROM_FILE="$(
+            python3 - "$ARTIFACT_ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+value = ""
+for line in path.read_text(encoding="utf-8").splitlines():
+    raw = line.strip()
+    if not raw or raw.startswith("#") or "=" not in raw:
+        continue
+    key, _, val = raw.partition("=")
+    if key.strip() == "TEST_ARTIFACTS_DIR":
+        value = val.strip().strip('"').strip("'")
+        break
+print(value)
+PY
+)"
+        if [ -n "$TEST_ARTIFACTS_DIR_FROM_FILE" ]; then
+            export TEST_ARTIFACTS_DIR="$TEST_ARTIFACTS_DIR_FROM_FILE"
         fi
     fi
 fi
+if [ -z "${TEST_ARTIFACTS_DIR:-}" ]; then
+    export TEST_ARTIFACTS_DIR="artifacts/$ACTIVE_PROFILE"
+fi
+TEST_ARTIFACTS_DIR="$(normalize_artifacts_dir "$TEST_ARTIFACTS_DIR")"
+export TEST_ARTIFACTS_DIR
+mkdir -p "$TEST_ARTIFACTS_DIR"
 
-# 检查 tests/.env 文件（E2E 和集成测试需要）
-if [ "$E2E_MODE" = true ] || [[ "${PYTEST_ARGS[*]}" =~ tests/(e2e|integration)/ ]]; then
-    if [ ! -f "tests/.env" ]; then
-        echo "❌ 错误: 未找到 tests/.env 文件"
-        echo "   端到端测试和集成测试需要配置文件"
-        echo "   请创建 tests/.env 文件并填写配置"
-        echo ""
+# Load per-suite pytest timeout overrides from the env file (if not already set
+# in the process environment, e.g. by the caller or CI).
+_TIMEOUT_ENV_FILE="${ENV_FILE:-}"
+if [ -z "$_TIMEOUT_ENV_FILE" ]; then
+    case "$ACTIVE_PROFILE" in
+        local)  _TIMEOUT_ENV_FILE="tests/.env.local" ;;
+        remote|ci) _TIMEOUT_ENV_FILE="tests/.env.remote" ;;
+    esac
+fi
+if [ -n "$_TIMEOUT_ENV_FILE" ] && [ -f "$_TIMEOUT_ENV_FILE" ]; then
+    _read_timeout() {
+        local key="$1"
+        python3 - "$_TIMEOUT_ENV_FILE" "$key" <<'PY'
+from pathlib import Path
+import sys
+path, key = Path(sys.argv[1]), sys.argv[2]
+for line in path.read_text(encoding="utf-8").splitlines():
+    raw = line.strip()
+    if not raw or raw.startswith("#") or "=" not in raw:
+        continue
+    k, _, v = raw.partition("=")
+    if k.strip() == key:
+        print(v.strip().strip('"').strip("'"))
+        break
+PY
+    }
+    if [ -z "${PYTEST_TIMEOUT_INTEGRATION:-}" ]; then
+        _v="$(_read_timeout PYTEST_TIMEOUT_INTEGRATION)"
+        [ -n "$_v" ] && export PYTEST_TIMEOUT_INTEGRATION="$_v"
+    fi
+    if [ -z "${PYTEST_TIMEOUT_ACCEPTANCE:-}" ]; then
+        _v="$(_read_timeout PYTEST_TIMEOUT_ACCEPTANCE)"
+        [ -n "$_v" ] && export PYTEST_TIMEOUT_ACCEPTANCE="$_v"
+    fi
+fi
+
+if [ -n "$SUITE" ] && [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
+    case "$SUITE" in
+        unit)
+            PYTEST_ARGS=("tests/unit/" "-v")
+            ;;
+        integration)
+            # Run all tests under tests/integration/ (not only @pytest.mark.dify_api).
+            # Previously `-m dify_api` deselected test_dify_integration.py and
+            # test_time_range_filtering.py because only test_dify_seed_api.py was marked.
+            PYTEST_ARGS=("tests/integration/" "-v")
+            ;;
+        e2e)
+            echo "⚠️  The 'e2e' suite has been merged into 'integration' and 'acceptance'."
+            echo "   Run --suite integration for scan/connectivity tests."
+            echo "   Run --suite acceptance for memory extraction quality tests."
+            exit 1
+            ;;
+        acceptance)
+            # acceptance tests do not import dify_plugin, so fork isolation is not needed.
+            # Running in a single process allows session-scoped fixtures to share seed data.
+            PYTEST_ARGS=("tests/acceptance/" "-m" "workflow_acceptance" "-v" "-s")
+            ;;
+        *)
+            echo "❌ Unknown suite: $SUITE"
+            exit 1
+            ;;
+    esac
+fi
+
+REAL_SUITE=false
+if [[ "$SUITE" =~ ^(integration|acceptance)$ ]] || [[ "${PYTEST_ARGS[*]}" =~ tests/(integration|acceptance)/ ]]; then
+    REAL_SUITE=true
+fi
+if [ "$REAL_SUITE" = true ]; then
+    if [ -z "$ENV_FILE" ]; then
+        if [ -f "tests/.env.local" ]; then
+            ENV_FILE="tests/.env.local"
+        elif [ -f "tests/.env.remote" ]; then
+            ENV_FILE="tests/.env.remote"
+        fi
+    fi
+
+    if [ -n "$ENV_FILE" ]; then
+        if [ ! -f "$ENV_FILE" ]; then
+            echo "❌ Env file not found: $ENV_FILE"
+            exit 1
+        fi
+        ACTIVE_PROFILE="$(infer_profile_from_env_file "$ENV_FILE")"
+        if [ -z "$ACTIVE_PROFILE" ]; then
+            echo "❌ Invalid or missing TEST_PROFILE in env file: $ENV_FILE (expected: local|remote|ci)"
+            exit 1
+        fi
+    fi
+
+    HAS_ENV_FILE=false
+    HAS_DIFY_ENV=false
+    [ -f "tests/.env.local" ] && HAS_ENV_FILE=true
+    [ -f "tests/.env.remote" ] && HAS_ENV_FILE=true
+    [ -n "${DIFY_BASE_URL:-}" ] && [ -n "${DIFY_API_KEY:-}" ] && HAS_DIFY_ENV=true
+    if [ "$HAS_ENV_FILE" = false ] && [ "$HAS_DIFY_ENV" = false ]; then
+        echo "❌ Real-environment tests need tests/.env.local or tests/.env.remote, or DIFY_BASE_URL+DIFY_API_KEY env vars"
         exit 1
     fi
 fi
 
-# 激活虚拟环境（如果未激活）
 if [[ -z "$VIRTUAL_ENV" ]]; then
-    echo "自动激活虚拟环境..."
+    echo "Auto-activating virtualenv..."
     source .venv/bin/activate
 fi
 
-# 构建 pytest 命令
 PYTEST_CMD=("pytest")
+PYTEST_TIMEOUT=""
+if [ -n "$PYTEST_TIMEOUT_OVERRIDE" ]; then
+    PYTEST_TIMEOUT="$PYTEST_TIMEOUT_OVERRIDE"
+else
+    case "$SUITE" in
+        integration)
+            PYTEST_TIMEOUT="${PYTEST_TIMEOUT_INTEGRATION:-120}"
+            ;;
+        acceptance)
+            PYTEST_TIMEOUT="${PYTEST_TIMEOUT_ACCEPTANCE:-180}"
+            ;;
+    esac
+fi
+if [ -n "$PYTEST_TIMEOUT" ] && [ "$HAS_PYTEST_TIMEOUT" = true ]; then
+    PYTEST_CMD+=("--timeout=$PYTEST_TIMEOUT")
+fi
+if [ -n "$PYTEST_TIMEOUT" ] && [ "$HAS_PYTEST_TIMEOUT" = false ]; then
+    echo "⚠️ pytest-timeout is not installed; skipping --timeout=$PYTEST_TIMEOUT"
+fi
 
-# 添加 fork 模式参数
 if [ "$USE_FORKED" = true ]; then
     PYTEST_CMD+=("--forked")
-    # macOS 上需要设置环境变量以避免 fork() 在多线程环境下的崩溃
-    # 这允许在 fork 子进程中使用 Objective-C 运行时
     export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 fi
-
-# 添加用户提供的参数
 PYTEST_CMD+=("${PYTEST_ARGS[@]}")
 
-# 显示运行信息
 echo "======================================"
-if [ "$E2E_MODE" = true ]; then
-    echo "运行端到端测试"
-elif [ "$USE_FORKED" = true ]; then
-    echo "使用 fork 模式运行测试"
+if [ -n "$SUITE" ]; then
+    echo "Running suite: $SUITE"
 else
-    echo "运行测试"
+    echo "Running tests"
+fi
+echo "Profile: $ACTIVE_PROFILE"
+if [ -n "$ENV_FILE" ]; then
+    echo "Env file: $ENV_FILE"
+fi
+if [ "${REQUIRE_DIFY_NETWORK:-0}" = "1" ]; then
+    echo "Network policy: fail when unreachable"
+fi
+if [ -n "$PYTEST_TIMEOUT" ]; then
+    echo "Pytest timeout: ${PYTEST_TIMEOUT}s"
+fi
+if [ -n "$OUTPUT_FILE" ]; then
+    echo "Output file: $OUTPUT_FILE"
+fi
+echo "Artifacts dir: $TEST_ARTIFACTS_DIR"
+if [ "$CLEANUP_MODE" != "none" ]; then
+    if [ "$CLEANUP_MODE" = "force-all" ]; then
+        echo "Residual cleanup: force-all"
+    else
+        echo "Residual cleanup: manifest-driven"
+    fi
 fi
 echo "======================================"
-if [ -n "$OUTPUT_FILE" ]; then
-    echo "输出将保存到: $OUTPUT_FILE"
-fi
-echo ""
-echo "执行命令: ${PYTEST_CMD[*]}"
+echo "Command: ${PYTEST_CMD[*]}"
 echo ""
 
-# 运行测试
+set +e
 if [ -n "$OUTPUT_FILE" ]; then
-    # 保存输出到文件（同时输出到终端）
     "${PYTEST_CMD[@]}" 2>&1 | tee "$OUTPUT_FILE"
     EXIT_CODE=${PIPESTATUS[0]}
 else
-    # 只输出到终端
     "${PYTEST_CMD[@]}"
     EXIT_CODE=$?
+fi
+set -e
+
+CLEANUP_EXIT_CODE=0
+if [ "$CLEANUP_MODE" != "none" ] && [ "$REAL_SUITE" = true ]; then
+    echo ""
+    echo "Running residual seeded-conversation cleanup..."
+    set +e
+    CLEANUP_ARGS=(
+        "--execute"
+        "--artifacts-dir" "$TEST_ARTIFACTS_DIR"
+    )
+    if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+        CLEANUP_ARGS+=("--env-file" "$ENV_FILE")
+    fi
+    if [ "$CLEANUP_MODE" = "force-all" ]; then
+        CLEANUP_ARGS+=("--force-all")
+    fi
+    .venv/bin/python tests/cleanup_seed_residuals.py "${CLEANUP_ARGS[@]}"
+    CLEANUP_EXIT_CODE=$?
+    set -e
+    if [ $CLEANUP_EXIT_CODE -ne 0 ]; then
+        echo "⚠️ Residual cleanup finished with errors (exit code: $CLEANUP_EXIT_CODE)"
+    else
+        echo "✅ Residual cleanup completed"
+    fi
+fi
+
+if [ $EXIT_CODE -eq 0 ] && [ $CLEANUP_EXIT_CODE -ne 0 ]; then
+    EXIT_CODE=$CLEANUP_EXIT_CODE
 fi
 
 echo ""
 echo "======================================"
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "✅ 测试完成"
+    echo "✅ Tests completed"
 else
-    echo "❌ 测试失败（退出码: $EXIT_CODE）"
+    echo "❌ Tests failed (exit code: $EXIT_CODE)"
 fi
 if [ -n "$OUTPUT_FILE" ]; then
-    echo "输出已保存到: $OUTPUT_FILE"
+    echo "Saved output to: $OUTPUT_FILE"
 fi
 echo "======================================"
 

@@ -493,11 +493,12 @@ def _create_and_set_pool(
         )
 
 
-def _handle_connection_string(normalized: dict[str, Any]) -> None:
-    """Handle connection_string case by creating connection pool.
+def _handle_connection_string(normalized: dict[str, Any], *, create_pool: bool) -> None:
+    """Handle connection_string case, optionally creating a connection pool.
 
     Args:
         normalized: Config dict (will be modified).
+        create_pool: Whether to create and attach a connection pool.
 
     """
     connection_string = normalized["connection_string"]
@@ -517,19 +518,23 @@ def _handle_connection_string(normalized: dict[str, Any]) -> None:
             _mask_password_in_dsn(connection_string),
         )
 
-    _create_and_set_pool(normalized, normalized_connection_string)
+    if create_pool:
+        _create_and_set_pool(normalized, normalized_connection_string)
     _remove_connection_params(normalized)
 
 
 def _handle_individual_params(
     normalized: dict[str, Any],
     original_config: dict[str, Any],
+    *,
+    create_pool: bool,
 ) -> dict[str, Any]:
     """Handle individual connection parameters case.
 
     Args:
         normalized: Config dict (will be modified).
         original_config: Original config to return if parameters are insufficient.
+        create_pool: Whether to create and attach a connection pool.
 
     Returns:
         Normalized config dict, or original_config if parameters are insufficient.
@@ -540,13 +545,16 @@ def _handle_individual_params(
         return original_config
 
     normalized["connection_string"] = connection_string
-    _create_and_set_pool(normalized, connection_string)
+    if create_pool:
+        _create_and_set_pool(normalized, connection_string)
     _remove_connection_params(normalized)
     return normalized
 
 
 def normalize_pgvector_config(
     config: dict[str, Any],
+    *,
+    create_pool: bool = True,
 ) -> dict[str, Any]:
     """Normalize pgvector config according to Mem0 official documentation.
 
@@ -556,9 +564,15 @@ def normalize_pgvector_config(
     2. connection_string - PostgreSQL connection string
     3. Individual parameters - user, password, host, port, dbname, sslmode
 
-    When connection_string is provided, automatically creates a psycopg3 ConnectionPool
-    (or psycopg2 ThreadedConnectionPool if psycopg3 is unavailable) with configurable
-    pool parameters.
+    When ``create_pool=True`` (default) and connection_string is provided, automatically
+    creates a psycopg3 ConnectionPool (or psycopg2 ThreadedConnectionPool if psycopg3 is
+    unavailable) and attaches it to the returned dict under ``connection_pool``.
+
+    When ``create_pool=False``, the connection string is normalised (keepalive params
+    injected, individual params collapsed) but **no pool object is created**.  Callers
+    that need an independent pool can later call :func:`attach_pgvector_pool` with the
+    returned dict.  This is the mode used by ``build_local_mem0_config`` so that the
+    configuration cache never holds live pool objects.
 
     TCP keepalive parameters are automatically added to connection strings if not present,
     ensuring consistent best practices regardless of configuration method (connection_string
@@ -566,12 +580,13 @@ def normalize_pgvector_config(
 
     Connection pool parameters (in JSON config, same level as connection_string):
     - minconn: Minimum connections for mem0 PGVector (default: 10)
-    - maxconn: Maximum connections for mem0 PGVector (default: 20)
+    - maxconn: Maximum connections in pool (plugin default: 20)
     - pool_max_lifetime, pool_max_idle, pool_timeout, etc.: Advanced psycopg3
       ConnectionPool parameters (optional, for fine-tuning)
 
     Args:
         config: Raw pgvector configuration dictionary.
+        create_pool: Whether to create and attach a connection pool (default True).
 
     Returns:
         Normalized pgvector configuration dictionary.
@@ -630,15 +645,15 @@ def normalize_pgvector_config(
     if "connection_pool" in normalized:
         logger.debug("Using connection_pool (highest priority)")
         _remove_connection_params(normalized, also_remove_pool_params=True)
-    # 2. connection_string (second priority) - create psycopg3 ConnectionPool
+    # 2. connection_string (second priority) - optionally create psycopg3 ConnectionPool
     elif "connection_string" in normalized and isinstance(
         normalized["connection_string"],
         str,
     ):
-        _handle_connection_string(normalized)
+        _handle_connection_string(normalized, create_pool=create_pool)
     # 3. Individual parameters (lowest priority) - build connection_string and create pool
     else:
-        result = _handle_individual_params(normalized, config)
+        result = _handle_individual_params(normalized, config, create_pool=create_pool)
         if result is not config:
             normalized = result
         else:
@@ -654,3 +669,31 @@ def normalize_pgvector_config(
         logger.debug("Setting pgvector maxconn to: %d", PGVECTOR_MAX_CONNECTIONS)
 
     return normalized
+
+
+def attach_pgvector_pool(vs_config: dict[str, Any]) -> None:
+    """Create and attach a new independent connection pool to a normalised pgvector config.
+
+    Companion to ``normalize_pgvector_config(create_pool=False)``.  Called by the
+    runtime client layer so that each long-lived global client instance owns an
+    independent pool that is **never shared with the configuration cache**.
+
+    The pool is written into ``vs_config["connection_pool"]`` in-place.
+    If ``connection_pool`` is already present this is a no-op.
+
+    Args:
+        vs_config: The ``vector_store.config`` dict produced by
+            ``normalize_pgvector_config(create_pool=False)``.  Modified in-place.
+
+    """
+    if "connection_pool" in vs_config and vs_config["connection_pool"] is not None:
+        return
+
+    connection_string = vs_config.get("connection_string")
+    if not connection_string or not isinstance(connection_string, str):
+        logger.debug(
+            "attach_pgvector_pool: no connection_string present, skipping pool creation"
+        )
+        return
+
+    _create_and_set_pool(vs_config, connection_string)

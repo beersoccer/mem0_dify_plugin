@@ -1,5 +1,35 @@
 # Mem0 Dify Plugin - Changelog
 
+## Unreleased
+
+---
+
+## Version 0.2.10 (2026-03-23)
+
+### ✨ Enhancements
+- **Score mode adaptation across vector backends**:
+  - Added `utils/score_utils.py` to infer raw score semantics (`distance` vs `similarity`) from vector provider + metric settings
+  - `normalize_search_results()` now outputs consistent `score` (0-1 similarity), `vector_distance`, and `rerank_score` fields
+  - Sync/Async Mem0 clients cache and pass `score_mode` into search normalization for stable cross-backend behavior
+- **Memory evolution & forgetting workflow**:
+  - Added access-log managers (`utils/access_log.py`) and forgetting logic (`utils/memory_forgetting.py`) based on EWMA quality + Ebbinghaus retention
+  - Added new `forget_memories` tool with `dry_run` support to preview deletions before execution
+  - Added provider credentials: `memory_ttl_days` (optional hard memory TTL) and `checkpoint_ttl_days` (default 90)
+
+### 🐛 Fixes
+- **Checkpoint scope isolation consistency**:
+  - Checkpoint loading now applies `agent_id=app_id` filtering in both sync and async managers, preventing cross-app checkpoint mixing for the same user
+- **Timestamp robustness for retention checks**:
+  - Added `days_since()` helper to safely parse ISO timestamps (including `Z` suffix / naive UTC), with defensive fallback for invalid values
+
+### ✅ Tests
+- Added comprehensive unit tests for:
+  - score mode detection (`test_score_utils.py`)
+  - search result normalization (`test_normalize_search_results.py`)
+  - forgetting algorithm and retention decisions (`test_memory_forgetting.py`)
+
+---
+
 ## Version 0.2.9 (2026-03-04)
 
 ### ⚡ Optimizations

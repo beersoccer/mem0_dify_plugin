@@ -2,13 +2,25 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_real_env_suites:
+        description: "Run long real-environment suites (integration/e2e/acceptance)"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  test:
+  unit:
+    name: unit
     runs-on: ubuntu-latest
-    environment: mem0_ci
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,24 +32,204 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint (ruff)
-        run: |
-          ruff check .
+        run: .venv/bin/ruff check .
 
-      - name: Tests (pytest)
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
-          DIFY_USER_IDS: ${{ vars.DIFY_USER_IDS }}
-          DIFY_BASE_URL: ${{ vars.DIFY_BASE_URL }}
-          TEST_START_TIME: ${{ vars.TEST_START_TIME }}
-          TEST_END_TIME: ${{ vars.TEST_END_TIME }}
+      - name: Unit tests
         run: |
-          # 运行不需要fork模式的测试（排除E2E和需要fork的工具测试）
-          pytest tests/unit/utils/ tests/integration/ -q --tb=short
-          
-          # 运行需要fork模式的工具测试（排除E2E）
-          pytest tests/unit/tools/ --forked -q --tb=short
+          ./tests/run_tests.sh --suite unit --timeout 120
+
+  integration-dify:
+    name: integration-dify
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 15
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_real_env_suites && vars.DIFY_BASE_URL != '' }}
+    steps:
+      - name: Guard required secrets
+        id: guard
+        env:
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+        run: |
+          if [ -z "${DIFY_API_KEY}" ]; then
+            echo "Missing DIFY_API_KEY; skipping integration-dify."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Integration tests (Dify API)
+        if: steps.guard.outputs.run == 'true'
+        env:
+          TEST_PROFILE: ci
+          REQUIRE_DIFY_NETWORK: "1"
+          TEST_ARTIFACTS_DIR: test-artifacts/integration
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          DIFY_BASE_URL: ${{ vars.DIFY_BASE_URL }}
+          DIFY_TEST_USERS: ${{ vars.DIFY_USER_IDS }}
+          DIFY_APP_ID: ${{ vars.DIFY_APP_ID }}
+          DIFY_HTTP_TIMEOUT: ${{ vars.DIFY_HTTP_TIMEOUT }}
+        run: |
+          ./tests/run_tests.sh --suite integration --require-network --timeout 180 --output-file integration.log
+
+      - name: Upload integration logs
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-dify-logs
+          path: |
+            integration.log
+            test-artifacts/integration
+
+  e2e-extraction:
+    name: e2e-extraction
+    runs-on: ubuntu-latest
+    needs: [unit, integration-dify]
+    timeout-minutes: 20
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_real_env_suites && vars.DIFY_BASE_URL != '' }}
+    steps:
+      - name: Guard required secrets
+        id: guard
+        env:
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          MEM0_LLM_CONFIG: ${{ secrets.MEM0_LLM_CONFIG }}
+          MEM0_EMBEDDER_CONFIG: ${{ secrets.MEM0_EMBEDDER_CONFIG }}
+          MEM0_VECTOR_DB_CONFIG: ${{ secrets.MEM0_VECTOR_DB_CONFIG }}
+        run: |
+          if [ -z "${DIFY_API_KEY}" ] || [ -z "${MEM0_LLM_CONFIG}" ] || [ -z "${MEM0_EMBEDDER_CONFIG}" ] || [ -z "${MEM0_VECTOR_DB_CONFIG}" ]; then
+            echo "Missing required Dify/Mem0 secrets; skipping e2e-extraction."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: E2E extraction tests
+        if: steps.guard.outputs.run == 'true'
+        env:
+          TEST_PROFILE: ci
+          REQUIRE_DIFY_NETWORK: "1"
+          TEST_ARTIFACTS_DIR: test-artifacts/e2e
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          DIFY_BASE_URL: ${{ vars.DIFY_BASE_URL }}
+          DIFY_TEST_USERS: ${{ vars.DIFY_USER_IDS }}
+          DIFY_APP_ID: ${{ vars.DIFY_APP_ID }}
+          MEM0_LLM_CONFIG: ${{ secrets.MEM0_LLM_CONFIG }}
+          MEM0_EMBEDDER_CONFIG: ${{ secrets.MEM0_EMBEDDER_CONFIG }}
+          MEM0_VECTOR_DB_CONFIG: ${{ secrets.MEM0_VECTOR_DB_CONFIG }}
+          MEM0_GRAPH_DB_CONFIG: ${{ secrets.MEM0_GRAPH_DB_CONFIG }}
+          MEM0_RERANKER_CONFIG: ${{ secrets.MEM0_RERANKER_CONFIG }}
+        run: |
+          ./tests/run_tests.sh --suite e2e --require-network --timeout 360 --output-file e2e-extraction.log
+
+      - name: Upload e2e logs
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-extraction-logs
+          path: |
+            e2e-extraction.log
+            test-artifacts/e2e
+
+  acceptance-workflow:
+    name: acceptance-workflow
+    runs-on: ubuntu-latest
+    needs: [unit, integration-dify]
+    timeout-minutes: 15
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_real_env_suites && vars.DIFY_BASE_URL != '' }}
+    steps:
+      - name: Guard required secrets
+        id: guard
+        env:
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+        run: |
+          if [ -z "${DIFY_API_KEY}" ]; then
+            echo "Missing required Dify secrets; skipping acceptance-workflow."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Workflow acceptance tests
+        if: steps.guard.outputs.run == 'true'
+        env:
+          TEST_PROFILE: ci
+          REQUIRE_DIFY_NETWORK: "1"
+          TEST_ARTIFACTS_DIR: test-artifacts/acceptance
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          DIFY_BASE_URL: ${{ vars.DIFY_BASE_URL }}
+          DIFY_TEST_USERS: ${{ vars.DIFY_USER_IDS }}
+          DIFY_APP_ID: ${{ vars.DIFY_APP_ID }}
+          MEM0_LLM_CONFIG: ${{ secrets.MEM0_LLM_CONFIG }}
+          MEM0_EMBEDDER_CONFIG: ${{ secrets.MEM0_EMBEDDER_CONFIG }}
+          MEM0_VECTOR_DB_CONFIG: ${{ secrets.MEM0_VECTOR_DB_CONFIG }}
+          MEM0_GRAPH_DB_CONFIG: ${{ secrets.MEM0_GRAPH_DB_CONFIG }}
+          MEM0_RERANKER_CONFIG: ${{ secrets.MEM0_RERANKER_CONFIG }}
+          DIFY_WORKFLOW_MAX_WAIT: ${{ vars.DIFY_WORKFLOW_MAX_WAIT }}
+          DIFY_POLL_INTERVAL: ${{ vars.DIFY_POLL_INTERVAL }}
+          DIFY_STALL_TIMEOUT: ${{ vars.DIFY_STALL_TIMEOUT }}
+        run: |
+          ./tests/run_tests.sh --suite acceptance --require-network --timeout 240 --output-file workflow-acceptance.log
+
+      - name: Upload acceptance logs
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-acceptance-logs
+          path: |
+            workflow-acceptance.log
+            test-artifacts/acceptance

@@ -6,7 +6,7 @@ import hashlib
 import json
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -58,6 +58,43 @@ def parse_timeout(
                 default,
             )
         return default
+
+
+_DAYS_SINCE_FALLBACK: float = 365 * 10.0  # sentinel for absent/invalid timestamps
+
+
+def days_since(iso_timestamp: str | None) -> float:
+    """Return fractional days elapsed since *iso_timestamp*.
+
+    Falls back to a large sentinel (10 years) when the timestamp is absent or
+    unparseable, so callers that treat large values as "very stale" work safely.
+
+    Handles:
+    - Timezone-aware strings  e.g. "2026-03-06T10:30:00+00:00"
+    - "Z" suffix              e.g. "2026-03-06T10:30:00Z"  (Python <3.11 safe)
+    - Naive strings           e.g. "2026-03-06T10:30:00"   (assumed UTC, matching
+                                    mem0's internal storage format)
+
+    Returns:
+        Fractional days (>= 0.0), or _DAYS_SINCE_FALLBACK if absent/invalid.
+    """
+    if not iso_timestamp:
+        return _DAYS_SINCE_FALLBACK
+    normalized = iso_timestamp.strip()
+    if not normalized:
+        return _DAYS_SINCE_FALLBACK
+    # Python < 3.11: fromisoformat() does not accept "Z" — normalise it first
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return _DAYS_SINCE_FALLBACK
+    if dt.tzinfo is None:
+        # mem0 stores naive UTC timestamps; treat them as UTC (not local TZ)
+        dt = dt.replace(tzinfo=UTC)
+    delta = datetime.now(UTC) - dt
+    return max(0.0, delta.total_seconds() / 86400.0)
 
 
 def parse_iso_timestamp(value: object) -> datetime | None:

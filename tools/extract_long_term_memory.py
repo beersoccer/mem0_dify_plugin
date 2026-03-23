@@ -1369,10 +1369,11 @@ class ExtractLongTermMemoryTool(Tool):
                         )
 
                         base_client = AsyncMem0Client(
-                            self.runtime.credentials, enable_keepalive=False
-                        )
-                        base_client.config = build_local_mem0_config_without_pool(
-                            self.runtime.credentials
+                            self.runtime.credentials,
+                            enable_keepalive=False,
+                            config_override=build_local_mem0_config_without_pool(
+                                self.runtime.credentials
+                            ),
                         )
                         await base_client.create()
                         
@@ -1424,7 +1425,8 @@ class ExtractLongTermMemoryTool(Tool):
                                     "Failed to mark task as failed using existing client"
                                 )
                     finally:
-                        # Clean up subtype clients first (they share base_client's connection pool)
+                        # Each subtype client owns an independent connection pool;
+                        # close them all before releasing the base client.
                         if subtype_clients is not None:
                             for subtype_client in subtype_clients.values():
                                 try:
@@ -1435,7 +1437,7 @@ class ExtractLongTermMemoryTool(Tool):
                                         task_id,
                                     )
                         
-                        # Clean up base client (closes shared connection pool)
+                        # Close base client and its independent connection pool.
                         if base_client is not None:
                             try:
                                 await base_client.aclose()
@@ -1501,12 +1503,9 @@ class ExtractLongTermMemoryTool(Tool):
                     task_status_mgr = None
                     
                     try:
-                        # Create base_client with independent connection pool
-                        # Use build_local_mem0_config_without_pool() to ensure we get
-                        # a config without the cached connection pool, which will be
-                        # recreated as a new independent pool
-                        from mem0 import Memory
-
+                        # Create base_client with independent connection pool via
+                        # config_override. This avoids touching the shared
+                        # _built_config_cache and prevents close() from poisoning it.
                         from utils.config_builder import (
                             build_local_mem0_config_without_pool,
                         )
@@ -1514,13 +1513,11 @@ class ExtractLongTermMemoryTool(Tool):
                         config = build_local_mem0_config_without_pool(
                             self.runtime.credentials
                         )
-
-                        # SyncMem0Client.__init__ creates Memory immediately, so we
-                        # create it first, then replace with one using independent pool
                         base_client = SyncMem0Client(
-                            self.runtime.credentials, enable_keepalive=False
+                            self.runtime.credentials,
+                            enable_keepalive=False,
+                            config_override=config,
                         )
-                        base_client.memory = Memory.from_config(config)
 
                         subtype_clients = build_subtype_sync_clients(
                             self.runtime.credentials,
@@ -1571,7 +1568,8 @@ class ExtractLongTermMemoryTool(Tool):
                                     "Failed to mark task as failed using existing client"
                                 )
                     finally:
-                        # Clean up subtype clients first (they share base_client's connection pool)
+                        # Each subtype client owns an independent connection pool;
+                        # close them all before releasing the base client.
                         if subtype_clients is not None:
                             for subtype_client in subtype_clients.values():
                                 try:
@@ -1582,7 +1580,7 @@ class ExtractLongTermMemoryTool(Tool):
                                         task_id,
                                     )
                         
-                        # Clean up base client (closes shared connection pool)
+                        # Close base client and its independent connection pool.
                         if base_client is not None:
                             try:
                                 base_client.close()

@@ -1,6 +1,6 @@
 # Mem0 Dify Plugin - Configuration Guide
 
-Last updated: 2026-03-04
+Last updated: 2026-03-23
 
 This guide provides detailed installation and configuration instructions for the Mem0 Dify Plugin.
 
@@ -45,12 +45,13 @@ This guide provides detailed installation and configuration instructions for the
 
 ### Step 3: Verify Installation
 
-After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 11 tools:
+After installation, you should see the `mem0ai` plugin in your plugins list. The plugin provides 12 tools:
 - `add_memory`, `search_memory`, `get_all_memories`, `get_memory`
 - `update_memory`, `delete_memory`, `delete_all_memories`, `get_memory_history`
 - `extract_long_term_memory` (extract semantic/episodic/procedural memories from Dify conversation history)
 - `check_extraction_status` (check the status and progress of async extraction tasks)
 - `get_user_checkpoint` (inspect checkpoint state for a user/app)
+- `forget_memories` (forget low-retention memories and clean old checkpoints)
 
 ## Configuration Steps
 
@@ -94,6 +95,8 @@ After installation, click on the `mem0ai` plugin to configure it. You'll see cre
 - `local_graph_db_json_secret` - Graph database configuration (JSON string, e.g., Neo4j, encrypted)
 - `local_reranker_json_secret` - Reranker configuration (JSON string, encrypted)
 - `log_level` - Log level for memory operations (INFO/DEBUG/WARNING/ERROR, default: INFO). Can be changed online without redeployment
+- `memory_ttl_days` - Optional hard max age for memories in days (empty by default; when set, old memories are force-deleted regardless of recall history)
+- `checkpoint_ttl_days` - Checkpoint retention TTL in days for cleanup by `forget_memories` (default: 90)
 
 **How to Fill JSON Fields:**
 1. Copy the JSON example from the [Configuration Examples](#configuration-examples) section below
@@ -489,6 +492,21 @@ The `log_level` field allows you to control the verbosity of memory operation lo
 
 **Important**: This setting can be changed online in the plugin credentials without requiring plugin redeployment. Changes take effect immediately for all subsequent operations.
 
+### Memory Retention Controls (`memory_ttl_days`, `checkpoint_ttl_days`) - Optional
+
+These two fields control maintenance behavior used by the `forget_memories` tool:
+
+- `memory_ttl_days`:
+  - Default is empty (disabled), meaning retention is decided only by the forgetting curve
+  - If set to a positive integer, any memory older than this age is deleted even if recall quality is high
+- `checkpoint_ttl_days`:
+  - Default is `90`
+  - Checkpoints older than this threshold are treated as expired and cleaned during `forget_memories`
+
+Recommended practice:
+- Keep `memory_ttl_days` empty first, then enable hard TTL only when you need strict upper bounds for compliance or storage control
+- Run `forget_memories` weekly or bi-weekly with `dry_run=true` for preview before enabling actual deletion
+
 ## Quick Start: Testing Your Configuration
 
 After completing the configuration steps above, test your setup:
@@ -506,7 +524,7 @@ After completing the configuration steps above, test your setup:
 
 3. **Test Search Memory**
    - Add the `search_memory` tool and use: `{"query": "What food does the user like?", "user_id": "test_user_001", "top_k": 5}`
-   - **Expected Result**: Returns a list of memories with `id`, `memory`, `score`, `metadata`, and `timestamp` (if available)
+   - **Expected Result**: Returns a list of memories with `id`, `memory`, `score` (0-1 similarity), `vector_distance`, `rerank_score` (if reranker enabled), `metadata`, and `timestamp` (if available)
 
 4. **Verify Configuration**
    - If tools work correctly, your configuration is valid
@@ -516,7 +534,7 @@ For detailed usage examples, see the [Usage Examples](#usage-examples) section b
 
 ## Usage Examples
 
-This section provides complete usage examples for all 11 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
+This section provides complete usage examples for all 12 tools. For a quick overview, see [README.md - Usage Examples](https://github.com/beersoccer/mem0_dify_plugin/blob/main/README.md#-usage-examples).
 
 ### Add Memory
 
@@ -556,6 +574,11 @@ In Dify workflow, add the `search_memory` tool and configure the following param
 
 Configure the `filters` parameter with a JSON string for advanced filtering:
 - Example: `{"categories": {"contains": "diet"}}`
+
+**Output score semantics:**
+- `score`: unified 0-1 similarity (higher means more relevant)
+- `vector_distance`: 0-1 distance (lower means more similar). For similarity-native backends, this is synthesized as `1 - score`
+- `rerank_score`: reranker relevance score (0-1) when reranker is configured; this signal has highest priority for ranking/quality
 
 ### Get All Memories
 
@@ -906,6 +929,33 @@ Use `get_user_checkpoint` to inspect the extraction checkpoint for a user, optio
 - `checkpoint`: Checkpoint payload (conversation map + resume cursor info)
 - `conversations_count`: Number of conversations tracked in checkpoint
 
+### Forget Memories
+
+Use `forget_memories` to periodically clean stale user memories and old extraction checkpoints.
+
+**Required Parameters:**
+- `user_id`: User identifier (e.g., "alex")
+
+**Optional Parameters:**
+- `app_id`: App scope (maps to `agent_id`). Leave empty to process all apps for the user
+- `dry_run`: If `true`, only returns what would be deleted and does not perform deletion
+
+**Example Configuration (Preview):**
+```json
+{
+  "user_id": "alex",
+  "app_id": "my-chatbot-app",
+  "dry_run": true
+}
+```
+
+**Output:**
+- `deleted_count`: Number of memories deleted (or would delete in dry-run)
+- `retained_count`: Number of memories retained
+- `checkpoints_cleaned`: Number of stale checkpoints cleaned
+- `dry_run`: Whether execution is preview mode
+- `would_delete`: Detailed candidate list (only when `dry_run=true`)
+
 **Important Notes:**
 - The `task_id` is returned by `extract_long_term_memory` when the task is accepted
 - Tasks may be cleaned up after completion, so querying a completed task may return `NOT_FOUND`
@@ -921,6 +971,7 @@ Use `get_user_checkpoint` to inspect the extraction checkpoint for a user, optio
 - **`run_id` Parameter** (optional): Recommended to use Dify's `workflow_run_id` to link multiple memory operations in the same workflow. **Important**: This parameter is only used for request tracing and logging; it is NOT used as a condition for memory layering or filtering
 - **`agent_id` Parameter**: When using `agent_id` in Dify workflows, you should use the **Dify application's `app_id`** (not `workflow_id`). This is because `workflow_id` changes every time you publish a workflow, while `app_id` remains stable and allows you to scope memories consistently across workflow versions
 - **`app_id` Parameter** (for `extract_long_term_memory`): Required for memory isolation. Each app maintains separate memory space for the same user. This ensures memories are scoped to specific applications
+- **`memory_ttl_days` / `checkpoint_ttl_days`**: Optional maintenance controls used by `forget_memories`; leave `memory_ttl_days` empty to rely on forgetting curve only
 - **`days_back` Parameter** (for `extract_long_term_memory`): Number of days to look back for extracting conversation history (1-7, default: 1). For example, `days_back=2` extracts yesterday and the day before yesterday. The time range is automatically calculated as `start_time = (today - days_back) 00:00:00` and `end_time = today 00:00:00`
 - For runtime behavior details (async vs sync mode), see [Runtime Behavior](#runtime-behavior) section
 

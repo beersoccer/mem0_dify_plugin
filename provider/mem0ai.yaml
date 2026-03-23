@@ -128,6 +128,26 @@ credentials_for_provider:
         label:
           en_US: ERROR (Errors Only)
           zh_Hans: ERROR (仅错误)
+  memory_ttl_days:
+    type: text-input
+    required: false
+    default: ""
+    label:
+      en_US: Memory Max Age (days)
+      zh_Hans: 记忆最长保留天数
+    help:
+      en_US: "Maximum age (in days) for any memory. Memories older than this are force-deleted regardless of recall history. Leave empty to rely solely on the forgetting curve (recommended)."
+      zh_Hans: "记忆的最长保留天数。超过此天数的记忆无论召回记录如何，都强制清理。留空则仅依赖遗忘曲线自动淘汰（推荐）。"
+  checkpoint_ttl_days:
+    type: text-input
+    required: false
+    default: "90"
+    label:
+      en_US: Checkpoint TTL (days)
+      zh_Hans: Checkpoint 保留天数
+    help:
+      en_US: "Maximum age (in days) for an extraction checkpoint before it is deleted by the forget_memories tool. Checkpoints older than this TTL are treated as expired and cleaned up. Default: 90 days."
+      zh_Hans: "提取 Checkpoint 的最大保留天数。超过此 TTL 的 Checkpoint 视为过期，由遗忘记忆工具清理。默认值：90 天。"
 
 tools:
   - tools/add_memory.yaml
@@ -141,6 +161,7 @@ tools:
   - tools/extract_long_term_memory.yaml
   - tools/check_extraction_status.yaml
   - tools/get_user_checkpoint.yaml
+  - tools/forget_memories.yaml
 extra:
   python:
     source: provider/mem0ai.py

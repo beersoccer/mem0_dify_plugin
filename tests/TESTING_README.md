@@ -1,563 +1,323 @@
-# 测试指南
+# 测试运行说明（零背景可上手）
 
-## 概述
+## 这份文档能帮你做什么
 
-本文档提供 mem0_dify_plugin 项目的完整测试指南，包括单元测试、集成测试和端到端测试的运行方法、环境配置和故障排除。
+如果你第一次接触这个仓库，按本文档一步步执行，可以完成：
 
-## 目录
+1. 跑通 `unit`（本地必做，最快验证代码是否健康）。
+2. 在有 Dify/Mem0 环境时跑通 `integration`、`acceptance`。
+3. 在失败时拿到可排查的日志和 JSON artifact。
+4. 在 GitHub Actions 手动触发完整真实环境测试。
 
-- [快速开始](#快速开始)
-- [环境配置](#环境配置)
-- [单元测试](#单元测试)
-- [集成测试](#集成测试)
-- [端到端测试](#端到端测试)
-- [测试数据集](#测试数据集)
-- [测试覆盖](#测试覆盖)
-- [故障排除](#故障排除)
-- [性能基准](#性能基准)
-- [验证要点](#验证要点)
-- [Cursor Agent 使用说明](#cursor-agent-使用说明)
-- [相关文档](#相关文档)
+---
 
-## 快速开始
+## 测试分层（先理解）
 
-### 手动运行测试（推荐）
+- `unit`
+  - 纯逻辑，不依赖网络。
+  - 目标：快速发现代码回归。
+- `integration`（Dify API）
+  - 验证 seed 和 cleanup（会创建并删除 Dify 会话）。
+  - 目标：确认 Dify API 数据面可用。
+- `acceptance`（workflow）
+  - 真正调用 `/workflows/run` 并轮询 run detail，检查结果与副作用。
+  - 目标：确认发布后的 workflow 行为与内存生命周期符合预期。
 
-**推荐方式**：手动激活虚拟环境后直接使用 pytest 命令：
+统一入口脚本：`tests/run_tests.sh`
+
+---
+
+## 第 0 步：前置条件检查
+
+### 必需软件
+
+- Python 3.12
+- 项目虚拟环境 `.venv`
+- 已安装依赖（至少含 `pytest`、`pytest-forked`）
+
+### 一键检查
 
 ```bash
-# 1. 激活虚拟环境
 source .venv/bin/activate
-
-# 2. 运行单元测试（不需要 --forked）
-pytest tests/unit/ -v
-
-# 3. 运行集成测试（不需要 --forked）
-pytest tests/integration/ -v
-
-# 4. 运行端到端测试（不使用 --forked 也能运行，但会有 gevent 警告）
-pytest tests/e2e/test_e2e_session_memory.py -v -s
-
-# 5. 如果需要避免 gevent 警告，使用 --forked（macOS 上需要设置环境变量）
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-
-# 运行特定测试文件
-pytest tests/unit/tools/test_extract_long_term_memory.py -v
-
-# 运行特定测试函数
-pytest tests/unit/tools/test_extract_long_term_memory.py::test_parse_user_ids_variants -v
-
-# 运行带标记的测试
-pytest -m "not slow" -v
-```
-
-**关于 `--forked` 参数：**
-- **单元测试和集成测试**：不需要 `--forked`，可以直接运行
-- **端到端测试**：不使用 `--forked` 也能运行，但会看到 gevent monkey patching 警告（不影响测试结果）
-- **如果需要避免警告**：使用 `--forked` 参数（macOS 上需要先设置 `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`）
-
-### 使用辅助脚本（可选）
-
-项目提供了统一的测试运行脚本 `run_tests.sh`，主要用于 Cursor agent 自动执行测试：
-
-```bash
-# 检查虚拟环境配置
 ./tests/run_tests.sh --check-env
-
-# 运行单元测试
-./tests/run_tests.sh tests/unit/ -v
-
-# 运行端到端测试（脚本会自动使用 --forked 并设置环境变量）
-./tests/run_tests.sh --e2e test_01_verify_dify_connectivity -v -s
 ```
 
-### 测试目录结构
+---
 
-```
-tests/
-├── unit/
-│   ├── tools/          # 工具单元测试（10个文件）
-│   └── utils/          # 工具类单元测试（18个文件）
-├── integration/        # 集成测试（2个文件）
-└── e2e/               # 端到端测试（1个文件）
-```
+## 第 1 步：准备环境变量（真实环境测试才需要）
 
-## 环境配置
+推荐拆分为两个文件（不要提交到 Git）：
 
-### 必需配置
+- 本地开发：`tests/.env.local`（文件内 `TEST_PROFILE=local`）
+- 远程/UAT：`tests/.env.remote`（文件内 `TEST_PROFILE=remote` 或 `ci`）
+- CI：不使用 `.env` 文件，直接由 GitHub Actions secrets 注入同名环境变量
 
-在 `tests/.env` 文件中配置以下环境变量（不要提交到 git）：
+`run_tests.sh` 的规则：
+
+- 不再使用 `--profile` 或外部 `TEST_PROFILE` 环境变量
+- 通过 `--env-file` 指定配置文件（例如 `tests/.env.local` / `tests/.env.remote`）
+- profile 由该文件内的 `TEST_PROFILE` 决定（`local|remote|ci`）
+
+可先把下面模板写入 `tests/.env.local`：
 
 ```bash
-# Dify配置
+# ---------- 执行策略 ----------
+TEST_PROFILE=local
+ALLOW_LOCALHOST_DIFY=1
+REQUIRE_DIFY_NETWORK=0
+
+# ---------- Dify ----------
 DIFY_BASE_URL=https://<your-dify-host>/v1
-DIFY_API_KEY=<your-dify-api-key>
-DIFY_USER_IDS=<user_a>,<user_b>
-DIFY_APP_ID=<your-app-id>
+DIFY_CHATFLOW_API_KEY=<chatflow-app-api-key>
+DIFY_WORKFLOW_API_KEY=<workflow-app-api-key>
 
-# Mem0配置
-MEM0_LLM_CONFIG={"provider":"azure_openai_structured","config":{"model":"<model>","api_key":"<api-key>","azure_endpoint":"https://<your-resource>.openai.azure.com/"}}
-MEM0_EMBEDDER_CONFIG={"provider":"azure_openai","config":{"model":"<embed-model>","api_key":"<api-key>","azure_endpoint":"https://<your-resource>.openai.azure.com/"}}
-MEM0_VECTOR_DB_CONFIG={"provider":"pgvector","config":{"connection_string":"postgresql://<user>:<password>@<host>:<port>/<db>?sslmode=disable"}}
+# ---------- 共享 ----------
+DIFY_CHATFLOW_APP_ID=<chatflow-app-id>
+
+# ---------- 超时 ----------
+DIFY_HTTP_TIMEOUT=20
+DIFY_POLL_INTERVAL=2
+DIFY_WORKFLOW_MAX_WAIT=120
+DIFY_STALL_TIMEOUT=30
+
+# ---------- Mem0（acceptance 需要）----------
+MEM0_LLM_CONFIG=...
+MEM0_EMBEDDER_CONFIG=...
+MEM0_VECTOR_DB_CONFIG=...
+MEM0_GRAPH_DB_CONFIG=...
+MEM0_RERANKER_CONFIG=...
 ```
 
-**注意**：
-- `DIFY_BASE_URL` 必须以 `/v1` 结尾（例如 `https://<your-dify-host>/v1`）
-- `DIFY_USER_IDS` 会被 `tests/e2e/cleanup_test_memories.py` 用于批量清理测试用户记忆
-
-### 可选配置
+`tests/.env.remote` 可复用同一套字段，建议改成：
 
 ```bash
-# 时间范围测试配置（可选）
-TEST_START_TIME="2026-01-17T12:00:00Z"
-TEST_END_TIME="2026-01-17T12:01:00Z"
+TEST_PROFILE=remote
+ALLOW_LOCALHOST_DIFY=0
+REQUIRE_DIFY_NETWORK=1
 ```
 
-### 环境要求
+### 常见配置错误
 
-1. **Dify开发环境**（仅端到端测试需要）
-   - Dify服务已启动（通常在 `http://localhost`）
-   - 包含测试用户数据：`test_user` 和 `real_user`
-   - 每个用户至少有若干条会话和消息
+- `DIFY_*_BASE_URL` 没有以 `/v1` 结尾。
+- 使用了 localhost，但 `ALLOW_LOCALHOST_DIFY=0`。
+- 想强制失败却没有加 `--require-network` 或 `REQUIRE_DIFY_NETWORK=1`。
 
-2. **Mem0环境**（仅端到端测试需要）
-   - PostgreSQL数据库（带pgvector扩展）
-   - LLM服务（Azure OpenAI / OpenAI）
-   - Embedding服务
+---
 
-3. **Python依赖**
-   - `pytest==8.3.4`
-   - `pytest-forked>=1.6.0`（fork 隔离，已在 `pyproject.toml` 中配置）
-   - `pytest-asyncio>=0.21.0`（用于异步测试）
+## 第 2 步：按顺序运行测试（推荐流程）
 
-## 单元测试
-
-> 各测试文件对应的模块、测试数量及覆盖状态，详见 [TESTING_COVERAGE.md](TESTING_COVERAGE.md#现有测试文件总结)。
-
-### 运行单元测试
+### 2.1 先跑 unit（必须）
 
 ```bash
-source .venv/bin/activate
-pytest tests/unit/ -v                    # 所有单元测试
-pytest tests/unit/tools/ -v              # 工具测试
-pytest tests/unit/utils/ -v              # 工具类测试
-
-# 运行特定测试文件
-pytest tests/unit/tools/test_extract_long_term_memory.py -v
-pytest tests/unit/utils/test_dify_incremental_scan.py -v
-pytest tests/unit/utils/test_checkpoint.py -v
+./tests/run_tests.sh --suite unit --timeout 120
 ```
 
-## 集成测试
+预期：全部通过，且不依赖 Dify/Mem0。
 
-### 测试文件
-
-- `tests/integration/test_dify_integration.py` - Dify API集成测试（17个测试，含端到端抽取）
-- `tests/integration/test_time_range_filtering.py` - 真实 Dify 数据的时间范围过滤（标记为 `slow`）
-
-### 运行集成测试
+### 2.2 再跑 integration（可选）
 
 ```bash
-source .venv/bin/activate
-pytest tests/integration/test_dify_integration.py -v
-pytest tests/integration/test_time_range_filtering.py -v
-
-# 跳过慢速集成测试
-pytest tests/integration/ -v -m "not slow"
+./tests/run_tests.sh --suite integration --env-file tests/.env.remote --require-network --timeout 180
 ```
 
-### 集成测试内容
+预期：
 
-- ✅ Dify API连接和分页
-- ✅ 会话和消息增量扫描
-- ✅ Checkpoint持久化
-- ✅ 消息格式转换
-- ✅ 错误处理和重试
-- ✅ 并发处理
-- ✅ 端到端抽取（`TestEndToEndExtraction`，需要完整 Dify + Mem0 环境）
+- 创建 seed 会话
+- 删除会话并验证不可见
+- 生成 integration 相关 artifact
 
-## 端到端测试
-
-### 测试文件
-
-- `tests/e2e/test_e2e_session_memory.py` - 端到端会话级记忆测试
-
-**注意：** 这些测试导入 `dify_plugin`，不使用 `--forked` 也能运行，但会看到 gevent monkey patching 警告。如果需要避免警告，可以使用 `--forked` 参数。
-
-### 测试内容
-
-#### 测试1: 验证Dify连接
-
-验证能否成功连接到Dify API并获取用户数据。
+### 2.3 最后跑 acceptance（可选）
 
 ```bash
-source .venv/bin/activate
-pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
-
-# 如果需要避免 gevent 警告，可以使用 --forked（macOS 上需要设置环境变量）
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_01_verify_dify_connectivity -v -s
+./tests/run_tests.sh --suite acceptance --env-file tests/.env.remote --require-network --timeout 900
 ```
 
-**预期输出:**
-```
-测试1: 验证Dify API连接
-====================================
-检查用户: test_user
-  ✓ 成功获取会话列表
-  - 会话数量: X
-  - 是否有更多: True/False
-  ✓ 成功获取消息列表
-  - 消息数量: Y
-```
+预期：
 
-#### 测试2: 获取所有会话和消息
+- workflow run 成功进入终态
+- smoke 与 memory lifecycle case 按 fixture 配置运行
+- 失败时产生 `workflow-failure-*` artifact
 
-扫描所有会话和消息，显示每个用户的统计信息。
+---
+
+## 命令参数速查
+
+`tests/run_tests.sh`：
+
+- `--suite unit|integration|acceptance`
+- `--env-file <envfile>`
+- `--require-network`
+- `--timeout <seconds>`
+- `--output-file <logfile>`
+- `--forked`
+- `--e2e`（已废弃，会直接报错并提示改用 integration/acceptance）
+- `--cleanup none|manifest|force-all`（测试结束后清理模式，默认 `none`）
+- `--check-env`
+
+说明：
+
+- 若本地未安装 `pytest-timeout`，脚本会提示并继续运行（不会因 `--timeout` 失败）。
+- `acceptance` 默认执行 `-m workflow_acceptance -v -s`，仅运行 workflow 验收用例。
+- `acceptance` 默认超时来自环境变量 `PYTEST_TIMEOUT_ACCEPTANCE`（未设置时为 180 秒）。
+- 本地开发建议在 `tests/.env.local` 设置 `PYTEST_TIMEOUT_ACCEPTANCE=900`，避免 memory lifecycle 用例频繁超时。
+
+---
+
+## 关键测试文件（你会经常看）
+
+- Unit（工具与核心逻辑）
+  - `tests/unit/tools/test_forget_memories.py`
+  - `tests/unit/utils/test_memory_forgetting.py`
+- Integration
+  - `tests/integration/test_dify_seed_api.py`
+  - `tests/integration/test_dify_integration.py`
+  - `tests/integration/test_time_range_filtering.py`
+- Acceptance
+  - `tests/acceptance/test_workflow_plugin_smoke.py`
+  - `tests/acceptance/test_memory_extraction_quality.py`
+  - `tests/acceptance/test_workflow_memory_lifecycle.py`
+- Fixtures
+  - `tests/fixtures/conversation_seed_cases.yaml`
+  - `tests/fixtures/workflow_cases.yaml`
+
+---
+
+## 如何读取 artifact（失败排查核心）
+
+artifact 默认写入 `tests/artifacts/<profile>`（`local|remote|ci`）：
+
+- `*-manifest-*`：seed 输入/输出范围
+- `*-cleanup-summary-*`：Dify 或 Mem0 清理结果
+- `workflow-initial-*`：workflow 初始响应
+- `workflow-final-*`：workflow 终态结果
+- `workflow-failure-*`：失败摘要（错误类型/消息/上下文）
+
+建议：
 
 ```bash
-source .venv/bin/activate
-pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_02_fetch_all_conversations_and_messages -v -s
-
-# 如果需要避免 gevent 警告
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_02_fetch_all_conversations_and_messages -v -s
+./tests/run_tests.sh --suite acceptance --env-file tests/.env.remote --require-network --output-file acceptance.log
 ```
 
-**预期输出:**
-```
-测试2: 获取所有会话和消息数据
-====================================
-用户: test_user
-时间范围: 2026-01-18T00:00:00 到 2026-01-26T00:00:00
+然后先看 `acceptance.log`，再看 `tests/artifacts/<profile>` 下 JSON。
 
-统计信息:
-  - 扫描的会话数: X
-  - 扫描的消息数: Y
-  - 时间范围内的会话数: A
-  - 时间范围内的消息数: B
-  - 丢弃的未来消息数: 0
-  - 停止原因: completed
-```
+---
 
-#### 测试3: 简化的长期记忆抽取
+## 清理 Dify 残留会话（网络抖动/中断后的安全回收）
 
-测试单个会话的记忆抽取流程。
+如果 integration/acceptance 在 seed 之后中断，可能会留下测试会话。推荐使用：
+
+`tests/cleanup_seed_residuals.py`
+
+安全策略：
+
+- 默认是 **dry-run**，只预览不删除。
+- 默认仅清理 manifest 中记录的会话（测试代码写入），不需要人工指定用户。
+- 仅在 `--force-all` 时，才会直连 Dify 做全量扫描清理。
+- `--force-all` 的用户来源是：manifest 用户 + `DIFY_CLEANUP_USERS`（取并集）。
+- 若两者都为空，脚本会提示并直接退出，不执行真实清理。
+- 删除后默认 `verify=true`，会二次确认会话已不可见。
+
+执行步骤：
 
 ```bash
-source .venv/bin/activate
-pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_03_extract_long_term_memory_simple -v -s
-
-# 如果需要避免 gevent 警告
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_03_extract_long_term_memory_simple -v -s
-```
-
-**预期输出:**
-```
-测试3: 简化的长期记忆抽取测试
-====================================
-测试用户: test_user
-
-会话信息:
-  - 会话ID: abc123...
-  - 消息数: 10
-  - Token数: 1234
-
-步骤1: 分类会话记忆类型...
-  ✓ 分类结果: semantic
-
-步骤2: 抽取 semantic 类型记忆...
-  ✓ 成功抽取 3 条记忆
-```
-
-#### 测试4: 使用测试数据集验证记忆提取
-
-使用 `test_conversation_data.json` 中的标准化测试数据验证记忆提取功能。
-
-**测试内容:**
-- 验证记忆分类准确性（分类结果应与预期类型匹配）
-- 验证记忆提取成功性（应成功提取到记忆）
-- 测试三类记忆类型（SEMANTIC、EPISODIC、PROCEDURAL）
-- 测试中英文会话的处理能力
-
-```bash
-source .venv/bin/activate
-pytest tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_04_extract_memory_from_test_dataset -v -s
-
-# 如果需要避免 gevent 警告
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py::TestE2ESessionMemory::test_04_extract_memory_from_test_dataset -v -s
-```
-
-**预期输出:**
-```
-测试4: 使用测试数据集验证记忆提取功能
-================================================================================
-加载了 6 个测试会话
-
-============================================================
-测试会话: conv_semantic_real_user_001
-  用户: real_user
-  预期类型: SEMANTIC
-  消息数: 5
-  Mem0消息数: 10
-
-  步骤1: 分类会话记忆类型...
-  ✓ 分类结果: SEMANTIC
-  ✓ 分类正确！与预期类型匹配
-
-  步骤2: 抽取 SEMANTIC 类型记忆...
-  ✓ 成功抽取 5 条记忆
-    [1] Prefers dark mode for applications...
-    [2] Name is Alex...
-    [3] Works as a software engineer...
-
-================================================================================
-测试摘要
-================================================================================
-总测试会话数: 6
-成功处理会话数: 6
-分类准确数: 6/6
-成功提取记忆数: 6/6
-
-按记忆类型统计:
-  SEMANTIC:
-    总数: 2
-    分类准确: 2/2 (100.0%)
-    成功提取: 2/2 (100.0%)
-  EPISODIC:
-    总数: 2
-    分类准确: 2/2 (100.0%)
-    成功提取: 2/2 (100.0%)
-  PROCEDURAL:
-    总数: 2
-    分类准确: 2/2 (100.0%)
-    成功提取: 2/2 (100.0%)
-
-分类准确率: 100.0%
-```
-
-**优势:**
-- 不依赖Dify API，可以离线运行
-- 使用标准化测试数据，结果可复现
-- 全面覆盖三类记忆类型
-- 提供详细的统计信息，便于分析
-
-### 运行所有E2E测试
-
-```bash
-source .venv/bin/activate
-pytest tests/e2e/test_e2e_session_memory.py -v -s
-
-# 如果需要避免 gevent 警告
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-```
-
-## 测试数据集
-
-### 测试会话数据
-
-项目提供了标准化的测试数据集 `test_conversation_data.json`，用于测试三类会话级长期记忆功能。
-
-#### 数据格式
-
-- **文件位置**: `tests/e2e/test_conversation_data.json`
-- **格式**: JSON，符合Dify API消息格式
-- **编码**: UTF-8
-
-#### 数据结构
-
-每个会话包含：
-- `conversation_id`: 会话唯一标识符
-- `user_id`: 用户ID（`real_user` 或 `test_user`）
-- `memory_type`: 记忆类型（`SEMANTIC`、`EPISODIC`、`PROCEDURAL`）
-- `description`: 会话描述
-- `messages`: 消息列表（3-5轮对话，围绕同一主题连贯展开）
-
-消息格式支持Dify API的两种格式：
-1. **query/answer 对格式**（当前使用）
-2. **role/content 格式**（也支持）
-
-#### 测试数据详情
-
-**SEMANTIC（语义记忆）- 2个会话**
-- `conv_semantic_real_user_001`: real_user英文会话，围绕个人偏好和身份信息（深色模式、素食、爱好、晨跑习惯）
-- `conv_semantic_test_user_001`: test_user中文会话，围绕饮食习惯和个人偏好（咖啡、不吃辣、爱好、作息习惯）
-
-**EPISODIC（情景记忆）- 2个会话**
-- `conv_episodic_real_user_001`: real_user英文会话，围绕巴黎旅行经历（从计划到执行到回忆）
-- `conv_episodic_test_user_001`: test_user中文会话，围绕上海出差经历（从准备到执行到总结）
-
-**PROCEDURAL（程序记忆）- 2个会话**
-- `conv_procedural_real_user_001`: real_user英文会话，围绕代码审查工作流程（深入讨论流程细节）
-- `conv_procedural_test_user_001`: test_user中文会话，围绕文档写作流程（深入讨论流程细节）
-
-#### 使用测试数据
-
-```python
-import json
-from pathlib import Path
-
-def load_test_conversations():
-    """加载测试会话数据"""
-    test_data_path = Path(__file__).parent / "test_conversation_data.json"
-    with test_data_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    return data["conversations"]
-
-# 使用示例
-conversations = load_test_conversations()
-for conv in conversations:
-    print(f"会话ID: {conv['conversation_id']}")
-    print(f"用户: {conv['user_id']}")
-    print(f"记忆类型: {conv['memory_type']}")
-    print(f"消息数: {len(conv['messages'])}")
-```
-
-#### 验证要点
-
-使用测试数据时，应验证：
-1. **记忆分类准确性**: 会话应被正确分类为对应的记忆类型
-2. **提取准确性**: 提取的事实应与预期记忆类型匹配
-3. **语言处理**: 
-   - `real_user` 的英文内容应提取为英文事实
-   - `test_user` 的中文内容应提取为中文事实
-4. **对话连贯性**: 每个会话的对话应围绕同一主题连贯展开
-5. **格式兼容性**: 消息格式应与Dify API返回的格式一致
-
-## 测试覆盖
-
-详细的模块级覆盖分析、覆盖率指标和待补充测试清单，见 [TESTING_COVERAGE.md](TESTING_COVERAGE.md)。
-
-## 故障排除
-
-### 问题1: Gevent 警告 / macOS fork 崩溃
-
-正常情况下 `pyproject.toml` 和 `conftest.py` 的双层防护已将警告抑制。如果仍出现，或使用 `--forked` 时在 macOS 上崩溃：
-
-```bash
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-pytest --forked tests/e2e/test_e2e_session_memory.py -v -s
-```
-
-根本原因和完整的技术分析见 [TESTING_TECHNICAL_GUIDE.md](TESTING_TECHNICAL_GUIDE.md)。
-
-### 问题2: "未找到 .env 文件"
-
-**解决方案:**
-```bash
-touch tests/.env
-# 编辑填写配置（见上方"环境配置"章节）
-```
-
-### 问题3: "用户没有会话数据"
-
-**解决方案:**
-在Dify环境中为test_user和real_user创建测试会话和消息。
-
-### 问题4: "Mem0连接失败"
-
-**解决方案:**
-检查以下配置：
-- PostgreSQL数据库是否启动
-- pgvector扩展是否安装
-- LLM和Embedding服务是否可访问
-- `tests/.env`中的配置是否正确
-
-### 问题5: 测试运行很慢
-
-**原因:** LLM推理（每个会话约2-5秒）+ 网络请求 + Token计数
-
-**优化建议:**
-- 减少测试用户数量或时间范围（使用1天而不是7天）
-- 使用更快的LLM模型
-- 并行执行：`pytest -n auto -v`
-
-### 问题6: No module named pytest / 虚拟环境不存在
-
-```bash
-# 激活现有虚拟环境
+cd /path/to/mem0_dify_plugin
 source .venv/bin/activate
 
-# 或重建虚拟环境
-uv venv && source .venv/bin/activate && uv sync
+# 1) 预览待删除目标（推荐先执行）
+python tests/cleanup_seed_residuals.py --env-file tests/.env.local
+
+# 2) 执行删除并验证
+python tests/cleanup_seed_residuals.py --env-file tests/.env.local --execute
+
+# 3) 异常场景强制全量清理（直连 Dify live scan）
+python tests/cleanup_seed_residuals.py --env-file tests/.env.local --force-all --execute
 ```
 
-## 性能基准
+常用参数：
 
-基于测试数据规模的预期运行时间：
+- `--artifacts-dir <dir>`：指定 artifact 目录（默认取 `TEST_ARTIFACTS_DIR`，否则自动使用 `tests/artifacts/<profile>`）
+- `--glob "<pattern>"`：指定 manifest 匹配模式（默认 `*manifest*.json`）
+- `--force-all`：全量强制清理（异常兜底）
+- `--no-verify`：跳过删除后验证（不建议，除非你只想快速回收）
 
-| 用户数 | 会话数 | 消息数 | 预期时间 |
-|--------|--------|--------|----------|
-| 2      | 10     | 100    | 1-2分钟  |
-| 5      | 25     | 250    | 3-5分钟  |
-| 10     | 50     | 500    | 6-10分钟 |
+可选环境变量（清理专用）：
 
-注意：实际时间取决于：
-- LLM响应速度
-- 网络延迟
-- 数据库性能
-- Token数量
+- `DIFY_CLEANUP_USERS`：`force-all` 模式追加清理用户（与 manifest 用户合并去重）。
 
-## 验证要点
+建议将该脚本作为 integration/acceptance 跑完后的固定步骤，减少残留风险。
 
-### Dify连接验证
-- ✅ 能够成功连接到Dify API
-- ✅ 每个测试用户至少有会话数据
-- ✅ 会话至少包含消息数据
-
-### 数据获取验证
-- ✅ 正确统计会话数和消息数
-- ✅ 时间范围过滤正确
-- ✅ Token计数准确
-- ✅ 未来消息被正确丢弃
-
-### 记忆抽取验证
-- ✅ 会话分类正确（semantic/episodic/procedural）
-- ✅ 成功调用LLM进行记忆抽取
-- ✅ 抽取的记忆数 > 0
-- ✅ 记忆包含有意义的内容
-
-### Checkpoint验证
-- ✅ Checkpoint成功保存到Mem0
-- ✅ 每个会话的checkpoint包含`last_processed_message_id`
-- ✅ 每个会话的checkpoint包含时间范围信息
-
-## Cursor Agent 使用说明
-
-当 Cursor agent 需要运行测试时，可以使用统一的测试脚本：
+也可以直接在统一入口里启用自动兜底：
 
 ```bash
-./tests/run_tests.sh <选项> <测试路径或参数>
+./tests/run_tests.sh --suite integration --env-file tests/.env.local --cleanup manifest
+
+# 异常场景：执行强制全量清理
+./tests/run_tests.sh --suite integration --env-file tests/.env.local --cleanup force-all
 ```
 
-脚本功能：
-1. 自动检查虚拟环境配置
-2. 自动激活虚拟环境（如果未激活）
-3. 验证 pytest 和依赖是否已安装
-4. 支持 fork 模式、E2E 模式等常见场景
+---
 
-示例：
-```bash
-# 检查虚拟环境
-./tests/run_tests.sh --check-env
+## GitHub Actions 手动触发完整真实环境测试
 
-# 运行所有单元测试
-./tests/run_tests.sh tests/unit/ -v
+当前 `/.github/workflows/ci.yml` 策略：
 
-# 运行特定测试文件
-./tests/run_tests.sh tests/unit/tools/test_extract_long_term_memory.py -v
+- `push/pull_request`：默认只跑 `unit`
+- 真实环境套件需要手动触发
 
-# 运行端到端测试并保存输出
-./tests/run_tests.sh --e2e test_01_verify_dify_connectivity --output-file test_output.log
-```
+操作步骤：
 
-**注意**：对于手动执行，推荐直接激活虚拟环境后使用 pytest 命令，更灵活高效。
+1. 打开 GitHub -> Actions -> CI
+2. 点击 `Run workflow`
+3. 勾选 `run_real_env_suites = true`
+4. 运行后观察真实环境相关 job（以当前 `ci.yml` 为准）：
+   - `integration-dify`
+   - `acceptance-workflow`
+
+缺少 secrets 时 job 会显式 skip，不会影响 unit 结果。
+
+CI 建议：仅配置仓库/环境 secrets，不创建或提交任何 `tests/.env*` 文件。
+
+---
+
+## 故障排查（按优先级）
+
+### 1) 连接失败 / preflight 失败
+
+- 检查 `DIFY_*_BASE_URL` 与 API KEY
+- remote/ci 场景建议始终加 `--require-network`
+- local 场景不想失败可设 `REQUIRE_DIFY_NETWORK=0`
+
+### 2) workflow 卡住
+
+- 提高 `DIFY_WORKFLOW_MAX_WAIT`
+- 检查 `DIFY_STALL_TIMEOUT`
+- 查看 `workflow-failure-*` artifact 里的错误上下文
+
+### 3) Mem0 凭据问题
+
+- acceptance 要求至少 LLM/Embedder/Vector DB 配置
+- 缺失会 skip 或失败（取决于场景）
+
+### 4) fork 下终端输出不完整
+
+- 使用 `--output-file` 保存完整日志
+- 同时查看 artifact JSON
+
+---
+
+## 新人建议执行路径（最稳）
+
+1. `--check-env`
+2. 先跑 `unit`
+3. 准备 `.env.local` / `.env.remote`
+4. 跑 `integration`
+5. 跑 `acceptance`
+6. 若失败，按“日志 -> artifact -> env”顺序排查
+
+---
 
 ## 相关文档
 
-- [TESTING_COVERAGE.md](TESTING_COVERAGE.md) — 模块级覆盖分析、测试文件速查表、覆盖缺口与优先级
-- [TESTING_TECHNICAL_GUIDE.md](TESTING_TECHNICAL_GUIDE.md) — Gevent / fork 模式的根本原因、实现细节与高级故障排除
+- `tests/TESTING_COVERAGE.md`：覆盖面与缺口
+- `tests/TESTING_TECHNICAL_GUIDE.md`：技术机制与设计细节
+
