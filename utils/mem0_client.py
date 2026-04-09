@@ -831,12 +831,12 @@ class AsyncMem0Client:
                 # Acquire the process-level init lock in a thread to avoid blocking
                 # the event loop. This serialises concurrent from_config() calls and
                 # prevents pgvector's CREATE EXTENSION from racing across sessions.
+                def _init_memory() -> AsyncMemory:
+                    with _mem0_init_lock:
+                        return AsyncMemory.from_config(self.config)
+
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, _mem0_init_lock.acquire)
-                try:
-                    self.memory = await AsyncMemory.from_config(self.config)
-                finally:
-                    _mem0_init_lock.release()
+                self.memory = await loop.run_in_executor(None, _init_memory)
                 _patch_llm_compat(getattr(self.memory, "llm", None))
                 logger.debug("AsyncMemory instance created")
 

@@ -6,3 +6,4 @@ rank-bm25
 psycopg[binary,pool]  # psycopg3 with connection pool support
 dify_plugin
 tiktoken  # Accurate token counting for conversation processing
+cohere
