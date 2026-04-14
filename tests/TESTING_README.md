@@ -1,5 +1,7 @@
 # 测试运行说明（零背景可上手）
 
+Last updated: 2026-04-14
+
 ## 这份文档能帮你做什么
 
 如果你第一次接触这个仓库，按本文档一步步执行，可以完成：
@@ -113,6 +115,8 @@ REQUIRE_DIFY_NETWORK=1
 ```
 
 预期：全部通过，且不依赖 Dify/Mem0。
+
+补充：当前 unit 还覆盖了 `AsyncMemory.from_config()` 的新旧兼容语义，以及 `async_mode=true` 的 provider 凭证校验路径回归用例。
 
 ### 2.2 再跑 integration（可选）
 

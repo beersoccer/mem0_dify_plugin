@@ -1,6 +1,6 @@
 ## Privacy Policy
 
-Last updated: 2026-03-23
+Last updated: 2026-04-14
 
 This privacy policy describes how the Mem0 Dify Plugin handles your information when you use it in **self-hosted mode**.
 
@@ -89,4 +89,4 @@ We may update this privacy policy from time to time. Changes will be reflected i
 If you have questions about this privacy policy or the plugin, please contact:
 - Email: beersocccer@gmail.com
 
-Last updated: 2026-03-23
+Last updated: 2026-04-14

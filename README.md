@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.2.10
+# Mem0 Dify Plugin v0.2.11
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-03-23
+Last updated: 2026-04-14
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -37,7 +37,20 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.10) - Score Adaptation & Memory Evolution ✅
+### What's New (v0.2.11) - AsyncMemory Compatibility & Release Docs ✅
+- **AsyncMemory initialization compatibility**:
+  - Added a compatibility shim around `AsyncMemory.from_config(...)` so async mode now works whether mem0 exposes it as a coroutine-returning API or a regular classmethod
+  - Preserved the existing async credential validation flow in the provider, avoiding behavioral changes outside the initialization fix
+- **Supported mem0 version range**:
+  - Documented and aligned the supported `mem0ai` dependency range to `>=1.0.2,<=1.0.11`
+  - Kept the current lockfile on `1.0.2` while allowing explicit future validation within the supported range
+- **Regression coverage & release docs**:
+  - Added unit coverage for both async/sync `from_config` semantics and async provider credential validation
+  - Refreshed top-level docs, testing notes, privacy metadata, and submission template for this release
+
+These changes fix the async-mode startup regression against newer mem0 releases while keeping installation and release documentation aligned.
+
+### Previous Updates (v0.2.10) - Score Adaptation & Memory Evolution ✅
 - **Cross-backend score semantics**:
   - Added automatic score mode inference (`distance` vs `similarity`) by vector provider/metric and normalized search outputs to stable 0-1 similarity
   - `search_memory` results now consistently expose `score` (similarity), `vector_distance`, and `rerank_score`
@@ -369,6 +382,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.11 | 2026-04-14 | AsyncMemory.from_config compatibility across mem0 variants, supported mem0 version range alignment, and release/test documentation refresh |
 | v0.2.10 | 2026-03-23 | Score semantics unification, memory evolution lifecycle, and new forget_memories maintenance controls |
 | v0.2.9 | 2026-03-04 | Extraction worker-pool sliding-window optimization with tighter time-budget and progress flushing behavior |
 | v0.2.8 | 2026-02-12 | Stability under load: pre-enqueue overload guard, conservative defaults, pgvector pool/DSN hardening |

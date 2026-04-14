@@ -4,6 +4,31 @@
 
 ---
 
+## Version 0.2.11 (2026-04-14)
+
+### ✨ Enhancements
+- **AsyncMemory initialization compatibility**:
+  - Added a compatibility resolver around `AsyncMemory.from_config()` so the async client now supports both coroutine-returning and direct-instance mem0 implementations
+- **Supported mem0 version range**:
+  - Relaxed the plugin dependency declaration from a fixed pin to `mem0ai>=1.0.2,<=1.0.11`
+  - Kept the current lockfile aligned on `1.0.2` while documenting the validated support range for future upgrades
+
+### 🐛 Fixes
+- **Async credential validation regression**:
+  - Prevented `object AsyncMemory can't be used in 'await' expression` during `async_mode=true` provider credential validation on newer mem0 releases
+  - Preserved the existing provider validation flow (`get_async_client(...).search(...)`) so runtime behavior stays unchanged outside initialization compatibility
+
+### ✅ Tests
+- Added unit coverage for:
+  - async `AsyncMemory.from_config()` compatibility
+  - sync `AsyncMemory.from_config()` compatibility
+  - async provider credential validation routing
+
+### 📚 Docs
+- Updated release docs, configuration notes, privacy metadata, and submission template for v0.2.11
+
+---
+
 ## Version 0.2.10 (2026-03-23)
 
 ### ✨ Enhancements
