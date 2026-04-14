@@ -1,5 +1,7 @@
 # 测试覆盖现状（可用于评审与新人理解）
 
+Last updated: 2026-04-14
+
 ## 如何阅读本文件
 
 本文件回答三个问题：
@@ -86,6 +88,8 @@
 - `normalize_search_results` -> `tests/unit/utils/test_normalize_search_results.py`
 - `utils/memory_forgetting.py` -> `tests/unit/utils/test_memory_forgetting.py`
 - `utils/dify_client.py` -> `tests/unit/utils/test_dify_client.py`
+- `AsyncMem0Client.create()` mem0 兼容初始化 -> `tests/unit/utils/test_async_memory_init_compat.py`
+- `provider/mem0ai.py` 异步凭证校验路由 -> `tests/unit/provider/test_mem0_provider_validation.py`
 - `tools/forget_memories.py` -> `tests/unit/tools/test_forget_memories.py`
   - 覆盖 `dry_run` 行为（不执行删除/不落 access log）
   - 覆盖“部分删除失败”时仅按成功删除 ID 更新 access log

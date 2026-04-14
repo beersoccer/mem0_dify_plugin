@@ -1,6 +1,6 @@
 # Plugin Submission Form
 
-Last updated: 2026-03-23
+Last updated: 2026-04-14
 
 ## 1. Metadata
 
@@ -31,13 +31,13 @@ Please provide the following metadata of your plugin to make it easier for the r
 
 <!-- Please briefly describe the purpose of the new plugin or the updates made to the existing plugin -->
 
-This submission updates the Mem0 Dify plugin (self-hosted mode). Key changes are summarized below; detailed release notes and historical context are in [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md).
+This submission updates the Mem0 Dify plugin to **v0.2.11** (self-hosted mode). Key changes are summarized below; detailed release notes and historical context are in [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md).
 
 ### Key Updates
 
-- **Score Semantics Unification**: Added automatic score mode inference (`distance` / `similarity`) and unified search outputs to stable 0-1 similarity across vector backends
-- **Memory Lifecycle Maintenance**: Added access-log-driven forgetting plus new `forget_memories` maintenance workflow with `dry_run` preview support
-- **Retention Controls & Isolation Fix**: Added `memory_ttl_days` / `checkpoint_ttl_days` and fixed checkpoint app-scope isolation with `agent_id=app_id`
+- **AsyncMemory Compatibility Fix**: Added a compatibility layer for old/new `AsyncMemory.from_config()` semantics so `async_mode=true` no longer fails on newer mem0 releases
+- **Supported Mem0 Version Range**: Aligned dependency declarations and documentation to support `mem0ai>=1.0.2,<=1.0.11`
+- **Regression Tests & Release Docs**: Added targeted compatibility/validation tests and refreshed configuration, changelog, privacy, and submission documents for this release
 
 All API keys and credentials are stored locally in the user's Dify instance configuration and are not shared with any third parties. The plugin only communicates with services configured by the user (their LLM, embedding, and database services).
 

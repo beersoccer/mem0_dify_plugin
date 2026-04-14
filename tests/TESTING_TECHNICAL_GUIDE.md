@@ -1,5 +1,7 @@
 # 测试技术说明（实现机制与排障路径）
 
+Last updated: 2026-04-14
+
 ## 文档定位
 
 `TESTING_README.md` 讲“怎么跑”，本文件讲“为什么这样设计”。
@@ -27,6 +29,11 @@ Profile 语义：
   - 手工连远端测试环境；默认要求网络可达。
 - `ci`
   - CI 场景；失败优先快速暴露（fail-fast）。
+
+补充说明：
+
+- 针对 mem0 版本演进，当前 unit 已补充 `AsyncMemory.from_config()` 同步/异步两种初始化语义的兼容回归测试。
+- provider 侧也补充了 `async_mode=true` 的凭证校验链路测试，确保仍通过 `get_async_client(...).search(...)` 做轻量验证。
 
 ---
 

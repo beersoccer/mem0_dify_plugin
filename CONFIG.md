@@ -1,6 +1,6 @@
 # Mem0 Dify Plugin - Configuration Guide
 
-Last updated: 2026-03-23
+Last updated: 2026-04-14
 
 This guide provides detailed installation and configuration instructions for the Mem0 Dify Plugin.
 
@@ -40,7 +40,7 @@ This guide provides detailed installation and configuration instructions for the
 
 **Option B: Install from Package**
 1. Click `Upload Plugin` button
-2. Select the `.difypkg` file (e.g., `mem0ai-0.1.8.difypkg`)
+2. Select the `.difypkg` file (e.g., `mem0ai-0.2.11.difypkg`)
 3. Wait for upload and installation to complete
 
 ### Step 3: Verify Installation
@@ -82,6 +82,7 @@ After installation, click on the `mem0ai` plugin to configure it. You'll see cre
 - **For New Installations**: Use the `*_secret` fields (e.g., `local_llm_json_secret`, `local_embedder_json_secret`) with `secret-input` type (encrypted fields) for better security
 - **Deprecated Fields Removed**: Legacy `*_json` fields (e.g., `local_llm_json`, `local_embedder_json`) are no longer shown in the configuration UI. If you encounter configuration issues after upgrade, please delete old credentials and reconfigure using the new `*_secret` fields
 - **For Upgrades from v0.1.3**: See [Upgrade Guide](#upgrade-guide) for detailed upgrade instructions
+- **Supported mem0 range**: This release supports `mem0ai>=1.0.2,<=1.0.11`. The async client includes a compatibility layer for both old and new `AsyncMemory.from_config()` semantics
 - All JSON configuration fields are displayed as **password fields** (hidden input) in the Dify UI to protect sensitive information
 - Each JSON must be a valid JSON object with the structure: `{ "provider": "<provider_name>", "config": { ... } }`
 - For detailed configuration options and supported providers, refer to the [Mem0 Official Configuration Documentation](https://docs.mem0.ai/open-source/configuration)
@@ -1155,6 +1156,12 @@ For detailed upgrade instructions and field mapping, see [README.md - Upgrade Gu
   5. Validate JSON syntax (no trailing commas, proper quotes, matching braces)
   6. Validate all API keys and database connection information
   7. Check plugin logs in Dify for specific error messages (set `log_level` to DEBUG for detailed troubleshooting)
+
+**Problem**: Async validation fails with `object AsyncMemory can't be used in 'await' expression`
+- **Solution**:
+  - Upgrade to plugin `v0.2.11` or later, which normalizes old/new `AsyncMemory.from_config()` behavior
+  - Keep `mem0ai` within the documented support range: `>=1.0.2,<=1.0.11`
+  - If your Dify environment is offline, ensure the selected `mem0ai` version is available in the daemon cache or installation mirror
 
 **Problem**: JSON parsing errors
 - **Solution**:
