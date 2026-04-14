@@ -43,6 +43,20 @@ logger = get_logger(__name__)
 _mem0_init_lock = threading.Lock()
 
 
+async def _resolve_async_memory_from_config(config: dict[str, Any]) -> AsyncMemory:
+    """Support both old and new mem0 AsyncMemory.from_config semantics.
+
+    Older mem0 releases exposed ``AsyncMemory.from_config`` as an async
+    classmethod, while newer releases return an ``AsyncMemory`` instance
+    directly.  Dify's async validation path always calls ``create()``, so we
+    normalize both forms here and keep the rest of the client code unchanged.
+    """
+    memory_or_awaitable = AsyncMemory.from_config(config)
+    if asyncio.iscoroutine(memory_or_awaitable):
+        return await memory_or_awaitable
+    return memory_or_awaitable
+
+
 def _patch_llm_compat(llm: Any) -> None:
     """Patch LLM instances that lack _parse_response (e.g., structured providers)."""
     if llm is None or hasattr(llm, "_parse_response"):
@@ -834,7 +848,7 @@ class AsyncMem0Client:
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, _mem0_init_lock.acquire)
                 try:
-                    self.memory = await AsyncMemory.from_config(self.config)
+                    self.memory = await _resolve_async_memory_from_config(self.config)
                 finally:
                     _mem0_init_lock.release()
                 _patch_llm_compat(getattr(self.memory, "llm", None))
