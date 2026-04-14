@@ -31,7 +31,11 @@ def test_validate_credentials_async_mode_uses_async_client_search(monkeypatch) -
         return fake_future
 
     monkeypatch.setattr(provider_mod, "get_async_client", lambda _credentials: FakeClient())
-    monkeypatch.setattr(provider_mod.asyncio, "run_coroutine_threadsafe", _fake_run_coroutine_threadsafe)
+    monkeypatch.setattr(
+        provider_mod.asyncio,
+        "run_coroutine_threadsafe",
+        _fake_run_coroutine_threadsafe,
+    )
 
     provider = object.__new__(Mem0Provider)
     provider._validate_credentials({"async_mode": True, "log_level": "INFO"})
