@@ -12,7 +12,7 @@ description:
   zh_Hans: "本地托管模式的 mem0 插件，async_mode 默认开启。异步模式下写操作（Add/Update/Delete）非阻塞，读操作（Search/Get/History）始终等待，同步模式下所有操作阻塞直至完成。支持动态日志级别配置。性能优化：智能记忆分类（LLM调用减少33%），使用tiktoken进行token感知处理。"
 icon: mem0_plugin.png
 resource:
-  memory: 884000000
+  memory: 512000000
   permission:
     tool:
       enabled: true
