@@ -36,7 +36,7 @@ parameters:
       en_US: Required. User IDs to process. Provide a JSON array string (recommended) or comma-separated list.
       zh_Hans: 必填。需要处理的 user_id 列表。建议传 JSON 数组字符串，或用英文逗号分隔。
     llm_description: Required list of user_ids (JSON array string recommended).
-    form: form
+    form: llm
   - name: app_id
     type: string
     required: true
@@ -47,7 +47,7 @@ parameters:
       en_US: Required. Dify App ID for memory isolation. Each app maintains separate memory space for the same user.
       zh_Hans: 必填。Dify 应用 ID，用于记忆隔离。同一用户在不同应用中的记忆相互隔离。
     llm_description: Required Dify App ID to ensure app-level memory isolation.
-    form: form
+    form: llm
   - name: run_id
     type: string
     required: false
@@ -58,7 +58,7 @@ parameters:
       en_US: "Optional unique identifier for tracking the entire memory operation call chain. Recommended to use Dify's workflow_run_id to link multiple memory operations in the same workflow. Note: This parameter is only for tracing the call chain and is NOT used as a condition for memory layering or filtering."
       zh_Hans: 可选的唯一标识符，用于追踪整个记忆操作调用链。推荐使用 Dify 的 workflow_run_id 来关联同一工作流中的多个记忆操作。注意：此参数仅用于追踪调用链，不作为记忆分层或过滤的条件。
     llm_description: "Optional unique identifier for tracking the entire memory operation call chain. Recommended to use Dify's workflow_run_id to link multiple memory operations in the same workflow. This parameter is only for tracing and is NOT used as a condition for memory layering or filtering."
-    form: form
+    form: llm
   - name: days_back
     type: number
     required: false
@@ -70,7 +70,7 @@ parameters:
       en_US: "Optional. Number of days to look back for extracting conversation history (1-7, default 1). For example, days_back=2 extracts yesterday and the day before yesterday."
       zh_Hans: "可选。回溯天数，抽取前几天的用户会话历史（1-7，默认1天）。例如 days_back=2 表示抽取昨天和前天的数据。"
     llm_description: Number of days to look back for extracting conversation history (1-7, default 1).
-    form: form
+    form: llm
   - name: conversations_limit
     type: number
     required: false
@@ -82,7 +82,7 @@ parameters:
       en_US: "Optional. Maximum conversations to process per user per execution (10-500, default: 20). This limit applies to the total conversations within the configured days_back time range. This prevents malicious users from generating excessive conversations and consuming too much processing time. For 1-day cycle: light users ~5, normal users ~10-15, heavy users ~20-30. Adjust based on your execution cycle."
       zh_Hans: "可选。每次执行每个用户最多处理的会话数（10-500，默认：20）。该上限适用于当前 days_back 回溯时间范围内的会话总数。防止恶意用户生成过多会话占用处理时间。1天周期下：轻度用户约5个，正常用户约10-15个，重度用户约20-30个。根据执行周期调整。"
     llm_description: "Optional. Maximum conversations to process per user per execution (10-500, default: 20). This limit applies to the total conversations within the days_back time range."
-    form: form
+    form: llm
   - name: max_tokens_per_conversation
     type: number
     required: false
@@ -94,7 +94,7 @@ parameters:
       en_US: "Optional. Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during data fetching to optimize network transfer. If a conversation exceeds this limit, pagination stops early and only the most recent messages are fetched. Adjust based on your LLM's context window (e.g., GPT-4: 128K, Claude 3.5: 200K)."
       zh_Hans: "可选。每个会话用于记忆抽取的最大Token数（单位：千，1-200，默认：64K，与 EXTRACTION_DEFAULT_MAX_TOKENS 相同）。Token限制在数据获取阶段应用以优化网络传输。如果会话超过此限制，分页提前停止，只获取最近的消息。根据您的LLM上下文窗口调整（例如 GPT-4：128K，Claude 3.5：200K）。"
     llm_description: "Optional. Maximum tokens per conversation for memory extraction in thousands (1-200, default: 64K, same as EXTRACTION_DEFAULT_MAX_TOKENS). Token limiting is applied during Dify API pagination to avoid fetching unnecessary historical messages. Uses tiktoken (EXTRACTION_DEFAULT_ENCODING = cl100k_base) for accurate token counting. Adjust based on your LLM's context window."
-    form: form
+    form: llm
   - name: time_budget
     type: number
     required: false
@@ -106,7 +106,7 @@ parameters:
       en_US: "Optional. Maximum time budget in minutes for the extraction task (suggested: 5-120 minutes, default: 60 minutes, same as EXTRACTION_TIME_BUDGET). The lock TTL is automatically calculated as 1.2 times the time budget (rounded up). No upper limit enforced - adjust based on your batch size and processing requirements. For large batch jobs processing 1000+ users, consider increasing this value."
       zh_Hans: "可选。提取任务的最大时间预算（单位：分钟，建议：5-120 分钟，默认：60 分钟，与 EXTRACTION_TIME_BUDGET 相同）。锁的 TTL 会自动计算为时间预算的 1.2 倍（向上取整）。不设上限，根据您的批次大小和处理需求调整。对于处理 1000+ 用户的大批量作业，考虑增加此值。"
     llm_description: "Optional. Maximum time budget in minutes for the extraction task (suggested: 5-120 minutes, default: 60 minutes, same as EXTRACTION_TIME_BUDGET). The lock TTL is automatically calculated as 1.2 times the time budget (rounded up). No upper limit enforced - adjust based on your batch size and processing requirements."
-    form: form
+    form: llm
   - name: dify_base_url
     type: string
     required: true
@@ -117,7 +117,7 @@ parameters:
       en_US: "Required. Standard format: http://dify.t3.test.noahgrouptest.com/v1"
       zh_Hans: "必填。标准格式：http://dify.t3.test.noahgrouptest.com/v1"
     llm_description: Required Dify base URL for API calls.
-    form: form
+    form: llm
   - name: dify_api_key
     type: string
     required: true
@@ -138,7 +138,7 @@ parameters:
       Required Dify API key for API calls. Each Dify App should pass its own key,
       preferably via app-level secret variables (e.g. {{secrets.DIFY_API_KEY}}),
       not hard-coded in the workflow.
-    form: form
+    form: llm
 extra:
   python:
     source: tools/extract_long_term_memory.py

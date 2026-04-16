@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.2.11
+# Mem0 Dify Plugin v0.2.12
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-04-14
+Last updated: 2026-04-16
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -37,7 +37,15 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.11) - AsyncMemory Compatibility & Release Docs ✅
+### What's New (v0.2.12) - Dynamic Extract Params & Cohere SDK ✅
+- **Dynamic extraction tool inputs**:
+  - Changed all `extract_long_term_memory` parameters to `form: llm` so Dify can bind system variables and upstream values more consistently
+- **Built-in Cohere reranker dependency**:
+  - Added the `cohere>=6.1.0` runtime dependency and clarified SDK expectations for cloud rerankers in the docs
+
+These changes improve extraction workflow configurability in Dify while reducing manual setup for Cohere reranker users.
+
+### Previous Updates (v0.2.11) - AsyncMemory Compatibility & Release Docs ✅
 - **AsyncMemory initialization compatibility**:
   - Added a compatibility shim around `AsyncMemory.from_config(...)` so async mode now works whether mem0 exposes it as a coroutine-returning API or a regular classmethod
   - Preserved the existing async credential validation flow in the provider, avoiding behavioral changes outside the initialization fix
@@ -72,18 +80,6 @@ These changes improve cross-backend retrieval consistency and establish a contro
   - User-level exceptions are captured inside each coroutine and returned as ERROR results; progress updates flush every N completions
 
 These changes **improve extraction throughput and resource utilization** for large user batches; the global concurrency ceiling across multiple concurrent extraction tasks remains unchanged.
-
-### Previous Updates (v0.2.8) - Stability & Latency Safeguards ✅
-- **Pre-enqueue overload guard**: Async operations reject early when pending tasks exceed threshold
-- **Conservative defaults for production**: Read timeout 5s, write timeout 15s, aligned concurrency and pgvector pool sizing
-- **PGVector connection reliability**: Hardened connection string encoding; `pool_max_waiting` defaults match overload controls
-
-### Previous Updates (v0.2.7) - Checkpoint Windowing & Resume Accuracy ✅
-- **Windowed checkpoint scanning**: Incremental scans process only conversations within `[start_time, run_at]`
-- **Stronger resume guarantees**: Resume cursors set only when more pages exist
-- **Consistent checkpoint updates**: Normalized `created_at` values reduce reprocessing on empty/filtered conversations
-
-### Previous Updates (v0.2.6) - Extraction Status & Resume Refinements! 🛠️
 
 For full historical details, see [CHANGELOG.md](https://github.com/beersoccer/mem0_dify_plugin/blob/main/CHANGELOG.md).
 
@@ -329,7 +325,8 @@ pip install transformers torch
 
 **Note**: 
 - This only affects users who want to use **local reranker models**
-- If you use **cloud-based rerankers** (e.g., Cohere API, OpenAI), no additional installation is needed
+- For **Cohere reranker**, install the Cohere SDK dependency (`cohere>=6.1.0`) in the plugin runtime environment
+- Other cloud rerankers may also require their own provider SDKs depending on the selected backend
 - Most users do not need local rerankers, so this change benefits the majority of users
 
 ---
@@ -382,6 +379,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.2.12 | 2026-04-16 | Dynamic `extract_long_term_memory` parameter binding via `form: llm`, bundled Cohere SDK dependency, and reranker documentation refresh |
 | v0.2.11 | 2026-04-14 | AsyncMemory.from_config compatibility across mem0 variants, supported mem0 version range alignment, and release/test documentation refresh |
 | v0.2.10 | 2026-03-23 | Score semantics unification, memory evolution lifecycle, and new forget_memories maintenance controls |
 | v0.2.9 | 2026-03-04 | Extraction worker-pool sliding-window optimization with tighter time-budget and progress flushing behavior |

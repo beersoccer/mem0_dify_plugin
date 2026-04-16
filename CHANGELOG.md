@@ -4,6 +4,24 @@
 
 ---
 
+## Version 0.2.12 (2026-04-16)
+
+### ✨ Enhancements
+- **Dynamic extraction tool parameters**:
+  - Switched all `extract_long_term_memory` tool inputs to `form: llm` so Dify workflows can bind system variables and upstream node outputs more consistently
+- **Bundled Cohere SDK support**:
+  - Added `cohere>=6.1.0` to runtime dependencies so Cohere reranker setups work without extra manual installation
+
+### 🛠️ Reliability & Compatibility
+- **Older Dify editor compatibility**:
+  - Reduced schema differences between extraction and other memory tools, improving variable-binding behavior on older Dify releases that handle `form: form` less reliably
+
+### 🔧 Configuration / Defaults
+- **Documentation refresh for reranker setup**:
+  - Updated README and CONFIG guidance to clarify that cloud rerankers may require provider-specific SDKs, with Cohere documented explicitly
+
+---
+
 ## Version 0.2.11 (2026-04-14)
 
 ### ✨ Enhancements
