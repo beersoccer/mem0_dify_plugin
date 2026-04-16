@@ -1,6 +1,6 @@
 # Mem0 Dify Plugin - Configuration Guide
 
-Last updated: 2026-04-14
+Last updated: 2026-04-16
 
 This guide provides detailed installation and configuration instructions for the Mem0 Dify Plugin.
 
@@ -40,7 +40,7 @@ This guide provides detailed installation and configuration instructions for the
 
 **Option B: Install from Package**
 1. Click `Upload Plugin` button
-2. Select the `.difypkg` file (e.g., `mem0ai-0.2.11.difypkg`)
+2. Select the `.difypkg` file (e.g., `mem0ai-0.2.12.difypkg`)
 3. Wait for upload and installation to complete
 
 ### Step 3: Verify Installation
@@ -463,7 +463,8 @@ If you have a pre-configured psycopg3 ConnectionPool object, you can pass it dir
 **Note**: 
 - HuggingFace models are automatically cached locally after first download
 - This only affects users who want to use **local reranker models**
-- If you use **cloud-based rerankers** (e.g., Cohere API), no additional installation is needed
+- If you use **Cohere reranker**, install the Cohere SDK dependency (`cohere>=6.1.0`) in the plugin runtime environment
+- Other cloud-based rerankers may also require their own provider SDKs depending on the selected backend
 
 **Option 3: Sentence Transformer Reranker (Local model, requires sentence-transformers library)**
 
@@ -1159,7 +1160,7 @@ For detailed upgrade instructions and field mapping, see [README.md - Upgrade Gu
 
 **Problem**: Async validation fails with `object AsyncMemory can't be used in 'await' expression`
 - **Solution**:
-  - Upgrade to plugin `v0.2.11` or later, which normalizes old/new `AsyncMemory.from_config()` behavior
+  - Upgrade to plugin `v0.2.12` or later, which includes the latest compatibility and workflow-configuration improvements
   - Keep `mem0ai` within the documented support range: `>=1.0.2,<=1.0.11`
   - If your Dify environment is offline, ensure the selected `mem0ai` version is available in the daemon cache or installation mirror
 

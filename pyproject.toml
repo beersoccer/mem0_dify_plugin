@@ -1,6 +1,6 @@
 [project]
 name = "mem0-dify-plugin"
-version = "0.2.11"
+version = "0.2.12"
 description = "Mem0 Dify plugin"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +12,7 @@ dependencies = [
   "psycopg[binary,pool]",
   "dify_plugin",
   "tiktoken",
+  "cohere>=6.1.0",
 ]
 
 [dependency-groups]
