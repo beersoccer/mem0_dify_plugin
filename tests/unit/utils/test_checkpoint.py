@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from typing import Any
 
 import pytest
@@ -256,77 +258,106 @@ class AsyncFakeMemory:
         return {"message": "deleted"}
 
 
-@pytest.mark.asyncio
-@pytest.mark.forked
-async def test_async_load_restores_resume_fields() -> None:
+def _run_async(coro: Any) -> Any:
+    """Run a coroutine in a dedicated thread to avoid event loop conflicts with pytest-asyncio."""
+    result: list[Any] = []
+    exc: list[BaseException] = []
+
+    def _thread_target() -> None:
+        # Clear any inherited running-loop state from the parent thread.
+        # In pytest-asyncio AUTO mode the main thread runs inside an event
+        # loop, and CPython's C-level _get_running_loop() can inherit that
+        # state in child threads, causing run_until_complete() to raise
+        # "Cannot run the event loop while another loop is running".
+        asyncio.events._set_running_loop(None)  # type: ignore[attr-defined]
+        asyncio.set_event_loop(None)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result.append(loop.run_until_complete(coro))
+        except BaseException as e:  # noqa: BLE001
+            exc.append(e)
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+
+    t = threading.Thread(target=_thread_target)
+    t.start()
+    t.join()
+    if exc:
+        raise exc[0]
+    return result[0] if result else None
+
+
+def test_async_load_restores_resume_fields() -> None:
     """AsyncCheckpointManager.load() must restore resume_* fields."""
-    mem = AsyncFakeMemory()
-    mgr = AsyncCheckpointManager(mem)
 
-    # Build a checkpoint with resume fields set
-    cp = UserCheckpoint(
-        conversations={
-            "conv1": ConversationCheckpoint(
-                last_processed_message_id="msg-100",
-                processed_range_start="2026-01-01T00:00:00Z",
-                processed_range_end="2026-01-02T00:00:00Z",
-            ),
-        },
-        resume_conversation_cursor="conv1",
-        resume_run_at="2026-04-01T12:00:00Z",
-        resume_start_time="2026-03-01T00:00:00Z",
-    )
+    async def _run() -> None:
+        mem = AsyncFakeMemory()
+        mgr = AsyncCheckpointManager(mem)
 
-    # Save it
-    ok, cp_id = await mgr.save(
-        checkpoint_id=None, user_id="u1", app_id=None, checkpoint=cp
-    )
-    assert ok and cp_id
+        cp = UserCheckpoint(
+            conversations={
+                "conv1": ConversationCheckpoint(
+                    last_processed_message_id="msg-100",
+                    processed_range_start="2026-01-01T00:00:00Z",
+                    processed_range_end="2026-01-02T00:00:00Z",
+                ),
+            },
+            resume_conversation_cursor="conv1",
+            resume_run_at="2026-04-01T12:00:00Z",
+            resume_start_time="2026-03-01T00:00:00Z",
+        )
 
-    # Load it back
-    loaded_id, loaded_cp = await mgr.load(user_id="u1", app_id=None)
-    assert loaded_id == cp_id
-    assert loaded_cp is not None
-    assert loaded_cp.resume_conversation_cursor == "conv1"
-    assert loaded_cp.resume_run_at == "2026-04-01T12:00:00Z"
-    assert loaded_cp.resume_start_time == "2026-03-01T00:00:00Z"
-    assert "conv1" in loaded_cp.conversations
-    assert loaded_cp.conversations["conv1"].last_processed_message_id == "msg-100"
+        ok, cp_id = await mgr.save(
+            checkpoint_id=None, user_id="u1", app_id=None, checkpoint=cp
+        )
+        assert ok and cp_id
+
+        loaded_id, loaded_cp = await mgr.load(user_id="u1", app_id=None)
+        assert loaded_id == cp_id
+        assert loaded_cp is not None
+        assert loaded_cp.resume_conversation_cursor == "conv1"
+        assert loaded_cp.resume_run_at == "2026-04-01T12:00:00Z"
+        assert loaded_cp.resume_start_time == "2026-03-01T00:00:00Z"
+        assert "conv1" in loaded_cp.conversations
+        assert loaded_cp.conversations["conv1"].last_processed_message_id == "msg-100"
+
+    _run_async(_run())
 
 
-@pytest.mark.asyncio
-@pytest.mark.forked
-async def test_async_save_add_before_delete() -> None:
+def test_async_save_add_before_delete() -> None:
     """Async save() must add new checkpoint before deleting old."""
-    mem = AsyncFakeMemory()
-    mgr = AsyncCheckpointManager(mem)
 
-    # Create initial
-    ok, initial_id = await mgr.save(
-        checkpoint_id=None, user_id="u1", app_id=None, checkpoint=UserCheckpoint()
-    )
-    assert ok and initial_id
+    async def _run() -> None:
+        mem = AsyncFakeMemory()
+        mgr = AsyncCheckpointManager(mem)
 
-    # Track operations
-    operations: list[str] = []
-    original_add = mem.add
-    original_delete = mem.delete
+        ok, initial_id = await mgr.save(
+            checkpoint_id=None, user_id="u1", app_id=None, checkpoint=UserCheckpoint()
+        )
+        assert ok and initial_id
 
-    async def tracking_add(text: str, **kwargs: Any) -> dict[str, Any]:
-        operations.append("add")
-        return await original_add(text, **kwargs)
+        operations: list[str] = []
+        original_add = mem.add
+        original_delete = mem.delete
 
-    async def tracking_delete(memory_id: str) -> dict[str, Any]:
-        operations.append("delete")
-        return await original_delete(memory_id)
+        async def tracking_add(text: str, **kwargs: Any) -> dict[str, Any]:
+            operations.append("add")
+            return await original_add(text, **kwargs)
 
-    mem.add = tracking_add  # type: ignore[assignment]
-    mem.delete = tracking_delete  # type: ignore[assignment]
+        async def tracking_delete(memory_id: str) -> dict[str, Any]:
+            operations.append("delete")
+            return await original_delete(memory_id)
 
-    # Update
-    ok2, new_id = await mgr.save(
-        checkpoint_id=initial_id, user_id="u1", app_id=None, checkpoint=UserCheckpoint()
-    )
-    assert ok2 is True
-    assert operations == ["add", "delete"]
+        mem.add = tracking_add  # type: ignore[assignment]
+        mem.delete = tracking_delete  # type: ignore[assignment]
+
+        ok2, new_id = await mgr.save(
+            checkpoint_id=initial_id, user_id="u1", app_id=None, checkpoint=UserCheckpoint()
+        )
+        assert ok2 is True
+        assert operations == ["add", "delete"]
+
+    _run_async(_run())
 
