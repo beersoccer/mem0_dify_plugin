@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from tools.forget_memories import ForgetMemoriesTool
+from tools.forget_memories import ForgetMemoriesTool, _clean_expired_locks
 
 
 def _extract_json_payload(message: object) -> dict:
@@ -145,3 +146,124 @@ def test_forget_memories_deletes_old_checkpoints_in_real_run() -> None:
     payload = _extract_json_payload(messages[0])
     assert payload.get("status") == "SUCCESS"
     assert payload.get("results", {}).get("checkpoints_cleaned") == 2
+
+
+def _make_lock_memory(
+    mem_id: str,
+    holder_id: str,
+    acquired_at: str,
+    ttl_seconds: int,
+) -> dict:
+    """Build a fake lock memory entry for testing."""
+    lock_data = {
+        "lock_id": "lock:extraction:u1:*",
+        "holder_id": holder_id,
+        "acquired_at": acquired_at,
+        "ttl_seconds": ttl_seconds,
+    }
+    return {
+        "id": mem_id,
+        "memory": json.dumps(lock_data, ensure_ascii=False),
+        "metadata": {
+            "__internal": True,
+            "internal_type": "distributed_lock",
+        },
+    }
+
+
+def test_clean_expired_locks_deletes_expired_only() -> None:
+    """_clean_expired_locks should delete expired locks and keep active ones."""
+    now = datetime.now(UTC)
+    expired_time = (now - timedelta(seconds=7200)).isoformat()
+    active_time = now.isoformat()
+
+    mem = MagicMock()
+    mem.get_all.return_value = {
+        "results": [
+            _make_lock_memory("lock-1", "run-old", expired_time, 3600),
+            _make_lock_memory("lock-2", "run-active", active_time, 3600),
+        ]
+    }
+
+    count = _clean_expired_locks(
+        mem, user_id="u1", app_id=None, dry_run=False, request_id="req-1"
+    )
+
+    assert count == 1
+    mem.delete.assert_called_once_with("lock-1")
+
+
+def test_clean_expired_locks_dry_run_does_not_delete() -> None:
+    """Dry run should count but not delete."""
+    expired_time = (datetime.now(UTC) - timedelta(seconds=7200)).isoformat()
+
+    mem = MagicMock()
+    mem.get_all.return_value = {
+        "results": [
+            _make_lock_memory("lock-1", "run-old", expired_time, 3600),
+        ]
+    }
+
+    count = _clean_expired_locks(
+        mem, user_id="u1", app_id=None, dry_run=True, request_id="req-1"
+    )
+
+    assert count == 1
+    mem.delete.assert_not_called()
+
+
+def test_clean_expired_locks_corrupted_record() -> None:
+    """Corrupted lock records (unparseable JSON) should be cleaned up."""
+    mem = MagicMock()
+    mem.get_all.return_value = {
+        "results": [
+            {
+                "id": "lock-corrupt",
+                "memory": "not-valid-json",
+                "metadata": {
+                    "__internal": True,
+                    "internal_type": "distributed_lock",
+                },
+            }
+        ]
+    }
+
+    count = _clean_expired_locks(
+        mem, user_id="u1", app_id=None, dry_run=False, request_id="req-1"
+    )
+
+    assert count == 1
+    mem.delete.assert_called_once_with("lock-corrupt")
+
+
+def test_forget_memories_includes_locks_cleaned_in_result() -> None:
+    """Integration: ForgetMemoriesTool result should include locks_cleaned."""
+    tool = _build_tool()
+    mem = MagicMock()
+
+    # Call 1: regular memories, Call 2: checkpoints, Call 3: locks
+    expired_time = (datetime.now(UTC) - timedelta(seconds=7200)).isoformat()
+    mem.get_all.side_effect = [
+        {"results": []},  # no regular memories
+        {"results": []},  # no checkpoints
+        {
+            "results": [
+                _make_lock_memory("lock-1", "old-run", expired_time, 3600),
+            ]
+        },  # one expired lock
+    ]
+    client = MagicMock(memory=mem)
+    mgr = MagicMock()
+    mgr.load.return_value = ("log-1", {})
+
+    with (
+        patch("tools.forget_memories.init_request_context", return_value=("req-1", 0.0)),
+        patch("tools.forget_memories.validate_user_id", return_value="u1"),
+        patch("tools.forget_memories.get_sync_client", return_value=client),
+        patch("tools.forget_memories.SyncAccessLogManager", return_value=mgr),
+    ):
+        messages = list(tool._invoke({"user_id": "u1", "dry_run": False}))
+
+    payload = _extract_json_payload(messages[0])
+    assert payload.get("status") == "SUCCESS"
+    assert payload.get("results", {}).get("locks_cleaned") == 1

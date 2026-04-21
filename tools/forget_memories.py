@@ -1,4 +1,4 @@
-"""Dify tool to forget stale memories and clean up old checkpoints.
+"""Dify tool to forget stale memories and clean up old checkpoints and expired locks.
 
 Flow:
   1. get_all(user_id, agent_id=app_id) — fetch all non-internal memories
@@ -6,12 +6,14 @@ Flow:
   3. For each memory call should_forget(); collect to-delete list
   4. Delete forgotten memories; update access log (remove deleted mem_ids)
   5. Clean up old checkpoints (keep newest 1; also delete newest if older than TTL)
+  6. Clean up expired distributed lock records
 
 Intended for scheduled (weekly or bi-weekly) execution.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +22,7 @@ from dify_plugin import Tool
 from utils.access_log import SyncAccessLogManager
 from utils.checkpoint import checkpoint_filters
 from utils.constants import FORGET_CHECKPOINT_TTL_DAYS
+from utils.distributed_lock import DistributedLock
 from utils.helpers import days_since
 from utils.logger import get_logger
 from utils.mem0_client import get_sync_client
@@ -131,6 +134,80 @@ def _clean_old_checkpoints(
         return count
     except Exception:
         logger.exception("[req:%s] Failed to clean old checkpoints", request_id)
+        return 0
+
+
+def _clean_expired_locks(
+    mem: Any,
+    user_id: str,
+    app_id: str | None,
+    dry_run: bool,
+    request_id: str,
+) -> int:
+    """Delete expired distributed lock memories.
+
+    Lock records with ``internal_type: "distributed_lock"`` persist in Mem0 after
+    TTL expiration.  This function removes them to prevent unbounded growth.
+
+    Returns the count of locks deleted (or would-delete in dry_run).
+    """
+    try:
+        filters = {
+            "AND": [
+                {"__internal": {"eq": True}},
+                {"internal_type": {"eq": "distributed_lock"}},
+            ],
+        }
+        kwargs: dict[str, Any] = {
+            "user_id": user_id,
+            "limit": 100,
+            "filters": filters,
+        }
+        if app_id:
+            kwargs["agent_id"] = app_id
+        raw = mem.get_all(**kwargs)
+        items: list[dict[str, Any]] = []
+        if isinstance(raw, dict):
+            candidates = raw.get("results", [])
+        else:
+            candidates = raw or []
+        for item in candidates or []:
+            if isinstance(item, dict):
+                items.append(item)
+
+        if not items:
+            return 0
+
+        to_delete: list[str] = []
+        for item in items:
+            mem_id = str(item.get("id") or "").strip()
+            if not mem_id:
+                continue
+            lock_data = item.get("memory") or "{}"
+            try:
+                data = json.loads(lock_data)
+                lock = DistributedLock(**data)
+                if lock.is_expired():
+                    to_delete.append(mem_id)
+            except (json.JSONDecodeError, TypeError, KeyError):
+                # Corrupted lock record — also clean up
+                to_delete.append(mem_id)
+
+        if dry_run:
+            return len(to_delete)
+
+        count = 0
+        for lock_id in to_delete:
+            try:
+                mem.delete(lock_id)
+                count += 1
+            except Exception:
+                logger.exception(
+                    "[req:%s] Failed to delete expired lock %s", request_id, lock_id
+                )
+        return count
+    except Exception:
+        logger.exception("[req:%s] Failed to clean expired locks", request_id)
         return 0
 
 
@@ -264,16 +341,22 @@ class ForgetMemoriesTool(Tool):
                 mem, user_id, app_id, checkpoint_ttl_days, dry_run, request_id
             )
 
+            # 7. Clean up expired distributed locks
+            locks_cleaned = _clean_expired_locks(
+                mem, user_id, app_id, dry_run, request_id
+            )
+
             effective_deleted = deleted_count if not dry_run else len(to_delete)
             elapsed = time.time() - start_time
             logger.info(
                 "[req:%s] Evolve memories done (user_id=%s, deleted=%d, retained=%d, "
-                "checkpoints_cleaned=%d, dry_run=%s, duration=%.2fs)",
+                "checkpoints_cleaned=%d, locks_cleaned=%d, dry_run=%s, duration=%.2fs)",
                 request_id,
                 user_id,
                 effective_deleted,
                 len(to_retain_ids),
                 checkpoints_cleaned,
+                locks_cleaned,
                 dry_run,
                 elapsed,
             )
@@ -282,6 +365,7 @@ class ForgetMemoriesTool(Tool):
                 "deleted_count": effective_deleted,
                 "retained_count": len(to_retain_ids),
                 "checkpoints_cleaned": checkpoints_cleaned,
+                "locks_cleaned": locks_cleaned,
                 "dry_run": dry_run,
             }
             if dry_run:
@@ -295,7 +379,8 @@ class ForgetMemoriesTool(Tool):
             yield self.create_text_message(
                 f"{action} {effective_deleted} memories, "
                 f"retained {len(to_retain_ids)}, "
-                f"cleaned {checkpoints_cleaned} old checkpoint(s)."
+                f"cleaned {checkpoints_cleaned} old checkpoint(s), "
+                f"cleaned {locks_cleaned} expired lock(s)."
             )
 
         except Exception as e:

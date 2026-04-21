@@ -165,19 +165,9 @@ class SyncCheckpointManager:
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         md = checkpoint_metadata()
 
-        # If updating existing checkpoint, delete it first to avoid embedding
-        # mem0's update() method calls embedding_model.embed() which is unnecessary
-        # for internal metadata that should be stored as-is
-        if checkpoint_id:
-            try:
-                self.mem.delete(checkpoint_id)
-            except Exception:
-                # If delete fails (e.g., already deleted), continue to add new one
-                logger.warning(
-                    f"Failed to delete old checkpoint {checkpoint_id}, will add new one"
-                )
-
-        # Create new internal memory; infer=False to avoid LLM calls and embedding
+        # Add new checkpoint first, then delete old one.
+        # This prevents data loss if add fails — the old checkpoint remains intact.
+        # Temporarily having two checkpoints is safe because load() picks the newest.
         res = self.mem.add(
             text,
             user_id=user_id,
@@ -192,6 +182,18 @@ class SyncCheckpointManager:
                 new_id = str(results[0].get("id") or "").strip() or None
             elif isinstance(results, dict):
                 new_id = str(results.get("id") or "").strip() or None
+
+        # Only delete old checkpoint after new one is successfully persisted
+        if new_id and checkpoint_id:
+            try:
+                self.mem.delete(checkpoint_id)
+            except Exception:
+                # Old checkpoint will be cleaned up by _clean_old_checkpoints
+                logger.warning(
+                    f"Failed to delete old checkpoint {checkpoint_id}, "
+                    "will be cleaned up later"
+                )
+
         return True, new_id
 
     def save_atomic(
@@ -322,6 +324,9 @@ class AsyncCheckpointManager:
 
         cp = UserCheckpoint(
             conversations={},
+            resume_conversation_cursor=data.get("resume_conversation_cursor"),
+            resume_run_at=data.get("resume_run_at"),
+            resume_start_time=data.get("resume_start_time"),
         )
         conversations = data.get("conversations") or {}
         if isinstance(conversations, dict):
@@ -376,19 +381,9 @@ class AsyncCheckpointManager:
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         md = checkpoint_metadata()
 
-        # If updating existing checkpoint, delete it first to avoid embedding
-        # mem0's update() method calls embedding_model.embed() which is unnecessary
-        # for internal metadata that should be stored as-is
-        if checkpoint_id:
-            try:
-                await self.mem.delete(checkpoint_id)
-            except Exception:
-                # If delete fails (e.g., already deleted), continue to add new one
-                logger.warning(
-                    f"Failed to delete old checkpoint {checkpoint_id}, will add new one"
-                )
-
-        # Create new internal memory; infer=False to avoid LLM calls and embedding
+        # Add new checkpoint first, then delete old one.
+        # This prevents data loss if add fails — the old checkpoint remains intact.
+        # Temporarily having two checkpoints is safe because load() picks the newest.
         res = await self.mem.add(
             text,
             user_id=user_id,
@@ -403,6 +398,18 @@ class AsyncCheckpointManager:
                 new_id = str(results[0].get("id") or "").strip() or None
             elif isinstance(results, dict):
                 new_id = str(results.get("id") or "").strip() or None
+
+        # Only delete old checkpoint after new one is successfully persisted
+        if new_id and checkpoint_id:
+            try:
+                await self.mem.delete(checkpoint_id)
+            except Exception:
+                # Old checkpoint will be cleaned up by _clean_old_checkpoints
+                logger.warning(
+                    f"Failed to delete old checkpoint {checkpoint_id}, "
+                    "will be cleaned up later"
+                )
+
         return True, new_id
 
     async def save_atomic(

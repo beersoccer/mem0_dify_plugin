@@ -72,29 +72,43 @@ class SyncLockManager:
         Returns:
             (memory_id, lock): Lock's memory_id and lock object, (None, None) if not found
         """
+        all_locks = self._load_all_locks(user_id, app_id)
+        if not all_locks:
+            return None, None
+        return all_locks[0]
+
+    def _load_all_locks(
+        self, user_id: str, app_id: str | None
+    ) -> list[tuple[str | None, DistributedLock | None]]:
+        """Load all lock records from Mem0 for a given resource.
+
+        Returns:
+            List of (memory_id, lock) tuples. Empty list if none found.
+        """
         filters = self._lock_filters(user_id, app_id)
 
         try:
-            result = self.mem.get_all(user_id=user_id, limit=1, filters=filters)
+            result = self.mem.get_all(user_id=user_id, limit=5, filters=filters)
             items = result.get("results", []) if isinstance(result, dict) else []
 
             if not items:
-                return None, None
+                return []
 
-            item = items[0]
-            memory_id = str(item.get("id") or "").strip() or None
-            lock_data = item.get("memory") or "{}"
-
-            try:
-                data = json.loads(lock_data)
-                lock = DistributedLock(**data)
-                return memory_id, lock
-            except (json.JSONDecodeError, TypeError, KeyError) as e:
-                logger.warning(f"Failed to parse lock data: {e}")
-                return memory_id, None
+            locks: list[tuple[str | None, DistributedLock | None]] = []
+            for item in items:
+                memory_id = str(item.get("id") or "").strip() or None
+                lock_data = item.get("memory") or "{}"
+                try:
+                    data = json.loads(lock_data)
+                    lock = DistributedLock(**data)
+                    locks.append((memory_id, lock))
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    logger.warning(f"Failed to parse lock data: {e}")
+                    locks.append((memory_id, None))
+            return locks
         except Exception as e:
-            logger.error(f"Failed to load lock: {e}")
-            return None, None
+            logger.error(f"Failed to load locks: {e}")
+            return []
 
     def _save_lock(
         self, user_id: str, app_id: str | None, lock: DistributedLock
@@ -193,14 +207,31 @@ class SyncLockManager:
         # 4. Persist lock
         new_memory_id = self._save_lock(user_id, app_id, new_lock)
 
-        if new_memory_id:
-            logger.info(
-                f"Lock acquired by {holder_id} for user {user_id} (ttl: {ttl_seconds}s)"
-            )
-            return True, new_lock
+        if not new_memory_id:
+            logger.error(f"Failed to persist lock for user {user_id}")
+            return False, None
 
-        logger.error(f"Failed to persist lock for user {user_id}")
-        return False, None
+        # 5. Read-after-write verification: detect concurrent lock acquisition
+        all_locks = self._load_all_locks(user_id, app_id)
+        valid_locks = [
+            (mid, lk) for mid, lk in all_locks if lk is not None and not lk.is_expired()
+        ]
+        if len(valid_locks) > 1:
+            # Multiple active locks — earliest acquired_at wins
+            valid_locks.sort(key=lambda x: x[1].acquired_at)
+            winner_mid, winner_lock = valid_locks[0]
+            if winner_lock.holder_id != holder_id:
+                # We lost the race — delete our lock
+                self._delete_lock(new_memory_id)
+                logger.warning(
+                    f"Lock race lost: {holder_id} yielded to {winner_lock.holder_id}"
+                )
+                return False, winner_lock
+
+        logger.info(
+            f"Lock acquired by {holder_id} for user {user_id} (ttl: {ttl_seconds}s)"
+        )
+        return True, new_lock
 
     def release_lock(
         self,
@@ -287,29 +318,43 @@ class AsyncLockManager:
         Returns:
             (memory_id, lock): Lock's memory_id and lock object, (None, None) if not found
         """
+        all_locks = await self._load_all_locks(user_id, app_id)
+        if not all_locks:
+            return None, None
+        return all_locks[0]
+
+    async def _load_all_locks(
+        self, user_id: str, app_id: str | None
+    ) -> list[tuple[str | None, DistributedLock | None]]:
+        """Load all lock records from AsyncMemory for a given resource.
+
+        Returns:
+            List of (memory_id, lock) tuples. Empty list if none found.
+        """
         filters = self._lock_filters(user_id, app_id)
 
         try:
-            result = await self.mem.get_all(user_id=user_id, limit=1, filters=filters)
+            result = await self.mem.get_all(user_id=user_id, limit=5, filters=filters)
             items = result.get("results", []) if isinstance(result, dict) else []
 
             if not items:
-                return None, None
+                return []
 
-            item = items[0]
-            memory_id = str(item.get("id") or "").strip() or None
-            lock_data = item.get("memory") or "{}"
-
-            try:
-                data = json.loads(lock_data)
-                lock = DistributedLock(**data)
-                return memory_id, lock
-            except (json.JSONDecodeError, TypeError, KeyError) as e:
-                logger.warning(f"Failed to parse lock data: {e}")
-                return memory_id, None
+            locks: list[tuple[str | None, DistributedLock | None]] = []
+            for item in items:
+                memory_id = str(item.get("id") or "").strip() or None
+                lock_data = item.get("memory") or "{}"
+                try:
+                    data = json.loads(lock_data)
+                    lock = DistributedLock(**data)
+                    locks.append((memory_id, lock))
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    logger.warning(f"Failed to parse lock data: {e}")
+                    locks.append((memory_id, None))
+            return locks
         except Exception as e:
-            logger.error(f"Failed to load lock: {e}")
-            return None, None
+            logger.error(f"Failed to load locks: {e}")
+            return []
 
     async def _save_lock(
         self, user_id: str, app_id: str | None, lock: DistributedLock
@@ -408,14 +453,31 @@ class AsyncLockManager:
         # 4. Persist lock
         new_memory_id = await self._save_lock(user_id, app_id, new_lock)
 
-        if new_memory_id:
-            logger.info(
-                f"Lock acquired by {holder_id} for user {user_id} (ttl: {ttl_seconds}s)"
-            )
-            return True, new_lock
+        if not new_memory_id:
+            logger.error(f"Failed to persist lock for user {user_id}")
+            return False, None
 
-        logger.error(f"Failed to persist lock for user {user_id}")
-        return False, None
+        # 5. Read-after-write verification: detect concurrent lock acquisition
+        all_locks = await self._load_all_locks(user_id, app_id)
+        valid_locks = [
+            (mid, lk) for mid, lk in all_locks if lk is not None and not lk.is_expired()
+        ]
+        if len(valid_locks) > 1:
+            # Multiple active locks — earliest acquired_at wins
+            valid_locks.sort(key=lambda x: x[1].acquired_at)
+            winner_mid, winner_lock = valid_locks[0]
+            if winner_lock.holder_id != holder_id:
+                # We lost the race — delete our lock
+                await self._delete_lock(new_memory_id)
+                logger.warning(
+                    f"Lock race lost: {holder_id} yielded to {winner_lock.holder_id}"
+                )
+                return False, winner_lock
+
+        logger.info(
+            f"Lock acquired by {holder_id} for user {user_id} (ttl: {ttl_seconds}s)"
+        )
+        return True, new_lock
 
     async def release_lock(
         self,
