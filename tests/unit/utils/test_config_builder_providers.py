@@ -157,15 +157,6 @@ class TestLLMProviders:
                 "max_tokens": 2000,
             },
         }),
-        ("mistral", {
-            "provider": "mistral",
-            "config": {
-                "model": "mistral-large-latest",
-                "temperature": 0.1,
-                "max_tokens": 2000,
-                "api_key": "mistral-key",
-            },
-        }),
         ("together", {
             "provider": "together",
             "config": {
@@ -1149,3 +1140,56 @@ class TestConfigValidation:
         cb._built_config_cache.clear()
         with pytest.raises(ValueError):
             build_local_mem0_config(creds)
+
+
+# ===========================================================================
+# mem0 provider registry validation
+# Verifies that every provider name used in this test file exists in mem0's
+# factory registry. Fails on mem0 upgrades that drop or rename a provider.
+# ===========================================================================
+
+from mem0.utils.factory import (  # noqa: E402
+    EmbedderFactory,
+    LlmFactory,
+    RerankerFactory,
+    VectorStoreFactory,
+)
+
+
+class TestProviderNamesInMem0Registry:
+    """Cross-check test fixture provider names against mem0's live factory maps."""
+
+    @pytest.mark.parametrize("name", [x[0] for x in TestLLMProviders.LLM_CONFIGS])
+    def test_llm_name_in_registry(self, name: str) -> None:
+        assert name in LlmFactory.provider_to_class, (
+            f"LLM provider '{name}' not in mem0 LlmFactory — removed or renamed?"
+        )
+
+    @pytest.mark.parametrize(
+        "provider",
+        list({cfg["provider"] for _, cfg in TestEmbedderProviders.EMBEDDER_CONFIGS}),
+    )
+    def test_embedder_name_in_registry(self, provider: str) -> None:
+        assert provider in EmbedderFactory.provider_to_class, (
+            f"Embedder provider '{provider}' not in mem0 EmbedderFactory — removed or renamed?"
+        )
+
+    @pytest.mark.parametrize(
+        "provider",
+        list({cfg["provider"] for _, cfg in TestVectorDBProviders.VECTOR_DB_CONFIGS})
+        + ["pgvector"],
+    )
+    def test_vector_store_name_in_registry(self, provider: str) -> None:
+        assert provider in VectorStoreFactory.provider_to_class, (
+            f"VectorStore provider '{provider}' not in mem0 VectorStoreFactory"
+            " — removed or renamed?"
+        )
+
+    @pytest.mark.parametrize(
+        "provider",
+        list({cfg["provider"] for _, cfg in TestRerankerProviders.RERANKER_CONFIGS}),
+    )
+    def test_reranker_name_in_registry(self, provider: str) -> None:
+        assert provider in RerankerFactory.provider_to_class, (
+            f"Reranker provider '{provider}' not in mem0 RerankerFactory — removed or renamed?"
+        )
