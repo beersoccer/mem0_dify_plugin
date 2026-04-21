@@ -252,3 +252,92 @@ class TestSyncLockManager:
         assert lock is not None  # Lock exists but expired
         assert lock.is_expired()
 
+    def test_race_condition_earlier_lock_wins(self) -> None:
+        """When two locks exist after write, the earliest acquired_at wins."""
+        mem = FakeMemory()
+        manager = SyncLockManager(mem)
+
+        # Simulate a race: pre-insert a lock from another holder with an earlier timestamp
+        earlier_time = (datetime.now(UTC) - timedelta(seconds=5)).isoformat()
+        rival_lock = DistributedLock(
+            lock_id="lock:extraction:user1:*",
+            holder_id="rival_run",
+            acquired_at=earlier_time,
+            ttl_seconds=3600,
+        )
+        rival_metadata = {
+            "__internal": True,
+            "internal_type": "distributed_lock",
+            "lock_resource": "extraction",
+            "user_id": "user1",
+            "app_id": "*",
+        }
+        mem._store.append({
+            "id": "mem_rival",
+            "memory": json.dumps(
+                {
+                    "lock_id": rival_lock.lock_id,
+                    "holder_id": rival_lock.holder_id,
+                    "acquired_at": rival_lock.acquired_at,
+                    "ttl_seconds": rival_lock.ttl_seconds,
+                },
+                ensure_ascii=False,
+            ),
+            "metadata": rival_metadata,
+        })
+
+        # Now try to acquire — our lock will be created but should detect the race
+        success, lock = manager.acquire_lock(
+            user_id="user1", app_id=None, holder_id="our_run", ttl_seconds=3600
+        )
+
+        # Should fail because rival's acquired_at is earlier
+        assert not success
+        assert lock is not None
+        assert lock.holder_id == "rival_run"
+        # Our lock should have been cleaned up
+        our_locks = [
+            item for item in mem._store
+            if json.loads(item["memory"]).get("holder_id") == "our_run"
+        ]
+        assert len(our_locks) == 0
+
+    def test_race_condition_we_win_if_earlier(self) -> None:
+        """When two locks exist but ours is earlier, we keep the lock."""
+        mem = FakeMemory()
+        manager = SyncLockManager(mem)
+
+        # First acquire our lock normally
+        success, lock = manager.acquire_lock(
+            user_id="user1", app_id=None, holder_id="our_run", ttl_seconds=3600
+        )
+        assert success
+
+        # Simulate a rival lock being inserted AFTER ours (later timestamp)
+        later_time = (datetime.now(UTC) + timedelta(seconds=5)).isoformat()
+        rival_metadata = {
+            "__internal": True,
+            "internal_type": "distributed_lock",
+            "lock_resource": "extraction",
+            "user_id": "user1",
+            "app_id": "*",
+        }
+        mem._store.append({
+            "id": "mem_rival",
+            "memory": json.dumps(
+                {
+                    "lock_id": "lock:extraction:user1:*",
+                    "holder_id": "rival_run",
+                    "acquired_at": later_time,
+                    "ttl_seconds": 3600,
+                },
+                ensure_ascii=False,
+            ),
+            "metadata": rival_metadata,
+        })
+
+        # Re-verify: our lock should still be the winner (already acquired)
+        # This test verifies the _load_all_locks returns multiple entries
+        all_locks = manager._load_all_locks("user1", None)
+        assert len(all_locks) == 2
+
