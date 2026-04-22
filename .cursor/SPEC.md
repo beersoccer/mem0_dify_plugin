@@ -200,3 +200,25 @@
   - README.md/CONFIG.md 已更新工具列表（10个工具）并补充 `extract_long_term_memory` 和 `check_extraction_status` 使用说明
   - AGENTS.md 已同步工具清单（10个工具）
   - CHANGELOG.md 和 manifest.yaml version 已更新到 v0.2.3
+
+---
+
+### 已实现（v0.3.0 — 2026-04-22）
+
+- ✅ **Checkpoint 可靠性**：
+  - `AsyncCheckpointManager.load()` 已恢复所有三个 resume cursor 字段（`resume_conversation_cursor`、`resume_run_at`、`resume_start_time`），修复了 async 模式下 `max_conversations_reached` 后续重跑无法续点的 P0 问题
+  - Checkpoint `save()` 改为先 add 后 delete，避免 add 失败时误删旧 checkpoint；`load()` 通过取最新的记录安全处理临时重复条目
+- ✅ **Distributed Lock 可靠性**：
+  - `acquire_lock()` 写入后执行 read-after-write 验证，新增 `_load_all_locks(limit=5)` 方法重读所有活跃锁；最早 `acquired_at` 获胜，失败方自删（解决 Mem0 最终一致性窗口内的竞争问题）
+  - `forget_memories` 新增 `_clean_expired_locks()` 清理过期分布式锁记录；返回结果增加 `locks_cleaned` 字段
+- ✅ **测试隔离**：
+  - `test_checkpoint.py` 中所有 async 路径改为 sync `def` + `_run_async()` 辅助函数，该函数在独立线程中通过 `asyncio.events._set_running_loop(None)` 清除继承的运行循环，彻底解决 pytest-asyncio AUTO 模式下 C 级 TSS 继承导致的 "Cannot run the event loop while another loop is running" 问题
+- ✅ **Provider 兼容门控**：
+  - 新增 `test_config_builder_providers.py`（117 个参数化测试）：89 个测试覆盖 LLM、Embedder、Vector DB、Reranker 的规范 provider 名称和关键配置字段；28 个测试交叉检验 mem0 工厂注册表，在 `mem0ai` 升级后新增/删除/重命名 provider 时立即失败
+  - 从 `LLM_CONFIGS` 中移除无效的 `mistral` provider（该 provider 不在 mem0 `LlmFactory` 注册表中）
+- ✅ **测试规模**：
+  - 单元测试从 v0.2.12 的约 380 个增长到 **471 个**，全部通过（`pytest tests/unit/ -q`）
+- ✅ **文档更新**：
+  - AGENTS.md 同步工具清单（12个工具）、完整 utils 模块列表、测试目录结构及设计说明
+  - SPEC.md 增加 v0.3.0 验收标准章节
+  - CHANGELOG.md、README.md、CONFIG.md、manifest.yaml、pyproject.toml 版本更新到 v0.3.0
