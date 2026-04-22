@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.2.12
+# Mem0 Dify Plugin v0.3.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-04-16
+Last updated: 2026-04-22
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -37,13 +37,21 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.2.12) - Dynamic Extract Params & Cohere SDK ✅
+### What's New (v0.3.0) - Checkpoint & Lock Reliability ✅
+- **Checkpoint and distributed lock reliability** (PR #44):
+  - Improved checkpoint write/read sequencing to eliminate rare race conditions under concurrent extraction tasks
+  - Strengthened distributed lock acquisition and release paths for more predictable behavior under load
+- **Async checkpoint test isolation**:
+  - Isolated async checkpoint tests from pytest-asyncio event loop pollution for more deterministic CI
+- **Provider compatibility gate & registry validation**:
+  - Added validation tests for LLMs, embedders, vector DBs, and rerankers to catch unsupported provider configurations early
+  - Removed the invalid `mistral` provider entry that caused silent failures during credential validation
+
+### Previous Updates (v0.2.12) - Dynamic Extract Params & Cohere SDK ✅
 - **Dynamic extraction tool inputs**:
   - Changed all `extract_long_term_memory` parameters to `form: llm` so Dify can bind system variables and upstream values more consistently
 - **Built-in Cohere reranker dependency**:
   - Added the `cohere>=6.1.0` runtime dependency and clarified SDK expectations for cloud rerankers in the docs
-
-These changes improve extraction workflow configurability in Dify while reducing manual setup for Cohere reranker users.
 
 ### Previous Updates (v0.2.11) - AsyncMemory Compatibility & Release Docs ✅
 - **AsyncMemory initialization compatibility**:
@@ -379,6 +387,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.3.0 | 2026-04-22 | Checkpoint and distributed lock reliability improvements, async checkpoint test isolation, provider compatibility gate and registry validation |
 | v0.2.12 | 2026-04-16 | Dynamic `extract_long_term_memory` parameter binding via `form: llm`, bundled Cohere SDK dependency, and reranker documentation refresh |
 | v0.2.11 | 2026-04-14 | AsyncMemory.from_config compatibility across mem0 variants, supported mem0 version range alignment, and release/test documentation refresh |
 | v0.2.10 | 2026-03-23 | Score semantics unification, memory evolution lifecycle, and new forget_memories maintenance controls |

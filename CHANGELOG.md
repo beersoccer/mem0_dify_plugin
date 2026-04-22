@@ -1,6 +1,21 @@
 # Mem0 Dify Plugin - Changelog
 
-## Unreleased
+## Version 0.3.0 (2026-04-22)
+
+### 🛠️ Reliability & Compatibility
+- **Checkpoint and distributed lock reliability** (PR #44):
+  - Improved checkpoint write/read sequencing to eliminate rare race conditions under concurrent extraction tasks
+  - Strengthened distributed lock acquisition and release paths for more predictable behavior under load
+- **Async checkpoint test isolation**:
+  - Isolated async checkpoint tests from pytest-asyncio event loop pollution to prevent cross-test contamination in CI
+  - Tests now use dedicated per-function event loops, making the suite more deterministic
+
+### ✅ Tests
+- **Provider compatibility gate**:
+  - Added compatibility validation tests for LLMs, embedders, vector DBs, and rerankers to catch unsupported provider configurations before runtime
+- **Mem0 registry validation**:
+  - Added registry smoke tests that validate supported provider names against the mem0 registry
+  - Removed the invalid `mistral` provider entry that caused silent failures during credential validation
 
 ---
 
