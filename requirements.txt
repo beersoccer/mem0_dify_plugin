@@ -7,3 +7,4 @@ psycopg[binary,pool]  # psycopg3 with connection pool support
 dify_plugin
 tiktoken  # Accurate token counting for conversation processing
 cohere>=6.1.0
+ollama==0.6.1
