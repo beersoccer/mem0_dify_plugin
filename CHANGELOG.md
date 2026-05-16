@@ -1,5 +1,21 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.3.1 (2026-05-16)
+
+### 🐛 Fixes
+- **Windows debugging environment: psycopg3 connection issue** (PR #47, credit: sususweet):
+  - Fixed `sending query failed: another command is already in progress` error on Windows caused by gevent's selector conflicting with ProactorEventLoop
+  - Added `asyncio.WindowsSelectorEventLoopPolicy()` on Windows to resolve the gevent/asyncio incompatibility at startup
+  - Made psycopg installation platform-conditional: psycopg3 (`psycopg[binary,pool]`) on Linux/macOS, psycopg2 (`psycopg2-binary`) on Windows only; mem0's built-in psycopg2 fallback handles the rest transparently
+- **Ollama provider: API key screen hang** (PR #46, credit: sususweet):
+  - Added missing `ollama` package to `pyproject.toml` so credential validation no longer stalls when Ollama is selected as the LLM provider
+
+### 🔧 Configuration / Defaults
+- **Write operation timeout increase** (PR #47):
+  - Raised `WRITE_OPERATION_TIMEOUT` from 15 s to 45 s; write operations include an extra LLM inference step (fact extraction) that can exceed 15 s on slower providers, causing silent background write failures in async mode
+
+---
+
 ## Version 0.3.0 (2026-04-22)
 
 ### 🛠️ Reliability & Compatibility
