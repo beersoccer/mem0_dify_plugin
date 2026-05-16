@@ -53,7 +53,7 @@ READ_OPERATION_TIMEOUT: int = 15
 # Write operations: default timeout for all write operations (add/update/delete/delete_all)
 # NOTE: In async_mode, write tools enqueue work and return immediately, but the background
 # operation still uses this timeout as a safeguard.
-WRITE_OPERATION_TIMEOUT: int = 15
+WRITE_OPERATION_TIMEOUT: int = 45
 
 # Dify API pagination constraints
 # Maximum items (conversations or messages) that can be fetched in a single API request

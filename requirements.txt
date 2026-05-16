@@ -3,7 +3,8 @@ openai
 azure-identity
 langchain-neo4j
 rank-bm25
-psycopg[binary,pool]  # psycopg3 with connection pool support
+psycopg[binary,pool] ; sys_platform != "win32"  # psycopg3 with connection pool support (non-Windows)
+psycopg2-binary      ; sys_platform == "win32"  # psycopg2 pool (Windows only)
 dify_plugin
 tiktoken  # Accurate token counting for conversation processing
 cohere>=6.1.0

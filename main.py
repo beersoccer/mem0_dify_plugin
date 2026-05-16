@@ -36,6 +36,8 @@ logger = get_logger(__name__)
 
 plugin = Plugin(DifyPluginEnv(MAX_REQUEST_TIMEOUT=MAX_REQUEST_TIMEOUT))
 
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 def _graceful_shutdown() -> None:
     logger.info("Initiating graceful shutdown of Mem0 plugin")

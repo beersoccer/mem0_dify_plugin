@@ -9,8 +9,9 @@ dependencies = [
   "azure-identity",
   "langchain-neo4j",
   "rank-bm25",
-  "psycopg[binary,pool]",
+  "psycopg[binary,pool] ; sys_platform != 'win32'",
   "dify_plugin",
+  "psycopg2-binary ; sys_platform == 'win32'",
   "tiktoken",
   "cohere>=6.1.0",
   "ollama==0.6.1"
