@@ -1,6 +1,6 @@
 [project]
 name = "mem0-dify-plugin"
-version = "0.3.0"
+version = "0.3.1"
 description = "Mem0 Dify plugin"
 requires-python = ">=3.12"
 dependencies = [

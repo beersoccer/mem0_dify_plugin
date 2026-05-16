@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.3.0
+# Mem0 Dify Plugin v0.3.1
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-04-22
+Last updated: 2026-05-16
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -37,7 +37,17 @@ A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelli
 - 🌍 **Internationalized** - Chinese/English
 - ⚙️ **Async Mode Switch** - `async_mode` is enabled by default; Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block until completion.
 
-### What's New (v0.3.0) - Checkpoint & Lock Reliability ✅
+### What's New (v0.3.1) - Windows Compatibility & Write Timeout Fix ✅
+- **Windows debugging environment support** (PR #47, credit: sususweet):
+  - Fixed psycopg3 connection errors on Windows (gevent selector conflict with ProactorEventLoop)
+  - Added `asyncio.WindowsSelectorEventLoopPolicy()` on Windows at plugin startup
+  - Conditional psycopg dependency: psycopg3 on Linux/macOS (production), psycopg2 on Windows (local debugging)
+- **Write operation timeout** (PR #47):
+  - Raised `WRITE_OPERATION_TIMEOUT` from 15 s to 45 s to reduce silent write failures on slower LLM providers
+- **Ollama provider fix** (PR #46, credit: sususweet):
+  - Added missing `ollama` dependency so the API-key validation screen no longer hangs when Ollama is selected
+
+### Previous Updates (v0.3.0) - Checkpoint & Lock Reliability ✅
 - **Checkpoint and distributed lock reliability** (PR #44):
   - Improved checkpoint write/read sequencing to eliminate rare race conditions under concurrent extraction tasks
   - Strengthened distributed lock acquisition and release paths for more predictable behavior under load
@@ -387,6 +397,7 @@ done
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.3.1 | 2026-05-16 | Windows psycopg3 connection fix, conditional psycopg platform dependency, write timeout 15→45 s, Ollama dependency fix |
 | v0.3.0 | 2026-04-22 | Checkpoint and distributed lock reliability improvements, async checkpoint test isolation, provider compatibility gate and registry validation |
 | v0.2.12 | 2026-04-16 | Dynamic `extract_long_term_memory` parameter binding via `form: llm`, bundled Cohere SDK dependency, and reranker documentation refresh |
 | v0.2.11 | 2026-04-14 | AsyncMemory.from_config compatibility across mem0 variants, supported mem0 version range alignment, and release/test documentation refresh |
