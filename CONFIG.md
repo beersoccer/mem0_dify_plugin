@@ -550,9 +550,16 @@ In Dify workflow, add the `add_memory` tool and configure the following paramete
 
 **Optional Parameters:**
 - `assistant`: Assistant response (e.g., "Great! I'll remember that.")
+- `infer`: Enable LLM analysis (default: `true`). Set to `false` to store the user/assistant conversation as raw text without LLM extraction or memory evolution.
+- `custom_fact_extraction_prompt`: Optional prompt for this add operation when `infer=true`. It replaces Mem0's default fact extraction instructions for this call only. The conversation content is appended automatically, so the prompt should describe what to extract and require JSON output in the form `{"facts": ["..."]}`.
 - `agent_id`: Agent identifier for scoping (recommended to use Dify's `app_id` for stable scoping)
 - `run_id`: Workflow run ID for tracing (recommended to use Dify's `workflow_run_id`)
 - `metadata`: Custom JSON metadata string (e.g., `{"type": "preference", "priority": "high"}`)
+
+**Per-call analysis behavior:**
+- `infer=true` + empty prompt: use Mem0's default extraction prompt.
+- `infer=true` + custom prompt: use the custom prompt only for this invocation; concurrent calls keep their own prompt configuration.
+- `infer=false`: ignore the custom prompt and store the raw conversation.
 
 ### Search Memory
 

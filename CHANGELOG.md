@@ -1,5 +1,15 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.3.2 (2026-07-28)
+
+### ✨ Enhancements
+- **Per-call add memory mode**:
+  - Added an `infer` switch to the Dify `add_memory` tool so each invocation can choose LLM analysis or raw conversation storage.
+  - Added `custom_fact_extraction_prompt` for a per-call Mem0 fact extraction prompt without changing global provider credentials.
+  - Isolated prompt overrides with a lightweight Mem0 facade copy so concurrent add requests cannot leak prompt configuration into one another.
+
+---
+
 ## Version 0.3.1 (2026-05-16)
 
 ### 🐛 Fixes

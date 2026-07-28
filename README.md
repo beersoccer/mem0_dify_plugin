@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin v0.3.1
+# Mem0 Dify Plugin v0.3.2
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
@@ -165,6 +165,8 @@ In Dify workflow, add the `add_memory` tool and configure the following paramete
 
 **Optional Parameters:**
 - `assistant`: Assistant response (e.g., "Great! I'll remember that.")
+- `infer`: Enable LLM analysis (default: `true`). Set to `false` to store the raw conversation without extraction.
+- `custom_fact_extraction_prompt`: Per-call fact extraction prompt used when `infer=true`. Leave empty to use the Mem0 default prompt; conversation content is appended automatically and the prompt must return `{"facts": ["..."]}` JSON.
 - `agent_id`: Agent identifier for scoping
 - `run_id`: Workflow run ID for tracing (recommended to use Dify's `workflow_run_id`)
 - `metadata`: Custom JSON metadata string

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import hashlib
 import json
 import logging
@@ -91,6 +92,57 @@ def _patch_llm_compat(llm: Any) -> None:
         return response.choices[0].message.content
 
     llm._parse_response = MethodType(_parse_response, llm)
+
+
+def _clone_memory_with_fact_extraction_prompt(memory: Any, prompt: str) -> Any:
+    """Clone a Mem0 facade with a per-call fact extraction prompt.
+
+    Mem0 reads ``custom_fact_extraction_prompt`` from the memory config during
+    infer-based adds. A shallow facade copy keeps the expensive LLM, embedder,
+    stores, and history resources shared while isolating the prompt config from
+    other concurrent add requests.
+    """
+    cloned_memory = copy.copy(memory)
+    original_config = getattr(memory, "config", None)
+    if original_config is None:
+        raise ValueError("Mem0 memory config is unavailable for prompt override")
+
+    if isinstance(original_config, dict):
+        cloned_config = original_config.copy()
+        cloned_config["custom_fact_extraction_prompt"] = prompt
+    else:
+        model_copy = getattr(original_config, "model_copy", None)
+        legacy_copy = getattr(original_config, "copy", None)
+        if callable(model_copy):
+            cloned_config = model_copy(
+                update={"custom_fact_extraction_prompt": prompt}
+            )
+        elif callable(legacy_copy):
+            try:
+                cloned_config = legacy_copy(
+                    update={"custom_fact_extraction_prompt": prompt}
+                )
+            except TypeError:
+                cloned_config = copy.copy(original_config)
+                cloned_config.custom_fact_extraction_prompt = prompt
+        else:
+            cloned_config = copy.copy(original_config)
+            cloned_config.custom_fact_extraction_prompt = prompt
+
+    cloned_memory.config = cloned_config
+    if hasattr(cloned_memory, "custom_fact_extraction_prompt"):
+        cloned_memory.custom_fact_extraction_prompt = prompt
+    return cloned_memory
+
+
+def _get_custom_fact_extraction_prompt(payload: dict[str, Any]) -> str | None:
+    """Return a normalized per-call prompt override."""
+    raw_prompt = payload.get("custom_fact_extraction_prompt")
+    if not isinstance(raw_prompt, str):
+        return None
+    prompt = raw_prompt.strip()
+    return prompt or None
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -463,6 +515,8 @@ class SyncMem0Client:
                   Can be a dict or a JSON string.
                 - infer (bool, optional): If True (default), uses LLM to extract key facts
                   and manage memories.
+                - custom_fact_extraction_prompt (str, optional): Per-call prompt used
+                  for fact extraction when infer=True.
                 - memory_type (str, optional): Type of memory. Defaults to conversational or factual.
                   Use "procedural_memory" for procedural type.
                 - prompt (str, optional): Custom prompt to use for memory creation.
@@ -494,6 +548,9 @@ class SyncMem0Client:
         # This ensures memory extraction happens even if Mem0's default behavior changes
         infer = payload.get("infer", True)
         kwargs["infer"] = infer
+        custom_prompt = (
+            _get_custom_fact_extraction_prompt(payload) if infer else None
+        )
 
         # Use messages directly if provided; assume upstream has validated inputs
         messages = payload.get("messages")
@@ -502,14 +559,21 @@ class SyncMem0Client:
                 sorted(metadata.keys()) if isinstance(metadata, dict) else None
             )
             logger.debug(
-                "Mem0 add request summary (sync): ids=%s infer=%s metadata_keys=%s messages=%s",
+                "Mem0 add request summary (sync): ids=%s infer=%s custom_prompt=%s "
+                "metadata_keys=%s messages=%s",
                 _summarize_ids(kwargs),
                 infer,
+                bool(custom_prompt),
                 metadata_keys,
                 _summarize_messages(messages),
             )
         try:
-            result = self.memory.add(messages, **kwargs)
+            memory = (
+                _clone_memory_with_fact_extraction_prompt(self.memory, custom_prompt)
+                if custom_prompt
+                else self.memory
+            )
+            result = memory.add(messages, **kwargs)
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -1049,6 +1113,8 @@ class AsyncMem0Client:
                   Can be a dict or a JSON string.
                 - infer (bool, optional): If True (default), uses LLM to extract key facts
                   and manage memories.
+                - custom_fact_extraction_prompt (str, optional): Per-call prompt used
+                  for fact extraction when infer=True.
                 - memory_type (str, optional): Type of memory. Defaults to conversational or factual.
                   Use "procedural_memory" for procedural type.
                 - prompt (str, optional): Custom prompt to use for memory creation.
@@ -1082,6 +1148,9 @@ class AsyncMem0Client:
         # This ensures memory extraction happens even if Mem0's default behavior changes
         infer = payload.get("infer", True)
         kwargs["infer"] = infer
+        custom_prompt = (
+            _get_custom_fact_extraction_prompt(payload) if infer else None
+        )
 
         messages = payload.get("messages")
         # Skip add when messages is empty/blank, return response aligned with mem0 add result shape
@@ -1104,17 +1173,23 @@ class AsyncMem0Client:
         )
 
         async def _call() -> object:
-            return await self.memory.add(messages, **kwargs)
+            memory = (
+                _clone_memory_with_fact_extraction_prompt(self.memory, custom_prompt)
+                if custom_prompt
+                else self.memory
+            )
+            return await memory.add(messages, **kwargs)
 
         if logger.isEnabledFor(logging.DEBUG):
             metadata_keys = (
                 sorted(metadata.keys()) if isinstance(metadata, dict) else None
             )
             logger.debug(
-                "Mem0 add request summary (async): ids=%s infer=%s metadata_keys=%s "
-                "messages=%s timeout_s=%s",
+                "Mem0 add request summary (async): ids=%s infer=%s custom_prompt=%s "
+                "metadata_keys=%s messages=%s timeout_s=%s",
                 _summarize_ids(kwargs),
                 infer,
+                bool(custom_prompt),
                 metadata_keys,
                 _summarize_messages(messages),
                 timeout,
