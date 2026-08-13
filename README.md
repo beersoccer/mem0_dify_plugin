@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.3.2
+# Mem0 Dify Plugin Miku v0.3.14
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-05-16
+Last updated: 2026-07-31
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 

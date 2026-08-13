@@ -5,7 +5,7 @@ langchain-neo4j
 rank-bm25
 psycopg[binary,pool] ; sys_platform != "win32"  # psycopg3 with connection pool support (non-Windows)
 psycopg2-binary      ; sys_platform == "win32"  # psycopg2 pool (Windows only)
-dify_plugin
+dify-plugin==0.7.1
 tiktoken  # Accurate token counting for conversation processing
 cohere>=6.1.0
 ollama==0.6.1

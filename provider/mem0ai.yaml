@@ -1,12 +1,12 @@
 identity:
-  author: beersoccer
-  name: mem0ai
+  author: mikuagent
+  name: mem0ai_miku
   label:
-    en_US: mem0ai
-    zh_Hans: mem0ai
+    en_US: Mem0 AI Miku
+    zh_Hans: Mem0 AI Miku
   description:
-    en_US: mem0ai plugin, self-hosted mode, async_mode enabled by default.
-    zh_Hans: mem0ai 插件，自托管模式，async_mode 默认开启。
+    en_US: Mem0 AI Miku plugin, self-hosted mode, async_mode enabled by default.
+    zh_Hans: Mem0 AI Miku 插件，自托管模式，async_mode 默认开启。
   icon: mem0_plugin.png
   tags:
     - utilities

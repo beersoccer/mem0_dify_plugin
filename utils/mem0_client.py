@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import copy
 import hashlib
+import inspect
 import json
 import logging
 import threading
@@ -29,6 +30,7 @@ from .constants import (
 )
 from .helpers import parse_positive_int
 from .logger import get_logger
+from .logging_utils import format_for_logging
 from .resource_cleanup import close_memory_resources
 from .score_utils import get_score_mode
 from .task_tracker import TaskTracker
@@ -44,16 +46,28 @@ logger = get_logger(__name__)
 _mem0_init_lock = threading.Lock()
 
 
-async def _resolve_async_memory_from_config(config: dict[str, Any]) -> AsyncMemory:
-    """Support both old and new mem0 AsyncMemory.from_config semantics.
+def _resolve_sync_async_memory_from_config(config: dict[str, Any]) -> Any:
+    """Run synchronous AsyncMemory initialization while owning the process lock."""
+    with _mem0_init_lock:
+        return AsyncMemory.from_config(config)
 
-    Older mem0 releases exposed ``AsyncMemory.from_config`` as an async
-    classmethod, while newer releases return an ``AsyncMemory`` instance
-    directly.  Dify's async validation path always calls ``create()``, so we
-    normalize both forms here and keep the rest of the client code unchanged.
-    """
-    memory_or_awaitable = AsyncMemory.from_config(config)
-    if asyncio.iscoroutine(memory_or_awaitable):
+
+async def _resolve_async_memory_from_config(config: dict[str, Any]) -> AsyncMemory:
+    """Support async and synchronous ``AsyncMemory.from_config`` implementations."""
+    from_config = AsyncMemory.from_config
+    if inspect.iscoroutinefunction(from_config):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _mem0_init_lock.acquire)
+        try:
+            return await from_config(config)
+        finally:
+            _mem0_init_lock.release()
+
+    memory_or_awaitable = await asyncio.to_thread(
+        _resolve_sync_async_memory_from_config,
+        config,
+    )
+    if inspect.isawaitable(memory_or_awaitable):
         return await memory_or_awaitable
     return memory_or_awaitable
 
@@ -92,6 +106,147 @@ def _patch_llm_compat(llm: Any) -> None:
         return response.choices[0].message.content
 
     llm._parse_response = MethodType(_parse_response, llm)
+
+
+def _llm_request_context(llm: Any, params: dict[str, Any]) -> tuple[str, str, str]:
+    """Return provider, model, and final chat-completions endpoint for logs."""
+    provider = type(llm).__module__.rsplit(".", maxsplit=1)[-1] or type(llm).__name__
+    config = getattr(llm, "config", None)
+    model = str(params.get("model") or getattr(config, "model", "") or "<unknown>")
+
+    client = getattr(llm, "client", None)
+    base_url = str(getattr(client, "base_url", "") or "").rstrip("/")
+    endpoint = f"{base_url}/chat/completions" if base_url else "<unknown>"
+    return provider, model, endpoint
+
+
+def _response_content_summary(response: Any) -> dict[str, Any]:
+    """Extract the fields Mem0 consumes from an OpenAI-compatible response."""
+    try:
+        message = response.choices[0].message
+    except (AttributeError, IndexError, TypeError):
+        return {
+            "content": None,
+            "reasoning_content_present": False,
+            "reasoning_content_length": 0,
+        }
+
+    content = getattr(message, "content", None)
+    reasoning_content = getattr(message, "reasoning_content", None)
+    return {
+        "content": content,
+        "reasoning_content_present": reasoning_content is not None,
+        "reasoning_content_length": (
+            len(reasoning_content) if isinstance(reasoning_content, str) else 0
+        ),
+    }
+
+
+def _log_llm_request(llm: Any, params: dict[str, Any]) -> tuple[str, str, str]:
+    """Log the exact kwargs handed to the OpenAI SDK."""
+    provider, model, endpoint = _llm_request_context(llm, params)
+    logger.info(
+        "Mem0 LLM request: provider=%s model=%s endpoint=%s body=%s",
+        provider,
+        model,
+        endpoint,
+        format_for_logging(params),
+    )
+    return provider, model, endpoint
+
+
+def _log_llm_response(
+    response: Any,
+    *,
+    provider: str,
+    model: str,
+    endpoint: str,
+) -> None:
+    """Log the raw provider response and the content Mem0 will parse."""
+    logger.info(
+        "Mem0 LLM raw response: provider=%s model=%s endpoint=%s response=%s",
+        provider,
+        model,
+        endpoint,
+        format_for_logging(response),
+    )
+    logger.info(
+        "Mem0 LLM parsed response candidate: provider=%s model=%s fields=%s",
+        provider,
+        model,
+        format_for_logging(_response_content_summary(response)),
+    )
+
+
+def _install_llm_observability(llm: Any) -> None:
+    """Install request/response INFO logging on an OpenAI-compatible LLM once."""
+    if llm is None:
+        return
+
+    client = getattr(llm, "client", None)
+    chat = getattr(client, "chat", None)
+    completions = getattr(chat, "completions", None)
+    original_create = getattr(completions, "create", None)
+    if completions is None or not callable(original_create):
+        return
+    if getattr(completions, "_mem0_dify_observability_installed", False):
+        return
+
+    if inspect.iscoroutinefunction(original_create):
+
+        async def _logged_async_create(
+            *args: Any,
+            **kwargs: Any,
+        ) -> Any:
+            provider, model, endpoint = _log_llm_request(llm, kwargs)
+            try:
+                response = await original_create(*args, **kwargs)
+            except Exception:
+                logger.exception(
+                    "Mem0 LLM request failed: provider=%s model=%s endpoint=%s",
+                    provider,
+                    model,
+                    endpoint,
+                )
+                raise
+            _log_llm_response(
+                response,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+            )
+            return response
+
+        logged_create = _logged_async_create
+    else:
+
+        def _logged_sync_create(*args: Any, **kwargs: Any) -> Any:
+            provider, model, endpoint = _log_llm_request(llm, kwargs)
+            try:
+                response = original_create(*args, **kwargs)
+            except Exception:
+                logger.exception(
+                    "Mem0 LLM request failed: provider=%s model=%s endpoint=%s",
+                    provider,
+                    model,
+                    endpoint,
+                )
+                raise
+            _log_llm_response(
+                response,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+            )
+            return response
+
+        logged_create = _logged_sync_create
+
+    try:
+        completions.create = logged_create
+        completions._mem0_dify_observability_installed = True
+    except Exception:
+        logger.exception("Failed to install Mem0 LLM request/response logging")
 
 
 def _clone_memory_with_fact_extraction_prompt(memory: Any, prompt: str) -> Any:
@@ -358,6 +513,7 @@ class SyncMem0Client:
         with _mem0_init_lock:
             self.memory = Memory.from_config(config)
         _patch_llm_compat(getattr(self.memory, "llm", None))
+        _install_llm_observability(getattr(self.memory, "llm", None))
 
         # Determine how raw vector store scores should be interpreted.
         self.score_mode: str = get_score_mode(credentials)
@@ -791,8 +947,11 @@ class AsyncMem0Client:
             # its own independent pool (created lazily in create()).
             self.config = copy.deepcopy(build_local_mem0_config(credentials))
         self.memory = None
-        # Async lock to protect one-time asynchronous initialization.
+        # Concurrent callers share one shielded initialization task. If an
+        # operation times out, initialization continues instead of being cancelled
+        # and restarted while the worker thread still owns the process lock.
         self._create_lock = asyncio.Lock()
+        self._create_task: asyncio.Task[AsyncMemory] | None = None
 
         # Determine how raw vector store scores should be interpreted.
         self.score_mode: str = get_score_mode(credentials)
@@ -888,46 +1047,47 @@ class AsyncMem0Client:
         """
         TaskTracker.track_bg_task(future, task_name)
 
+    async def _initialize_memory(self) -> AsyncMemory:
+        """Create and configure the shared AsyncMemory instance."""
+        from .pgvector_config import attach_pgvector_pool
+
+        if "vector_store" in self.config and isinstance(
+            self.config["vector_store"], dict
+        ):
+            vs_cfg = self.config["vector_store"].get("config")
+            if isinstance(vs_cfg, dict):
+                await asyncio.to_thread(attach_pgvector_pool, vs_cfg)
+
+        memory = await _resolve_async_memory_from_config(self.config)
+        _patch_llm_compat(getattr(memory, "llm", None))
+        _install_llm_observability(getattr(memory, "llm", None))
+        self.memory = memory
+        logger.debug("AsyncMemory instance created")
+
+        if self._enable_keepalive and self._keepalive is None:
+            self._keepalive = ConnectionKeepAlive(
+                memory=memory,
+                interval=self._keepalive_interval,
+            )
+            self._keepalive.start()
+        return memory
+
     async def create(self) -> AsyncMemory:
-        """Lazily create AsyncMemory once."""
+        """Lazily create AsyncMemory once without blocking the event loop."""
         if self.memory is not None:
             return self.memory
+
         async with self._create_lock:
-            if self.memory is None:
-                # Attach an independent connection pool to this instance's config copy
-                # before handing it to AsyncMemory.from_config().  The pool is owned
-                # exclusively by this client instance and is closed in aclose().
-                from .pgvector_config import attach_pgvector_pool
+            if self.memory is not None:
+                return self.memory
+            if self._create_task is None or (
+                self._create_task.cancelled()
+                or self._create_task.done() and self._create_task.exception() is not None
+            ):
+                self._create_task = asyncio.create_task(self._initialize_memory())
+            create_task = self._create_task
 
-                if "vector_store" in self.config and isinstance(
-                    self.config["vector_store"], dict
-                ):
-                    vs_cfg = self.config["vector_store"].get("config")
-                    if isinstance(vs_cfg, dict):
-                        attach_pgvector_pool(vs_cfg)
-
-                # Acquire the process-level init lock in a thread to avoid blocking
-                # the event loop. This serialises concurrent from_config() calls and
-                # prevents pgvector's CREATE EXTENSION from racing across sessions.
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, _mem0_init_lock.acquire)
-                try:
-                    self.memory = await _resolve_async_memory_from_config(self.config)
-                finally:
-                    _mem0_init_lock.release()
-                _patch_llm_compat(getattr(self.memory, "llm", None))
-                logger.debug("AsyncMemory instance created")
-
-                # Start connection keep-alive after memory is created
-                if self._enable_keepalive and self._keepalive is None:
-                    # Note: ConnectionKeepAlive works with both Memory and AsyncMemory
-                    # as it accesses the underlying clients directly
-                    self._keepalive = ConnectionKeepAlive(
-                        memory=self.memory,
-                        interval=self._keepalive_interval,
-                    )
-                    self._keepalive.start()
-        return self.memory
+        return await asyncio.shield(create_task)
 
     async def aclose(self) -> None:
         """Close and cleanup resources held by AsyncMemory.

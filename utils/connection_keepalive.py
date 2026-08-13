@@ -123,7 +123,7 @@ class ConnectionKeepAlive:
 
     def _run(self) -> None:
         """Heartbeat loop running in background thread."""
-        while not self._stop_event.is_set():
+        while not self._stop_event.wait(self.interval):
             try:
                 self._heartbeat_all()
                 logger.debug(
@@ -131,9 +131,6 @@ class ConnectionKeepAlive:
                 )
             except Exception as e:
                 logger.warning("Error in heartbeat loop: %s", e)
-
-            # Wait for interval, but can be interrupted by stop event
-            self._stop_event.wait(self.interval)
 
     def start(self) -> None:
         """Start the heartbeat thread."""

@@ -23,6 +23,8 @@ from .logger import get_logger
 
 logger = get_logger(__name__)
 
+PGVECTOR_HNSW_MAX_VECTOR_DIMS = 2000
+
 
 def _extract_pool_parameters(
     normalized: dict[str, Any],
@@ -632,13 +634,39 @@ def normalize_pgvector_config(
         if key in config and config[key] is not None:
             normalized[key] = config[key]
 
+    raw_embedding_dims = normalized.get("embedding_model_dims", 1536)
+    try:
+        embedding_dims = int(raw_embedding_dims)
+    except (TypeError, ValueError):
+        embedding_dims = 1536
+
     # Default index strategy (safety net):
-    # If user doesn't explicitly specify either `hnsw` or `diskann`, default to HNSW.
-    # This matches Mem0's PGVectorConfig defaults and avoids "no index" surprises when
-    # users only provide connection_string + pool sizing.
+    # Standard pgvector HNSW indexes using the vector type support at most 2000
+    # dimensions. Higher-dimensional embeddings remain valid for exact search, so
+    # disable automatic index creation instead of letting credential validation fail.
     if "hnsw" not in normalized and "diskann" not in normalized:
-        normalized["hnsw"] = True
+        normalized["hnsw"] = embedding_dims <= PGVECTOR_HNSW_MAX_VECTOR_DIMS
         normalized["diskann"] = False
+
+        if not normalized["hnsw"]:
+            logger.warning(
+                "Disabling default PGVector HNSW index because "
+                "embedding_model_dims=%d exceeds the %d-dimension vector limit. "
+                "Exact vector search will be used.",
+                embedding_dims,
+                PGVECTOR_HNSW_MAX_VECTOR_DIMS,
+            )
+    elif (
+        normalized.get("hnsw") is True
+        and embedding_dims > PGVECTOR_HNSW_MAX_VECTOR_DIMS
+    ):
+        raise ValueError(
+            "PGVector hnsw=true supports at most "
+            f"{PGVECTOR_HNSW_MAX_VECTOR_DIMS} dimensions for vector indexes; "
+            f"received embedding_model_dims={embedding_dims}. "
+            "Set hnsw=false and diskann=false, or use an embedding model with "
+            "2000 dimensions or fewer."
+        )
 
     # Handle connection parameters according to priority:
     # 1. connection_pool (highest priority) - overrides everything
