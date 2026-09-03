@@ -15,7 +15,9 @@ from utils.mem0_client import get_async_client, get_sync_client
 from utils.memory_tool_helpers import (
     execute_async_read_operation,
     init_request_context,
+    memory_matches_scope,
     validate_memory_id,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -79,6 +81,8 @@ class GetMemoryTool(Tool):
         return {
             "id": result.get("id"),
             "memory": result.get("memory"),
+            "user_id": result.get("user_id"),
+            "agent_id": result.get("agent_id"),
             "metadata": result.get("metadata", {}),
             "created_at": result.get("created_at"),
             "updated_at": result.get("updated_at", ""),
@@ -133,11 +137,21 @@ class GetMemoryTool(Tool):
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
-        # Validate memory_id
         memory_id = validate_memory_id(tool_parameters)
         if not memory_id:
             yield from yield_error(
                 self, request_id, "memory_id is required", "get memory", {}
+            )
+            return
+
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
+            yield from yield_error(
+                self,
+                request_id,
+                scope_error or "user_id and agent_id are required",
+                "get memory",
+                {},
             )
             return
 
@@ -182,6 +196,22 @@ class GetMemoryTool(Tool):
                     mode_str,
                     start_time,
                 )
+
+            if result and not memory_matches_scope(
+                result,
+                user_id=user_id,
+                agent_id=agent_id,
+            ):
+                logger.warning(
+                    "[req:%s] Memory scope mismatch "
+                    "(memory_id: %s, user_id: %s, agent_id: %s)",
+                    request_id,
+                    memory_id,
+                    user_id,
+                    agent_id,
+                )
+                result = None
+                error_type = "NOT_FOUND"
 
             # Check if memory exists or if operation failed
             if not result or not isinstance(result, dict):

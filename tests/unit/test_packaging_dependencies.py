@@ -1,7 +1,6 @@
 import tomllib
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DIFY_PLUGIN_DEPENDENCY = "dify-plugin==0.7.1"
 

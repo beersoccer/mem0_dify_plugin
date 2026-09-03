@@ -43,6 +43,7 @@ def test_add_memory_async_overload_skips_enqueue(
         tool._invoke(
             {
                 "user_id": "u1",
+                "agent_id": "bot-1",
                 "user": "hi",
                 "assistant": "",
                 "timeout": 1,

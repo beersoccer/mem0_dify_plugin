@@ -55,7 +55,9 @@ def test_forget_memories_dry_run_does_not_delete_or_save() -> None:
         patch("tools.forget_memories.retention_info", return_value={"forget": True}),
         patch("tools.forget_memories.days_since", return_value=1.0),
     ):
-        messages = list(tool._invoke({"user_id": "u1", "dry_run": True}))
+        messages = list(
+            tool._invoke({"user_id": "u1", "app_id": "bot-1", "dry_run": True})
+        )
 
     # No deletion and no access-log save in dry-run mode.
     mem.delete.assert_not_called()
@@ -104,7 +106,9 @@ def test_forget_memories_updates_log_with_only_successfully_deleted_ids() -> Non
         patch("tools.forget_memories.should_forget", return_value=True),
         patch("tools.forget_memories.retention_info", return_value={"forget": True}),
     ):
-        list(tool._invoke({"user_id": "u1", "dry_run": False}))
+        list(
+            tool._invoke({"user_id": "u1", "app_id": "bot-1", "dry_run": False})
+        )
 
     # Only m2 delete succeeds, so save() must keep m1 and remove m2.
     assert mem.delete.call_count == 2
@@ -137,7 +141,9 @@ def test_forget_memories_deletes_old_checkpoints_in_real_run() -> None:
         patch("tools.forget_memories.SyncAccessLogManager", return_value=mgr),
         patch("tools.forget_memories.days_since", return_value=1.0),
     ):
-        messages = list(tool._invoke({"user_id": "u1", "dry_run": False}))
+        messages = list(
+            tool._invoke({"user_id": "u1", "app_id": "bot-1", "dry_run": False})
+        )
 
     # Newest checkpoint is fresh, so only stale duplicates are deleted.
     deleted_ids = [call.args[0] for call in mem.delete.call_args_list]
@@ -262,7 +268,9 @@ def test_forget_memories_includes_locks_cleaned_in_result() -> None:
         patch("tools.forget_memories.get_sync_client", return_value=client),
         patch("tools.forget_memories.SyncAccessLogManager", return_value=mgr),
     ):
-        messages = list(tool._invoke({"user_id": "u1", "dry_run": False}))
+        messages = list(
+            tool._invoke({"user_id": "u1", "app_id": "bot-1", "dry_run": False})
+        )
 
     payload = _extract_json_payload(messages[0])
     assert payload.get("status") == "SUCCESS"

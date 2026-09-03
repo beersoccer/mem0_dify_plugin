@@ -36,8 +36,14 @@ class GetUserCheckpointTool(Tool):
                 yield self.create_text_message(f"Failed to get checkpoint: {msg}")
                 return
 
-            raw_app_id = (tool_parameters.get("app_id") or "").strip()
-            app_id = raw_app_id or None
+            app_id = (tool_parameters.get("app_id") or "").strip()
+            if not app_id:
+                msg = "app_id is required"
+                yield self.create_json_message(
+                    {"status": "ERROR", "messages": msg, "results": []}
+                )
+                yield self.create_text_message(f"Failed to get checkpoint: {msg}")
+                return
 
             base_cfg = build_local_mem0_config_without_pool(self.runtime.credentials)
             client = SyncMem0Client(

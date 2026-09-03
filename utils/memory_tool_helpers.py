@@ -71,7 +71,51 @@ def validate_user_id(
     tool_parameters: dict[str, Any],
 ) -> str | None:
     """Validate user_id parameter and return it or None if invalid."""
-    return tool_parameters.get("user_id")
+    value = tool_parameters.get("user_id")
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def validate_agent_id(
+    tool_parameters: dict[str, Any],
+) -> str | None:
+    """Validate agent_id parameter and return it or None if invalid."""
+    value = tool_parameters.get("agent_id")
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def validate_memory_scope(
+    tool_parameters: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
+    """Validate the required user/agent namespace for memory operations."""
+    user_id = validate_user_id(tool_parameters)
+    if not user_id:
+        return (None, None, "user_id is required")
+
+    agent_id = validate_agent_id(tool_parameters)
+    if not agent_id:
+        return (user_id, None, "agent_id is required")
+
+    return (user_id, agent_id, None)
+
+
+def memory_matches_scope(
+    memory: object,
+    *,
+    user_id: str,
+    agent_id: str,
+) -> bool:
+    """Return whether a memory belongs to the required user/agent namespace."""
+    if not isinstance(memory, dict):
+        return False
+    memory_user_id = str(memory.get("user_id") or "").strip()
+    memory_agent_id = str(memory.get("agent_id") or "").strip()
+    return memory_user_id == user_id and memory_agent_id == agent_id
 
 
 def validate_memory_id(

@@ -22,7 +22,7 @@ from utils.mem0_client import (
 )
 from utils.memory_tool_helpers import (
     init_request_context,
-    validate_user_id,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -43,22 +43,22 @@ class DeleteAllMemoriesTool(Tool):
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
-        # Validate required user_id
-        user_id = validate_user_id(tool_parameters)
-        if not user_id:
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
             yield from yield_error(
                 self,
                 request_id,
-                "user_id is required",
+                scope_error or "user_id and agent_id are required",
                 "delete all memories",
                 {},
             )
             return
 
         # Build params (NOTE: run_id is NOT included - it's only used for request tracing)
-        params: dict[str, Any] = {"user_id": user_id}
-        if tool_parameters.get("agent_id"):
-            params["agent_id"] = tool_parameters["agent_id"]
+        params: dict[str, Any] = {
+            "user_id": user_id,
+            "agent_id": agent_id,
+        }
 
         try:
             async_mode = is_async_mode(self.runtime.credentials)

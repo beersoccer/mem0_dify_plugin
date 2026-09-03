@@ -227,7 +227,13 @@ class ForgetMemoriesTool(Tool):
             )
             return
 
-        app_id: str | None = tool_parameters.get("app_id") or None
+        app_id = str(tool_parameters.get("app_id") or "").strip()
+        if not app_id:
+            yield from yield_error(
+                self, request_id, "app_id is required", "forget memories", {}
+            )
+            return
+
         dry_run: bool = bool(tool_parameters.get("dry_run", False))
 
         try:

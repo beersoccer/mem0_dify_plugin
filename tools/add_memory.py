@@ -23,7 +23,7 @@ from utils.mem0_client import (
 )
 from utils.memory_tool_helpers import (
     init_request_context,
-    validate_user_id,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -72,14 +72,15 @@ class AddMemoryTool(Tool):
         self,
         messages: list[dict[str, str]],
         user_id: str,
+        agent_id: str,
         tool_parameters: dict[str, Any],
     ) -> dict[str, Any]:
         """Build payload from messages and optional parameters."""
-        payload: dict[str, Any] = {"messages": messages, "user_id": user_id}
-
-        agent_id = tool_parameters.get("agent_id")
-        if agent_id:
-            payload["agent_id"] = agent_id
+        payload: dict[str, Any] = {
+            "messages": messages,
+            "user_id": user_id,
+            "agent_id": agent_id,
+        }
 
         metadata = tool_parameters.get("metadata")
         if metadata:
@@ -208,17 +209,25 @@ class AddMemoryTool(Tool):
         # Log thread information for debugging concurrent calls
         log_thread_info(logger, request_id, "STARTED", start_time)
 
-        # Validate user_id
-        user_id = validate_user_id(tool_parameters)
-        if not user_id:
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
             yield from yield_error(
-                self, request_id, "user_id is required", "add memory", {}
+                self,
+                request_id,
+                scope_error or "user_id and agent_id are required",
+                "add memory",
+                {},
             )
             return
 
         # Build messages and payload
         messages = self._build_messages(tool_parameters)
-        payload = self._build_payload(messages, user_id, tool_parameters)
+        payload = self._build_payload(
+            messages,
+            user_id,
+            agent_id,
+            tool_parameters,
+        )
 
         try:
             # Skip when no messages prepared or only blank content

@@ -49,6 +49,9 @@
   - Added an `infer` switch to the Dify `add_memory` tool so each invocation can choose LLM analysis or raw conversation storage.
   - Added `custom_fact_extraction_prompt` for a per-call Mem0 fact extraction prompt without changing global provider credentials.
   - Isolated prompt overrides with a lightweight Mem0 facade copy so concurrent add requests cannot leak prompt configuration into one another.
+- **Required memory scope**:
+  - Memory operations now require both `user_id` and `agent_id`.
+  - Single-memory reads, updates, and deletes verify the exact user/agent pair before returning or mutating a memory.
 
 ---
 

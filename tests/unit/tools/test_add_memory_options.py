@@ -52,10 +52,13 @@ def test_build_payload_defaults_to_infer_enabled() -> None:
     payload = _tool()._build_payload(
         [{"role": "user", "content": "Remember this"}],
         "user-1",
+        "bot-1",
         {},
     )
 
     assert payload["infer"] is True
+    assert payload["user_id"] == "user-1"
+    assert payload["agent_id"] == "bot-1"
     assert "custom_fact_extraction_prompt" not in payload
 
 
@@ -64,6 +67,7 @@ def test_build_payload_supports_raw_storage_mode(value) -> None:  # noqa: ANN001
     payload = _tool()._build_payload(
         [{"role": "user", "content": "Store this verbatim"}],
         "user-1",
+        "bot-1",
         {
             "infer": value,
             "custom_fact_extraction_prompt": "This must be ignored",
@@ -78,6 +82,7 @@ def test_build_payload_includes_trimmed_custom_prompt() -> None:
     payload = _tool()._build_payload(
         [{"role": "user", "content": "Remember my preference"}],
         "user-1",
+        "bot-1",
         {
             "infer": True,
             "custom_fact_extraction_prompt": "  Extract preferences only.  ",

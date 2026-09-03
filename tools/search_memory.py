@@ -22,6 +22,7 @@ from utils.memory_tool_helpers import (
     build_status_and_message,
     execute_async_read_operation,
     init_request_context,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -39,26 +40,31 @@ class SearchMemoryTool(Tool):
     def _validate_parameters(
         self,
         tool_parameters: dict[str, Any],
-    ) -> tuple[str, str] | None:
-        """Validate required parameters and return (query, user_id) or None if invalid."""
-        query = tool_parameters.get("query", "")
+    ) -> tuple[str, str, str] | None:
+        """Validate required parameters and return query plus memory scope."""
+        query = str(tool_parameters.get("query") or "").strip()
         if not query:
             return None
 
-        user_id = tool_parameters.get("user_id")
-        if not user_id:
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
             return None
 
-        return (query, user_id)
+        return (query, user_id, agent_id)
 
     def _build_payload(
         self,
         tool_parameters: dict[str, Any],
         query: str,
         user_id: str,
+        agent_id: str,
     ) -> tuple[dict[str, Any], str | None]:
         """Build search payload from parameters. Returns (payload, error_msg) or (payload, None)."""
-        payload: dict[str, Any] = {"query": query, "user_id": user_id}
+        payload: dict[str, Any] = {
+            "query": query,
+            "user_id": user_id,
+            "agent_id": agent_id,
+        }
 
         # Optional advanced filters (JSON)
         filters_value = tool_parameters.get("filters")
@@ -77,12 +83,7 @@ class SearchMemoryTool(Tool):
         # 2. Mem0's _process_metadata_filters doesn't handle nested NOT in AND correctly
         # Instead, we filter internal memories from results after query
 
-        # Optional scoping fields
         # NOTE: run_id is NOT included in payload - it's only used for request tracing
-        agent_id = tool_parameters.get("agent_id")
-        if agent_id:
-            payload["agent_id"] = agent_id
-
         # Optional top_k -> limit mapping for mem0_client (default 5)
         top_k = tool_parameters.get("top_k")
         if top_k is None:
@@ -257,14 +258,24 @@ class SearchMemoryTool(Tool):
         # Validate required fields
         validation_result = self._validate_parameters(tool_parameters)
         if validation_result is None:
-            query = tool_parameters.get("query", "")
-            error_msg = "query is required" if not query else "user_id is required"
+            query = str(tool_parameters.get("query") or "").strip()
+            _user_id, _agent_id, scope_error = validate_memory_scope(tool_parameters)
+            error_msg = (
+                "query is required"
+                if not query
+                else scope_error or "user_id and agent_id are required"
+            )
             yield from yield_error(self, request_id, error_msg, "search memory", [])
             return
-        query, user_id = validation_result
+        query, user_id, agent_id = validation_result
 
         # Build payload
-        payload, build_error = self._build_payload(tool_parameters, query, user_id)
+        payload, build_error = self._build_payload(
+            tool_parameters,
+            query,
+            user_id,
+            agent_id,
+        )
         if build_error:
             logger.exception(
                 "[req:%s] Search memory failed: %s", request_id, build_error

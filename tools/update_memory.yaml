@@ -32,6 +32,28 @@ parameters:
       zh_Hans: 记忆的新文本内容。
     llm_description: The new text content for the memory.
     form: llm
+  - name: user_id
+    type: string
+    required: true
+    label:
+      en_US: User ID
+      zh_Hans: 用户ID
+    human_description:
+      en_US: Required user identifier used to verify ownership before updating.
+      zh_Hans: 必填。更新前用于验证记忆归属的用户ID。
+    llm_description: Required user identifier. Must match the user_id stored on the memory.
+    form: llm
+  - name: agent_id
+    type: string
+    required: true
+    label:
+      en_US: Robot / Agent ID
+      zh_Hans: 机器人ID
+    human_description:
+      en_US: Required robot identifier used with user_id to verify ownership before updating.
+      zh_Hans: 必填。与 user_id 一起在更新前验证记忆归属的机器人ID。
+    llm_description: Required robot/agent identifier. Must match the agent_id stored on the memory.
+    form: llm
   - name: run_id
     type: string
     required: false

@@ -21,6 +21,28 @@ parameters:
       zh_Hans: 要检索的记忆的唯一标识符。
     llm_description: The unique identifier of the memory to retrieve.
     form: llm
+  - name: user_id
+    type: string
+    required: true
+    label:
+      en_US: User ID
+      zh_Hans: 用户ID
+    human_description:
+      en_US: Required user identifier used to verify ownership of the memory.
+      zh_Hans: 必填。用于验证记忆归属的用户ID。
+    llm_description: Required user identifier. Must match the user_id stored on the memory.
+    form: llm
+  - name: agent_id
+    type: string
+    required: true
+    label:
+      en_US: Robot / Agent ID
+      zh_Hans: 机器人ID
+    human_description:
+      en_US: Required robot identifier used with user_id to verify ownership of the memory.
+      zh_Hans: 必填。与 user_id 一起用于验证记忆归属的机器人ID。
+    llm_description: Required robot/agent identifier. Must match the agent_id stored on the memory.
+    form: llm
   - name: run_id
     type: string
     required: false

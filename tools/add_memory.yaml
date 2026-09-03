@@ -73,14 +73,14 @@ parameters:
     form: form
   - name: agent_id
     type: string
-    required: false
+    required: true
     label:
-      en_US: Agent ID
-      zh_Hans: 代理ID
+      en_US: Robot / Agent ID
+      zh_Hans: 机器人ID
     human_description:
-      en_US: Optional agent identifier. Only provide if you need to associate this memory with a specific agent. Leave empty otherwise.
-      zh_Hans: 可选的代理标识符。仅在需要将此记忆与特定代理关联时提供。否则留空。
-    llm_description: Optional agent identifier. Only provide if associating this memory with a specific agent. Leave empty otherwise.
+      en_US: Required robot identifier. Together with user_id, it defines the memory namespace.
+      zh_Hans: 必填。机器人标识符，与 user_id 共同确定记忆命名空间。
+    llm_description: Required robot/agent identifier. Must match the agent_id used by all other memory operations.
     form: llm
   - name: run_id
     type: string

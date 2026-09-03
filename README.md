@@ -1,4 +1,4 @@
-# Mem0 Dify Plugin Miku v0.3.14
+# Mem0 Dify Plugin Miku v0.3.2
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
