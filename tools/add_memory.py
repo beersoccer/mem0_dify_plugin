@@ -23,7 +23,7 @@ from utils.mem0_client import (
 )
 from utils.memory_tool_helpers import (
     init_request_context,
-    validate_user_id,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -37,6 +37,21 @@ logger = get_logger(__name__)
 
 class AddMemoryTool(Tool):
     """Tool to add user/assistant messages as a memory."""
+
+    @staticmethod
+    def _parse_infer_mode(value: Any) -> bool:
+        """Coerce the per-call inference option, defaulting to enabled."""
+        if value is None:
+            return True
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"false", "0", "no", "n", "off"}:
+                return False
+            if normalized in {"true", "1", "yes", "y", "on"}:
+                return True
+        return bool(value)
 
     def _build_messages(
         self,
@@ -57,22 +72,26 @@ class AddMemoryTool(Tool):
         self,
         messages: list[dict[str, str]],
         user_id: str,
+        agent_id: str,
         tool_parameters: dict[str, Any],
     ) -> dict[str, Any]:
         """Build payload from messages and optional parameters."""
-        payload: dict[str, Any] = {"messages": messages, "user_id": user_id}
-
-        agent_id = tool_parameters.get("agent_id")
-        if agent_id:
-            payload["agent_id"] = agent_id
+        payload: dict[str, Any] = {
+            "messages": messages,
+            "user_id": user_id,
+            "agent_id": agent_id,
+        }
 
         metadata = tool_parameters.get("metadata")
         if metadata:
             payload["metadata"] = metadata
 
-        # Explicitly set infer=True to ensure memory extraction happens
-        # Mem0 defaults to infer=True, but being explicit ensures consistency
-        payload["infer"] = True
+        infer = self._parse_infer_mode(tool_parameters.get("infer"))
+        payload["infer"] = infer
+
+        custom_prompt = tool_parameters.get("custom_fact_extraction_prompt")
+        if infer and isinstance(custom_prompt, str) and custom_prompt.strip():
+            payload["custom_fact_extraction_prompt"] = custom_prompt.strip()
 
         return payload
 
@@ -139,7 +158,11 @@ class AddMemoryTool(Tool):
             }
         )
         yield self.create_text_message(
-            "Memory addition has been accepted and will be processed asynchronously.",
+            (
+                "Memory analysis has been accepted and will be processed asynchronously."
+                if payload.get("infer", True)
+                else "Raw memory storage has been accepted and will be processed asynchronously."
+            ),
         )
         log_thread_info(logger, request_id, "COMPLETED (ASYNC ACCEPTED)", start_time)
 
@@ -170,7 +193,11 @@ class AddMemoryTool(Tool):
                 "results": result,
             }
         )
-        yield self.create_text_message("Memory added synchronously.")
+        yield self.create_text_message(
+            "Memory analyzed and added synchronously."
+            if payload.get("infer", True)
+            else "Raw conversation stored synchronously."
+        )
         log_thread_info(logger, request_id, "COMPLETED", start_time)
 
     def _invoke(
@@ -182,17 +209,25 @@ class AddMemoryTool(Tool):
         # Log thread information for debugging concurrent calls
         log_thread_info(logger, request_id, "STARTED", start_time)
 
-        # Validate user_id
-        user_id = validate_user_id(tool_parameters)
-        if not user_id:
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
             yield from yield_error(
-                self, request_id, "user_id is required", "add memory", {}
+                self,
+                request_id,
+                scope_error or "user_id and agent_id are required",
+                "add memory",
+                {},
             )
             return
 
         # Build messages and payload
         messages = self._build_messages(tool_parameters)
-        payload = self._build_payload(messages, user_id, tool_parameters)
+        payload = self._build_payload(
+            messages,
+            user_id,
+            agent_id,
+            tool_parameters,
+        )
 
         try:
             # Skip when no messages prepared or only blank content
@@ -225,9 +260,12 @@ class AddMemoryTool(Tool):
 
             # Log operation start
             logger.info(
-                "[req:%s] Add memory started (mode: %s, user_id: %s)",
+                "[req:%s] Add memory started "
+                "(mode: %s, infer: %s, custom_prompt: %s, user_id: %s)",
                 request_id,
                 mode_str,
+                payload.get("infer", True),
+                bool(payload.get("custom_fact_extraction_prompt")),
                 user_id,
             )
 

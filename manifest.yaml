@@ -1,11 +1,11 @@
-version: 0.3.1
+version: 0.3.2
 type: plugin
-author: beersoccer
-name: mem0ai
+author: mikuagent
+name: mem0ai_miku
 label:
-  en_US: mem0ai
-  ja_JP: mem0ai
-  zh_Hans: mem0ai
+  en_US: Mem0 AI Miku
+  ja_JP: Mem0 AI Miku
+  zh_Hans: Mem0 AI Miku
 description:
   en_US: "Self-hosted mode mem0 plugin, async_mode enabled by default. Write ops (Add/Update/Delete) are non-blocking in async mode, Read ops (Search/Get/History) always wait; in sync mode all operations block. Supports dynamic log level configuration. Performance optimizations: smart memory classification (33% LLM call reduction), token-aware processing with tiktoken."
   ja_JP: "セルフホストモードの mem0 プラグイン，async_mode は既定で有効。非同期時は書込操作（Add/Update/Delete）非ブロッキング，読取操作（Search/Get/History）は常に待機，同期時はすべての操作が完了までブロック。動的ログレベル設定をサポート。パフォーマンス最適化：スマートメモリ分類（LLM呼び出し33%削減），tiktokenによるトークン認識処理。"

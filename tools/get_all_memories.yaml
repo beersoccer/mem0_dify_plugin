@@ -1,6 +1,6 @@
 identity:
   name: get_all_memories
-  author: beersoccer
+  author: mikuagent
   label:
     en_US: Get All Memories
     zh_Hans: 获取所有记忆
@@ -23,14 +23,14 @@ parameters:
     form: llm
   - name: agent_id
     type: string
-    required: false
+    required: true
     label:
-      en_US: Agent ID
-      zh_Hans: 代理ID
+      en_US: Robot / Agent ID
+      zh_Hans: 机器人ID
     human_description:
-      en_US: Optional agent identifier. Only provide if you need to filter by a specific agent. Leave empty otherwise.
-      zh_Hans: 可选的代理标识符。仅在需要按特定代理过滤时提供。否则留空。
-    llm_description: Optional agent identifier. Only provide if filtering by a specific agent is needed. Leave empty otherwise.
+      en_US: Required robot identifier. Only memories matching both user_id and agent_id are returned.
+      zh_Hans: 必填。仅返回同时匹配 user_id 与 agent_id 的记忆。
+    llm_description: Required robot/agent identifier. Must match the agent_id used when adding memories.
     form: llm
   - name: run_id
     type: string

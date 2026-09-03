@@ -1,10 +1,10 @@
-# Mem0 Dify Plugin v0.3.1
+# Mem0 Dify Plugin Miku v0.3.2
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dify Plugin](https://img.shields.io/badge/Dify-Plugin-blue)](https://dify.ai)
 [![Mem0 AI](https://img.shields.io/badge/Mem0-AI-green)](https://mem0.ai)
 
-Last updated: 2026-05-16
+Last updated: 2026-07-31
 
 A comprehensive Dify plugin that integrates [Mem0 AI](https://mem0.ai)'s intelligent memory layer, providing **self-hosted mode** tools with a unified client for self-hosted setups. [View on GitHub](https://github.com/beersoccer/mem0_dify_plugin)
 
@@ -165,6 +165,8 @@ In Dify workflow, add the `add_memory` tool and configure the following paramete
 
 **Optional Parameters:**
 - `assistant`: Assistant response (e.g., "Great! I'll remember that.")
+- `infer`: Enable LLM analysis (default: `true`). Set to `false` to store the raw conversation without extraction.
+- `custom_fact_extraction_prompt`: Per-call fact extraction prompt used when `infer=true`. Leave empty to use the Mem0 default prompt; conversation content is appended automatically and the prompt must return `{"facts": ["..."]}` JSON.
 - `agent_id`: Agent identifier for scoping
 - `run_id`: Workflow run ID for tracing (recommended to use Dify's `workflow_run_id`)
 - `metadata`: Custom JSON metadata string

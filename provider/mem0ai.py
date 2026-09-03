@@ -7,22 +7,34 @@ with Mem0's memory capabilities in a self-hosted/local setup.
 
 from __future__ import annotations
 
-import asyncio
-from concurrent import futures
 from typing import Any
 
 from dify_plugin import ToolProvider
 from dify_plugin.errors.tool import ToolProviderCredentialValidationError
 
-from utils.config_builder import is_async_mode
-from utils.constants import READ_OPERATION_TIMEOUT
+from utils.config_builder import build_local_mem0_config
 from utils.logger import get_logger, set_log_level
-from utils.mem0_client import (
-    get_async_client,
-    get_sync_client,
-)
 
 logger = get_logger(__name__)
+
+NON_VECTOR_STORE_PROVIDERS = frozenset(
+    {
+        "anthropic",
+        "azure_openai",
+        "azure_openai_structured",
+        "cohere",
+        "deepseek",
+        "gemini",
+        "groq",
+        "huggingface",
+        "litellm",
+        "mistral",
+        "ollama",
+        "openai",
+        "together",
+        "xai",
+    }
+)
 
 # Legacy configuration fields that have been removed
 LEGACY_FIELDS = [
@@ -61,52 +73,28 @@ class Mem0Provider(ToolProvider):
     """Tool provider for Mem0 (local).
 
     Validates simplified JSON configs for local LLM/Embedder/Reranker/Vector/Graph
-    and performs a lightweight sanity search to ensure configuration is valid.
+    without performing network I/O during Dify credential saving.
     """
 
     def _validate_credentials(self, credentials: dict[str, Any]) -> None:
-        # Set log level from credentials (can be changed online)
         log_level = credentials.get("log_level", "INFO")
         set_log_level(log_level)
 
         logger.debug("Validating Mem0 provider credentials")
 
-        # Use a longer timeout for validation to allow for vector DB initialization.
-        # NOTE: This should be independent from runtime read timeouts (e.g. search timeout=5s),
-        # otherwise first-time credential validation can become flaky in real networks.
-        validation_timeout = max(30, READ_OPERATION_TIMEOUT * 2)
-
         try:
-            async_mode = is_async_mode(credentials)
-            mode = "async" if async_mode else "sync"
-            logger.debug("Validating credentials in %s mode", mode)
-            if async_mode:
-                client = get_async_client(credentials)
-                loop = client.ensure_bg_loop()
-                # Perform a small no-op search to validate providers
-                _ = asyncio.run_coroutine_threadsafe(
-                    client.search(
-                        {"query": "test", "user_id": "validation_test"},
-                        timeout_s=validation_timeout,
-                    ),
-                    loop,
-                ).result(timeout=validation_timeout)
-            else:
-                client = get_sync_client(credentials)
-                _ = client.search({"query": "test", "user_id": "validation_test"})
-            logger.debug("Credentials validated successfully")
-        except futures.TimeoutError as e:
-            # Handle timeout errors specifically for better error messages
-            error_msg = (
-                f"Credential validation timed out after {validation_timeout} seconds. "
-                "This may indicate:\n"
-                "1. Network connectivity issues to the vector database service\n"
-                "2. Slow response from the vector database service\n"
-                "3. Vector database service is unavailable\n"
-                "Please check your network connection and vector database configuration."
-            )
-            logger.exception("Credential validation timed out")
-            raise ToolProviderCredentialValidationError(error_msg) from e
+            config = build_local_mem0_config(credentials)
+            vector_store = config.get("vector_store", {})
+            vector_provider = str(vector_store.get("provider", "")).strip().lower()
+            if vector_provider in NON_VECTOR_STORE_PROVIDERS:
+                raise ValueError(
+                    "Vector Database Configuration uses provider "
+                    f"'{vector_provider}', which is an LLM/embedder provider. "
+                    "Paste the PGVector JSON into the Vector Database Configuration "
+                    "field and keep the OpenAI-compatible embedding JSON in the "
+                    "Embedder Configuration field."
+                )
+            logger.debug("Credential configuration validated without remote I/O")
         except ToolProviderCredentialValidationError as e:
             # Check if this is a "credential not found in provider" error
             # which typically indicates legacy configuration fields

@@ -1,6 +1,6 @@
 identity:
   name: forget_memories
-  author: beersoccer
+  author: mikuagent
   label:
     en_US: Forget Memories
     zh_Hans: 遗忘记忆
@@ -23,14 +23,14 @@ parameters:
     form: llm
   - name: app_id
     type: string
-    required: false
+    required: true
     label:
-      en_US: App ID
-      zh_Hans: 应用ID
+      en_US: Robot / App ID
+      zh_Hans: 机器人/应用ID
     human_description:
-      en_US: Optional. Scope the forgetting/cleanup to a specific app (maps to agent_id). Leave empty to process all memories for the user across all apps.
-      zh_Hans: 可选，将遗忘与清理范围限定到特定应用（映射为 agent_id）。留空则处理该用户所有应用下的记忆。
-    llm_description: Optional app/agent identifier to scope the forgetting/cleanup pass. Leave empty for all apps.
+      en_US: Required robot/app identifier. Maps to agent_id and combines with user_id to scope cleanup.
+      zh_Hans: 必填。机器人/应用标识符，映射为 agent_id，并与 user_id 共同限定清理范围。
+    llm_description: Required robot/app identifier. Maps to agent_id and must match the memory namespace.
     form: llm
   - name: dry_run
     type: boolean

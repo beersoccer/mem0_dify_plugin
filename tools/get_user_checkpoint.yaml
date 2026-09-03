@@ -1,14 +1,14 @@
 identity:
-  author: mem0
+  author: mikuagent
   name: get_user_checkpoint
   label:
     en_US: Get User Checkpoint
     zh_Hans: 获取用户Checkpoint
 description:
   human:
-    en_US: Get the extraction checkpoint for a user (optionally scoped by app_id).
-    zh_Hans: 获取用户的记忆提取Checkpoint（可选按 app_id 过滤）。
-  llm: Get the extraction checkpoint for a user. Use app_id to scope by application if provided.
+    en_US: Get the extraction checkpoint for a required user and robot/app namespace.
+    zh_Hans: 获取指定用户与机器人/应用命名空间的记忆提取Checkpoint。
+  llm: Get the extraction checkpoint for a required user_id and app_id namespace.
 parameters:
   - name: user_id
     type: string
@@ -23,14 +23,14 @@ parameters:
     form: llm
   - name: app_id
     type: string
-    required: false
+    required: true
     label:
-      en_US: App ID
-      zh_Hans: 应用ID
+      en_US: Robot / App ID
+      zh_Hans: 机器人/应用ID
     human_description:
-      en_US: Optional app_id to scope the checkpoint. If empty, uses "*".
-      zh_Hans: 可选 app_id 用于限定Checkpoint范围。为空则使用“*”。
-    llm_description: Optional app_id to scope the checkpoint. If empty, uses "*".
+      en_US: Required robot/app identifier used with user_id to scope the checkpoint.
+      zh_Hans: 必填。与 user_id 一起限定Checkpoint范围的机器人/应用ID。
+    llm_description: Required robot/app identifier. It maps to the same namespace as agent_id.
     form: llm
 extra:
   python:

@@ -1,6 +1,6 @@
 identity:
   name: delete_memory
-  author: beersoccer
+  author: mikuagent
   label:
     en_US: Delete Memory
     zh_Hans: 删除记忆
@@ -20,6 +20,28 @@ parameters:
       en_US: The unique identifier of the memory to delete.
       zh_Hans: 要删除的记忆的唯一标识符。
     llm_description: The unique identifier of the memory to delete.
+    form: llm
+  - name: user_id
+    type: string
+    required: true
+    label:
+      en_US: User ID
+      zh_Hans: 用户ID
+    human_description:
+      en_US: Required user identifier used to verify ownership before deleting.
+      zh_Hans: 必填。删除前用于验证记忆归属的用户ID。
+    llm_description: Required user identifier. Must match the user_id stored on the memory.
+    form: llm
+  - name: agent_id
+    type: string
+    required: true
+    label:
+      en_US: Robot / Agent ID
+      zh_Hans: 机器人ID
+    human_description:
+      en_US: Required robot identifier used with user_id to verify ownership before deleting.
+      zh_Hans: 必填。与 user_id 一起在删除前验证记忆归属的机器人ID。
+    llm_description: Required robot/agent identifier. Must match the agent_id stored on the memory.
     form: llm
   - name: run_id
     type: string

@@ -76,3 +76,15 @@ def test_get_user_checkpoint_missing_user_id() -> None:
     text = _extract_text_message(messages[1])
     assert "user_id is required" in text
 
+
+def test_get_user_checkpoint_missing_app_id() -> None:
+    mock_runtime = MagicMock()
+    mock_runtime.credentials = {}
+    mock_session = MagicMock()
+    tool = GetUserCheckpointTool(runtime=mock_runtime, session=mock_session)
+
+    messages = list(tool._invoke({"user_id": "u1"}))
+    assert len(messages) == 2
+    text = _extract_text_message(messages[1])
+    assert "app_id is required" in text
+

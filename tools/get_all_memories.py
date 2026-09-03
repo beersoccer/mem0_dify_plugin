@@ -18,7 +18,7 @@ from utils.memory_tool_helpers import (
     build_status_and_message,
     execute_async_read_operation,
     init_request_context,
-    validate_user_id,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -37,13 +37,13 @@ class GetAllMemoriesTool(Tool):
         self,
         tool_parameters: dict[str, Any],
         user_id: str,
+        agent_id: str,
     ) -> dict[str, Any] | None:
         """Build params dict from tool_parameters. Returns None if filters JSON is invalid."""
-        params: dict[str, Any] = {"user_id": user_id}
-
-        agent_id = tool_parameters.get("agent_id")
-        if agent_id:
-            params["agent_id"] = agent_id
+        params: dict[str, Any] = {
+            "user_id": user_id,
+            "agent_id": agent_id,
+        }
 
         limit = tool_parameters.get("limit")
         if limit:
@@ -140,16 +140,19 @@ class GetAllMemoriesTool(Tool):
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
-        # Validate required user_id
-        user_id = validate_user_id(tool_parameters)
-        if not user_id:
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
             yield from yield_error(
-                self, request_id, "user_id is required", "get all memories", []
+                self,
+                request_id,
+                scope_error or "user_id and agent_id are required",
+                "get all memories",
+                [],
             )
             return
 
         # Build params
-        params = self._build_params(tool_parameters, user_id)
+        params = self._build_params(tool_parameters, user_id, agent_id)
         if params is None:
             yield from yield_error(
                 self,

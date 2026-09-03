@@ -1,5 +1,60 @@
 # Mem0 Dify Plugin - Changelog
 
+## Version 0.3.14 (2026-07-31)
+
+### Diagnostics
+
+- Added credential-safe `INFO` logs for the parsed Mem0 configuration.
+- Added OpenAI-compatible LLM request logging with the final
+  `/chat/completions` endpoint and exact SDK request body.
+- Added raw model response logging plus a summary of the `message.content`
+  value consumed by Mem0, including visibility into whether
+  `reasoning_content` was present.
+- Installed the observer for both synchronous and asynchronous Mem0 clients,
+  while preventing duplicate wrappers.
+- Added GLM-style response and sensitive-value redaction regression coverage.
+
+---
+
+## Version 0.3.13 (2026-07-30)
+
+### Fixes
+
+- Restored PGVector support for embeddings above 2000 dimensions by defaulting
+  to exact search instead of creating an unsupported HNSW index.
+- Changed credential validation to static configuration validation so saving
+  credentials does not call the LLM, embedder, or vector database.
+- Moved synchronous async-client initialization off the event loop, shared
+  in-flight initialization across callers, and delayed the first keepalive
+  heartbeat until its configured interval.
+
+---
+
+## Version 0.3.12 (2026-07-30)
+
+### Fixes
+
+- Pinned the Dify Python plugin SDK to `dify-plugin==0.7.1` in both runtime
+  dependency declarations.
+- Prevented plugin startup failures caused by incompatible SDK files being
+  installed from different releases, including the `LLMPollingResult` import
+  error.
+
+---
+
+## Version 0.3.2 (2026-07-28)
+
+### ✨ Enhancements
+- **Per-call add memory mode**:
+  - Added an `infer` switch to the Dify `add_memory` tool so each invocation can choose LLM analysis or raw conversation storage.
+  - Added `custom_fact_extraction_prompt` for a per-call Mem0 fact extraction prompt without changing global provider credentials.
+  - Isolated prompt overrides with a lightweight Mem0 facade copy so concurrent add requests cannot leak prompt configuration into one another.
+- **Required memory scope**:
+  - Memory operations now require both `user_id` and `agent_id`.
+  - Single-memory reads, updates, and deletes verify the exact user/agent pair before returning or mutating a memory.
+
+---
+
 ## Version 0.3.1 (2026-05-16)
 
 ### 🐛 Fixes

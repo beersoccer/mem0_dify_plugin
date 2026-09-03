@@ -16,7 +16,9 @@ from utils.memory_tool_helpers import (
     build_status_and_message,
     execute_async_read_operation,
     init_request_context,
+    memory_matches_scope,
     validate_memory_id,
+    validate_memory_scope,
     yield_error,
 )
 
@@ -106,13 +108,23 @@ class GetMemoryHistoryTool(Tool):
         # Initialize request context
         request_id, start_time = init_request_context(tool_parameters)
 
-        # Validate memory_id
         memory_id = validate_memory_id(tool_parameters)
         if not memory_id:
             yield from yield_error(
                 self,
                 request_id,
                 "memory_id is required",
+                "get memory history",
+                [],
+            )
+            return
+
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
+            yield from yield_error(
+                self,
+                request_id,
+                scope_error or "user_id and agent_id are required",
                 "get memory history",
                 [],
             )
@@ -137,29 +149,56 @@ class GetMemoryHistoryTool(Tool):
                 "history",
             )
 
-            # Execute history operation
+            # Execute history operation after verifying memory ownership.
             results: list[dict[str, Any]] = []
             error_type: str | None = None
             if async_mode:
                 client = get_async_client(self.runtime.credentials)
-                results, error_type = execute_async_read_operation(
+                existing, scope_read_error = execute_async_read_operation(
                     self,
-                    client.history,
+                    client.get,
                     (memory_id,),
                     {"timeout_s": timeout},
                     timeout,
                     request_id,
                     mode_str,
                     start_time,
-                    f"get_memory_history(memory_id={memory_id})",
+                    f"authorize_memory_history(memory_id={memory_id})",
                 )
+                if scope_read_error or not memory_matches_scope(
+                    existing,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                ):
+                    error_type = "NOT_FOUND"
+                else:
+                    results, error_type = execute_async_read_operation(
+                        self,
+                        client.history,
+                        (memory_id,),
+                        {"timeout_s": timeout},
+                        timeout,
+                        request_id,
+                        mode_str,
+                        start_time,
+                        f"get_memory_history(memory_id={memory_id})",
+                    )
             else:
-                results = self._execute_sync_history(
-                    memory_id,
-                    request_id,
-                    mode_str,
-                    start_time,
-                )
+                client = get_sync_client(self.runtime.credentials)
+                existing = client.get(memory_id)
+                if not memory_matches_scope(
+                    existing,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                ):
+                    error_type = "NOT_FOUND"
+                else:
+                    results = self._execute_sync_history(
+                        memory_id,
+                        request_id,
+                        mode_str,
+                        start_time,
+                    )
 
             # Normalize results
             history = self._normalize_history(results)
@@ -179,7 +218,11 @@ class GetMemoryHistoryTool(Tool):
 
             # Build result with appropriate status and message
             success_msg = f"Found {len(history)} history records"
-            status, messages = build_status_and_message(error_type, success_msg)
+            if error_type == "NOT_FOUND":
+                status = "NOT_FOUND"
+                messages = f"Memory not found: {memory_id}"
+            else:
+                status, messages = build_status_and_message(error_type, success_msg)
 
             yield self.create_json_message(
                 {

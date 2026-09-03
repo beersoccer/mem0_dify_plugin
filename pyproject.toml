@@ -1,6 +1,6 @@
 [project]
 name = "mem0-dify-plugin"
-version = "0.3.1"
+version = "0.3.2"
 description = "Mem0 Dify plugin"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,7 +10,7 @@ dependencies = [
   "langchain-neo4j",
   "rank-bm25",
   "psycopg[binary,pool] ; sys_platform != 'win32'",
-  "dify_plugin",
+  "dify-plugin==0.7.1",
   "psycopg2-binary ; sys_platform == 'win32'",
   "tiktoken",
   "cohere>=6.1.0",

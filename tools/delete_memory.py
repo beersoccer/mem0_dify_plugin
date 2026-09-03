@@ -17,7 +17,13 @@ from utils.constants import (
 from utils.helpers import parse_timeout
 from utils.logger import get_logger
 from utils.mem0_client import get_async_client, get_sync_client
-from utils.memory_tool_helpers import init_request_context, yield_error
+from utils.memory_tool_helpers import (
+    execute_async_read_operation,
+    init_request_context,
+    memory_matches_scope,
+    validate_memory_scope,
+    yield_error,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -43,6 +49,17 @@ class DeleteMemoryTool(Tool):
             )
             return
 
+        user_id, agent_id, scope_error = validate_memory_scope(tool_parameters)
+        if scope_error or not user_id or not agent_id:
+            yield from yield_error(
+                self,
+                request_id,
+                scope_error or "user_id and agent_id are required",
+                "delete memory",
+                {},
+            )
+            return
+
         try:
             async_mode = is_async_mode(self.runtime.credentials)
             mode_str = "async" if async_mode else "sync"
@@ -63,9 +80,15 @@ class DeleteMemoryTool(Tool):
             )
 
             if not async_mode:
-                # Sync mode: directly call delete and catch exceptions
                 client = get_sync_client(self.runtime.credentials)
                 try:
+                    existing = client.get(memory_id)
+                    if not memory_matches_scope(
+                        existing,
+                        user_id=user_id,
+                        agent_id=agent_id,
+                    ):
+                        raise ValueError("Memory not found in the requested scope")
                     result = client.delete(memory_id)
                     elapsed = time.time() - start_time
                     logger.info(
@@ -106,6 +129,33 @@ class DeleteMemoryTool(Tool):
                     yield self.create_text_message(f"Error: {error_message}")
             else:
                 client = get_async_client(self.runtime.credentials)
+                existing, scope_read_error = execute_async_read_operation(
+                    self,
+                    client.get,
+                    (memory_id,),
+                    {"timeout_s": timeout},
+                    timeout,
+                    request_id,
+                    mode_str,
+                    start_time,
+                    f"authorize_delete_memory(memory_id={memory_id})",
+                )
+                if scope_read_error or not memory_matches_scope(
+                    existing,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                ):
+                    error_message = f"Memory not found: {memory_id}"
+                    yield self.create_json_message(
+                        {
+                            "status": "NOT_FOUND",
+                            "messages": error_message,
+                            "results": {},
+                        }
+                    )
+                    yield self.create_text_message(f"Error: {error_message}")
+                    return
+
                 # Pre-enqueue overload guard (early reject)
                 pending = client.get_pending_tasks_count()
                 max_pending = client.max_ops * MAX_PENDING_TASKS_MULTIPLIER

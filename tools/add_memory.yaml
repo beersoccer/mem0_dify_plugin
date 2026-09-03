@@ -1,6 +1,6 @@
 identity:
   name: add_memory
-  author: beersoccer
+  author: mikuagent
   label:
     en_US: Add Memory
     zh_Hans: 添加记忆
@@ -43,16 +43,44 @@ parameters:
       zh_Hans: 必填。用户的唯一标识符。
     llm_description: Required user identifier.
     form: llm
-  - name: agent_id
+  - name: infer
+    type: boolean
+    required: false
+    default: true
+    label:
+      en_US: Analyze with LLM
+      zh_Hans: 启用 LLM 分析
+    human_description:
+      en_US: When enabled, Mem0 uses the configured LLM to extract and evolve memories. When disabled, the conversation is stored as raw text without LLM analysis.
+      zh_Hans: 开启后，Mem0 使用已配置的 LLM 提取并演化记忆；关闭后，不调用 LLM 分析，直接将本次对话作为原文存储。
+    llm_description: Enable Mem0 LLM analysis. Disable it to store the raw conversation without extraction.
+    form: form
+  - name: custom_fact_extraction_prompt
     type: string
     required: false
     label:
-      en_US: Agent ID
-      zh_Hans: 代理ID
+      en_US: Custom Fact Extraction Prompt
+      zh_Hans: 自定义记忆提取提示词
     human_description:
-      en_US: Optional agent identifier. Only provide if you need to associate this memory with a specific agent. Leave empty otherwise.
-      zh_Hans: 可选的代理标识符。仅在需要将此记忆与特定代理关联时提供。否则留空。
-    llm_description: Optional agent identifier. Only provide if associating this memory with a specific agent. Leave empty otherwise.
+      en_US: >
+        Optional prompt used only for this add operation when LLM analysis is enabled.
+        Leave empty to use Mem0's default prompt. The conversation content is appended
+        automatically. The prompt must request JSON in the form {"facts": ["..."]}.
+      zh_Hans: >
+        可选。仅在本次添加操作启用 LLM 分析时生效。留空则使用 Mem0 默认提示词；
+        对话内容会由插件自动附加。提示词必须要求模型输出 {"facts": ["..."]} 格式的 JSON。
+    llm_description: Optional per-call fact extraction prompt. Used only when infer is enabled; conversation content is appended automatically.
+    form: form
+  - name: agent_id
+    type: string
+    required: true
+    label:
+      en_US: Robot / Agent ID
+      zh_Hans: 机器人ID
+    human_description:
+      en_US: Required robot identifier. Together with user_id, it defines the memory namespace.
+      zh_Hans: 必填。机器人标识符，与 user_id 共同确定记忆命名空间。
+    llm_description: Required robot/agent identifier. Must match the agent_id used by all other memory operations.
     form: llm
   - name: run_id
     type: string

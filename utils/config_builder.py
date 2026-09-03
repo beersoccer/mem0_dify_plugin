@@ -23,6 +23,7 @@ from typing import Any
 
 from .helpers import strip_code_fences
 from .logger import get_logger
+from .logging_utils import format_for_logging
 from .pgvector_config import normalize_pgvector_config
 
 logger = get_logger(__name__)
@@ -336,6 +337,10 @@ def build_local_mem0_config(credentials: dict[str, Any]) -> dict[str, Any]:
         _normalize_vector_store(vector_store)
         config = _build_config_dict(llm, embedder, vector_store, credentials)
 
+        logger.info(
+            "Mem0 local configuration loaded: %s",
+            format_for_logging(config),
+        )
         logger.debug("Mem0 local configuration built successfully")
 
         # Cache the config if we have a valid cache key
